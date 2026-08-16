@@ -66,7 +66,7 @@ function IconButton({ name, onClick, dark = false, bg = 'transparent', color, si
 }
 
 function Header({ title, left = false, right, center = false, onBack, border = false }) {
-  const nav = window.useNav ? window.useNav() : { back: () => {} };
+  const nav = window.useNav ? window.useNav() : { back: () => {}, go: () => {} };
   return (
     <div style={{
       height: 56,
@@ -349,8 +349,8 @@ const WEATHER_HERO_ITEMS = {
     place: '경주 첨성대',
     copy: '햇살 좋은 날, 걷기 좋은 코스를 추천해드려요',
     assets: {
-      light: 'assets/weather-sunny-cheomseongdae.png',
-      dark: 'assets/weather-sunny-cheomseongdae-night.png',
+      light: 'assets/weather-sunny-cheomseongdae.webp',
+      dark: 'assets/weather-sunny-cheomseongdae-night.webp',
     },
   },
   cloudy: {
@@ -359,8 +359,8 @@ const WEATHER_HERO_ITEMS = {
     place: '경주 불국사',
     copy: '선선한 날씨에 역사 산책 코스를 추천해드려요',
     assets: {
-      light: 'assets/weather-cloudy-bulguksa.png',
-      dark: 'assets/weather-cloudy-bulguksa-night.png',
+      light: 'assets/weather-cloudy-bulguksa.webp',
+      dark: 'assets/weather-cloudy-bulguksa-night.webp',
     },
   },
   rain: {
@@ -369,8 +369,8 @@ const WEATHER_HERO_ITEMS = {
     place: '안동 하회마을',
     copy: '우산과 실내 동선을 챙겨 여유로운 코스를 골라드려요',
     assets: {
-      light: 'assets/weather-rain-hahoe.png',
-      dark: 'assets/weather-rain-hahoe-night.png',
+      light: 'assets/weather-rain-hahoe.webp',
+      dark: 'assets/weather-rain-hahoe-night.webp',
     },
   },
   snow: {
@@ -379,8 +379,8 @@ const WEATHER_HERO_ITEMS = {
     place: '영주 부석사',
     copy: '눈길 이동이 짧고 쉬어가기 좋은 코스를 먼저 보여드려요',
     assets: {
-      light: 'assets/weather-snow-buseoksa.png',
-      dark: 'assets/weather-snow-buseoksa-night.png',
+      light: 'assets/weather-snow-buseoksa.webp',
+      dark: 'assets/weather-snow-buseoksa-night.webp',
     },
   },
   fog: {
@@ -389,8 +389,8 @@ const WEATHER_HERO_ITEMS = {
     place: '경주 석굴암',
     copy: '시야가 흐린 날엔 가까운 코스와 안전한 이동을 우선해요',
     assets: {
-      light: 'assets/weather-fog-seokguram.png',
-      dark: 'assets/weather-fog-seokguram-night.png',
+      light: 'assets/weather-fog-seokguram.webp',
+      dark: 'assets/weather-fog-seokguram-night.webp',
     },
   },
   wind: {
@@ -399,8 +399,8 @@ const WEATHER_HERO_ITEMS = {
     place: '포항 호미곶',
     copy: '바람이 강한 날엔 해안 코스 대신 대체 코스를 추천해요',
     assets: {
-      light: 'assets/weather-wind-homigot.png',
-      dark: 'assets/weather-wind-homigot-night.png',
+      light: 'assets/weather-wind-homigot.webp',
+      dark: 'assets/weather-wind-homigot-night.webp',
     },
   },
   heavyRain: {
@@ -409,8 +409,8 @@ const WEATHER_HERO_ITEMS = {
     place: '경주 월정교',
     copy: '오늘은 무리하지 말고 실내형 코스를 먼저 확인해보세요',
     assets: {
-      light: 'assets/weather-heavy-rain-woljeonggyo.png',
-      dark: 'assets/weather-heavy-rain-woljeonggyo-night.png',
+      light: 'assets/weather-heavy-rain-woljeonggyo.webp',
+      dark: 'assets/weather-heavy-rain-woljeonggyo-night.webp',
     },
   },
   heatwave: {
@@ -419,8 +419,8 @@ const WEATHER_HERO_ITEMS = {
     place: '안동 도산서원',
     copy: '더위가 심한 날엔 짧은 동선과 그늘 많은 장소를 추천해요',
     assets: {
-      light: 'assets/weather-heatwave-dosan.png',
-      dark: 'assets/weather-heatwave-dosan-night.png',
+      light: 'assets/weather-heatwave-dosan.webp',
+      dark: 'assets/weather-heatwave-dosan-night.webp',
     },
   },
   dust: {
@@ -429,8 +429,8 @@ const WEATHER_HERO_ITEMS = {
     place: '경주 동궁과 월지',
     copy: '공기가 탁한 날엔 실내 휴식과 짧은 이동 코스를 우선해요',
     assets: {
-      light: 'assets/weather-dust-donggung-wolji.png',
-      dark: 'assets/weather-dust-donggung-wolji-night.png',
+      light: 'assets/weather-dust-donggung-wolji.webp',
+      dark: 'assets/weather-dust-donggung-wolji-night.webp',
     },
   },
 };
@@ -461,6 +461,7 @@ const WEATHER_HERO_TONE = {
 function HeroIllustration({ weather = 'sunny' }) {
   const item = WEATHER_HERO_ITEMS[weather] || WEATHER_HERO_ITEMS.sunny;
   const tone = WEATHER_HERO_TONE[item.state] || WEATHER_HERO_TONE.good;
+  const imageSource = window.MoyeoImageCache?.themeSource(item.assets.light, item.assets.dark) || item.assets.light;
   const imageStyle = {
     position: 'absolute',
     inset: 0,
@@ -473,17 +474,12 @@ function HeroIllustration({ weather = 'sunny' }) {
   return (
     <div style={{ position: 'relative', height: 144, borderRadius: 16, overflow: 'hidden', background: 'var(--moyeo-bg-subtle)' }}>
       <img
-        className="moyeo-theme-image moyeo-theme-image-light"
-        data-weather-hero-image="light"
-        src={item.assets.light}
+        data-weather-hero-image="active"
+        src={imageSource}
         alt=""
-        style={imageStyle}
-      />
-      <img
-        className="moyeo-theme-image moyeo-theme-image-dark"
-        data-weather-hero-image="dark"
-        src={item.assets.dark}
-        alt=""
+        loading="eager"
+        decoding="async"
+        fetchPriority="high"
         style={imageStyle}
       />
       <div style={{
@@ -512,6 +508,20 @@ function HeroIllustration({ weather = 'sunny' }) {
 }
 
 function ScreenSplash() {
+  const splashSource = window.MoyeoImageCache?.themeSource(
+    'assets/splash-generated.webp',
+    'assets/splash-generated-night.webp',
+  ) || 'assets/splash-generated.webp';
+
+  React.useEffect(() => {
+    const themeSource = window.MoyeoImageCache?.themeSource;
+    window.MoyeoImageCache?.preload(
+      themeSource?.('assets/login-welcome.webp', 'assets/login-welcome-night.webp'),
+      themeSource?.('assets/weather-sunny-cheomseongdae.webp', 'assets/weather-sunny-cheomseongdae-night.webp'),
+      themeSource?.('assets/onboarding-1.webp', 'assets/onboarding-1-night.webp'),
+    );
+  }, []);
+
   const splashImageStyle = {
     position: 'absolute',
     inset: 0,
@@ -525,15 +535,11 @@ function ScreenSplash() {
     <Phone>
       <div style={{ height: '100%', paddingTop: 46, background: 'var(--moyeo-splash-bg)', position: 'relative', overflow: 'hidden' }}>
         <img
-          className="moyeo-theme-image moyeo-theme-image-light"
-          src="assets/splash-generated.png"
+          src={splashSource}
           alt=""
-          style={splashImageStyle}
-        />
-        <img
-          className="moyeo-theme-image moyeo-theme-image-dark"
-          src="assets/splash-generated-night.png"
-          alt=""
+          loading="eager"
+          decoding="async"
+          fetchPriority="high"
           style={splashImageStyle}
         />
         <div style={{ position: 'absolute', inset: 0, background: 'var(--moyeo-splash-overlay)' }}/>
@@ -808,11 +814,10 @@ function ScreenCourseDetail() {
             <div style={{ fontSize: 13, color: T.text700, lineHeight: '21px', marginTop: 14 }}>
               기암절벽과 맑은 주산지의 풍경을 함께 즐기는 힐링 코스예요.
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginTop: 18 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 18 }}>
               {[
                 ['clock', '소요시간', '2시간'],
                 ['map', '이동거리', '6.2km'],
-                ['sun', '추천시기', '봄-가을'],
                 ['star', '평점', '4.8'],
               ].map((s) => (
                 <div key={s[1]} style={{ textAlign: 'center', color: T.text700 }}>
@@ -883,7 +888,10 @@ function ScreenGroupDetail() {
           overflow: 'auto',
         }}>
           <h1 style={{ margin: 0, fontSize: 23, lineHeight: '31px', fontWeight: 900, letterSpacing: 0 }}>주왕산 & 주산지 힐링 트레킹</h1>
-          <div style={{ marginTop: 6, fontSize: 13, color: T.text500 }}>청송 · 자연, 트레킹</div>
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: T.text500 }}>청송 · 자연, 트레킹</span>
+            {window.CourseSourceBadge ? <window.CourseSourceBadge source="custom"/> : null}
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }}>
             <MemberStack members={['bear','rabbit','raccoon']} more={2}/>
             <div style={{ fontSize: 12, color: T.text500 }}>최소 3명 이상</div>
@@ -897,16 +905,28 @@ function ScreenGroupDetail() {
           </div>
           <div style={{ marginTop: 18, border: `1px solid ${RF.softLine}`, borderRadius: 12, padding: 14, display: 'grid', gap: 10 }}>
             {[
-              ['일정', '2024.05.25 (토)'],
-              ['시간', '08:00 - 18:00'],
-              ['모이는 곳', '청송 시외버스터미널'],
+              ['calendar', '일정', '2026.05.25 (토) · 당일치기'],
+              ['clock', '여행 시간', '08:00 - 18:00'],
+              ['pin', '집합', '07:50 청송 시외버스터미널 정문 앞'],
             ].map((r) => (
-              <div key={r[0]} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                <Icon name={r[0] === '일정' ? 'calendar' : r[0] === '시간' ? 'clock' : 'pin'} size={16} color={T.text500}/>
-                <span style={{ width: 76, color: T.text500 }}>{r[0]}</span>
-                <span style={{ flex: 1, fontWeight: 800 }}>{r[1]}</span>
+              <div key={r[1]} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                <Icon name={r[0]} size={16} color={T.text500}/>
+                <span style={{ width: 66, color: T.text500, flexShrink: 0 }}>{r[1]}</span>
+                <span style={{ flex: 1, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{r[2]}</span>
               </div>
             ))}
+            <div style={{ height: 1, background: RF.softLine }}/>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Icon name="map" size={16} color={T.text500}/>
+              <span style={{ flex: 1, fontSize: 11.5, color: T.text500, fontVariantNumeric: 'tabular-nums' }}>36.435612, 129.057214</span>
+              <button type="button" style={{ border: 0, background: 'transparent', padding: 0, fontSize: 12, fontWeight: 800, color: T.primary600, fontFamily: T.fontStack, cursor: 'pointer' }}>길 찾기</button>
+            </div>
+          </div>
+          <div style={{ marginTop: 10, display: 'flex', gap: 9, alignItems: 'flex-start', padding: 12, borderRadius: 12, background: T.primary50, border: `1px solid ${T.primary100}` }}>
+            <Icon name="refresh" size={15} color={T.primary700}/>
+            <div style={{ flex: 1, fontSize: 11.5, lineHeight: '17px', color: T.primary700 }}>
+              호스트가 직접 만든 코스예요. 여행이 확정(5/22 마감)되기 전까지 경로가 바뀔 수 있고, 바뀌면 알림으로 알려드려요.
+            </div>
           </div>
           <div style={{ marginTop: 18, fontSize: 13, fontWeight: 900 }}>호스트</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
@@ -967,11 +987,42 @@ function ScreenApplySheet() {
 
 function ScreenCreateReview() {
   const nav = window.useNav ? window.useNav() : { back: () => {}, go: () => {} };
+  const [source, setSource] = React.useState('linked');
+  const [picked, setPicked] = React.useState('주왕산·주산지 힐링 트레킹');
   const rows = [
-    ['주왕산·주산지 힐링 트레킹', '2시간 · 6.2km', 'forest', true],
-    ['안동 하회마을 하루여행', '4시간 · 8.1km', 'hanok', false],
-    ['경주 감성 데이트 코스', '3시간 · 7.3km', 'autumn', false],
+    ['주왕산·주산지 힐링 트레킹', '청송 · 당일 6.2km · 방문지 4', 'forest'],
+    ['안동 하회마을 하루여행', '안동 · 당일 8.1km · 방문지 5', 'hanok'],
+    ['경주 감성 야경 코스', '경주 · 1박 2일 · 방문지 6', 'autumn'],
   ];
+  const chooseSource = (next) => {
+    window.__moyeoCourseSource = next;
+    setSource(next);
+  };
+  const SourceCard = ({ id, title, desc, note, icon }) => {
+    const selected = source === id;
+    return (
+      <button type="button" data-testid={`course-source-${id}`} aria-pressed={selected} onClick={() => chooseSource(id)} style={{
+        width: '100%', textAlign: 'left', cursor: 'pointer', fontFamily: T.fontStack,
+        borderRadius: 14, padding: 13, display: 'flex', gap: 11, alignItems: 'flex-start',
+        border: `1.5px solid ${selected ? T.primary500 : RF.softLine}`,
+        background: selected ? T.primary50 : RF.card,
+      }}>
+        <div style={{ width: 38, height: 38, borderRadius: 11, flexShrink: 0, background: selected ? T.primary500 : T.bgSubtle, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name={icon} size={19} color={selected ? '#fff' : T.text500}/>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 13, fontWeight: 900, color: selected ? T.primary700 : T.text900 }}>{title}</span>
+            {selected && <Icon name="check" size={15} color={T.primary600} strokeWidth={3}/>}
+          </div>
+          <div style={{ fontSize: 11.5, color: T.text500, marginTop: 4, lineHeight: '17px' }}>{desc}</div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 7, fontSize: 11, fontWeight: 800, color: selected ? T.primary600 : T.text400 }}>
+            <Icon name={id === 'linked' ? 'lock' : 'refresh'} size={12} color="currentColor" strokeWidth={2}/>{note}
+          </div>
+        </div>
+      </button>
+    );
+  };
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
@@ -986,30 +1037,56 @@ function ScreenCreateReview() {
             </div>
           ))}
         </div>
-        <div style={{ padding: '24px 20px 0' }}>
+        <div style={{ position: 'absolute', top: 148, left: 0, right: 0, bottom: 96, overflow: 'auto', padding: '0 20px 20px' }}>
           <div style={{ fontSize: 15, fontWeight: 900 }}>코스 선택</div>
-          <div style={{ fontSize: 12, color: T.text500, marginTop: 6 }}>어떤 코스를 함께 떠나고 싶나요?</div>
-          <div style={{ marginTop: 14, height: 42, borderRadius: 11, border: `1px solid ${T.line200}`, display: 'flex', alignItems: 'center', gap: 9, padding: '0 13px' }}>
-            <Icon name="search" size={17} color={T.text500}/>
-            <span style={{ fontSize: 13, color: T.text400 }}>코스 검색</span>
+          <div style={{ fontSize: 12, color: T.text500, marginTop: 6 }}>등록된 코스를 그대로 써도 되고, 직접 짜도 돼요.</div>
+          <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
+            <SourceCard id="linked" icon="map" title="등록된 코스로 떠나기" desc="TourAPI·경북나드리 기반으로 검증된 동선을 그대로 가져와요." note="경로 수정 불가 · 집합 정보만 설정"/>
+            <SourceCard id="custom" icon="note" title="코스 직접 만들기" desc="방문지와 시간을 내가 짜요. 저장하면 다른 여행자에게도 코스로 노출돼요." note="여행 확정 전까지 수정 가능"/>
           </div>
-          <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
-            {rows.map((r) => (
-              <div key={r[0]} style={{ height: 72, borderRadius: 12, border: `1px solid ${r[3] ? T.primary500 : RF.softLine}`, padding: 8, display: 'flex', alignItems: 'center', gap: 10, background: RF.card }}>
-                <div style={{ width: 54, borderRadius: 9, overflow: 'hidden' }}><Photo hue={r[2]} height={54} radius={0}/></div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 900 }}>{r[0]}</div>
-                  <div style={{ fontSize: 11, color: T.text500, marginTop: 4 }}>{r[1]}</div>
-                </div>
-                <div style={{ width: 24, height: 24, borderRadius: 999, border: `1px solid ${r[3] ? T.primary500 : T.line200}`, background: r[3] ? T.primary500 : RF.card, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {r[3] && <Icon name="check" size={14} color="#fff" strokeWidth={3}/>}
-                </div>
+          {source === 'linked' ? (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ height: 42, borderRadius: 11, border: `1px solid ${T.line200}`, display: 'flex', alignItems: 'center', gap: 9, padding: '0 13px' }}>
+                <Icon name="search" size={17} color={T.text500}/><span style={{ fontSize: 13, color: T.text400 }}>등록된 코스 검색</span>
               </div>
-            ))}
-          </div>
+              <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+                {rows.map((row) => {
+                  const selected = picked === row[0];
+                  return <button type="button" key={row[0]} onClick={() => setPicked(row[0])} style={{ height: 72, width: '100%', borderRadius: 12, cursor: 'pointer', fontFamily: T.fontStack, textAlign: 'left', border: `1px solid ${selected ? T.primary500 : RF.softLine}`, padding: 8, display: 'flex', alignItems: 'center', gap: 10, background: RF.card }}>
+                    <div style={{ width: 54, borderRadius: 9, overflow: 'hidden' }}><Photo hue={row[2]} height={54} radius={0}/></div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row[0]}</div>
+                      <div style={{ fontSize: 11, color: T.text500, marginTop: 4 }}>{row[1]}</div>
+                    </div>
+                    <div style={{ width: 24, height: 24, borderRadius: 999, border: `1px solid ${selected ? T.primary500 : T.line200}`, background: selected ? T.primary500 : RF.card, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {selected && <Icon name="check" size={14} color="#fff" strokeWidth={3}/>}
+                    </div>
+                  </button>;
+                })}
+              </div>
+              <div style={{ marginTop: 12, display: 'flex', gap: 9, alignItems: 'flex-start', padding: 13, borderRadius: 12, background: T.bgSubtle, border: `1px solid ${RF.softLine}` }}>
+                <Icon name="lock" size={16} color={T.text500}/><div style={{ flex: 1, fontSize: 12, lineHeight: '18px', color: T.text700 }}>등록된 코스는 방문지와 순서가 고정돼요. 대신 일정·집합 장소·인원 조건은 마감 전까지 자유롭게 바꿀 수 있어요.</div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ borderRadius: 14, border: `1px dashed ${T.line300}`, background: RF.card, padding: 16, textAlign: 'center' }}>
+                <div style={{ width: 46, height: 46, borderRadius: 999, background: T.primary50, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}><Icon name="pin" size={22} color={T.primary600}/></div>
+                <div style={{ fontSize: 13, fontWeight: 900, marginTop: 10 }}>내 경로를 그려볼까요?</div>
+                <div style={{ fontSize: 12, color: T.text500, marginTop: 6, lineHeight: '18px' }}>방문지를 검색해 순서대로 담고, 시간만 적으면 끝이에요.<br/>최소 2개 · 최대 20개</div>
+                <div style={{ marginTop: 12 }}><Btn variant="secondary" full icon="plus" onClick={() => nav.go('custom-course')}>코스 만들기 시작</Btn></div>
+              </div>
+              <div style={{ marginTop: 12, display: 'flex', gap: 9, alignItems: 'flex-start', padding: 13, borderRadius: 12, background: T.primary50, border: `1px solid ${T.primary100}` }}>
+                <Icon name="refresh" size={16} color={T.primary700}/><div style={{ flex: 1, fontSize: 12, lineHeight: '18px', color: T.primary700 }}>직접 만든 코스는 <b>여행이 확정되기 전까지</b> 호스트가 언제든 고칠 수 있어요. 수정하면 멤버 모두에게 알림이 가요.</div>
+              </div>
+            </div>
+          )}
         </div>
-        <div style={{ position: 'absolute', left: 20, right: 20, bottom: 32 }}>
-          <Btn variant="primary" full onClick={() => nav.go('host-manage')}>다음</Btn>
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}` }}>
+          <Btn variant="primary" full onClick={() => {
+            window.__moyeoCourseSource = source;
+            nav.go(source === 'custom' ? 'custom-course' : 'create-schedule');
+          }}>{source === 'custom' ? '코스 만들러 가기' : '이 코스로 다음'}</Btn>
         </div>
       </div>
     </Phone>
@@ -1036,10 +1113,23 @@ function ScreenChatRoom() {
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
         <Header title="주왕산 & 주산지 힐링 트레킹" left center onBack={nav.back} right={<><IconButton name="phone"/><IconButton name="more"/></>}/>
-        <div style={{ textAlign: 'center', fontSize: 12, color: T.text500, lineHeight: '18px', paddingBottom: 10, borderBottom: `1px solid ${RF.softLine}` }}>
-          2/5명
+        <div style={{ textAlign: 'center', fontSize: 12, color: T.text500, lineHeight: '18px', paddingBottom: 10, borderBottom: `1px solid ${RF.softLine}`, fontVariantNumeric: 'tabular-nums' }}>
+          2/5명 · 5/25(토) 08:00-18:00 · 당일치기
         </div>
-        <div style={{ height: 'calc(100% - 174px)', overflow: 'auto', padding: '18px 18px 86px', background: '#FCFDFB' }}>
+        <button type="button" data-testid="chat-notice-history" onClick={() => nav.go('notice-history')} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${T.primary100}`, cursor: 'pointer', background: T.primary50, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, fontFamily: T.fontStack, textAlign: 'left' }}>
+          <Icon name="note" size={15} color={T.primary700}/>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 900, color: T.primary700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>07:50 청송 시외버스터미널 정문 앞 집합</div>
+            <div style={{ fontSize: 10.5, color: T.primary600, marginTop: 2 }}>공지 4개 · 고정 2 · 이력 보기</div>
+          </div>
+          <Icon name="arrow" size={14} color={T.primary600}/>
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 16px', borderBottom: `1px solid ${RF.softLine}`, background: RF.card }}>
+          <Icon name="map" size={15} color={T.text500}/>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.text700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>방문지 4곳 · <b>호스트 직접 코스</b></div>
+          <button type="button" data-testid="chat-course-edit" onClick={() => nav.go('course-edit')} style={{ border: `1px solid ${T.primary200}`, background: T.primary50, color: T.primary700, borderRadius: 999, height: 26, padding: '0 10px', fontSize: 11, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>경로 수정</button>
+        </div>
+        <div style={{ height: 'calc(100% - 268px)', overflow: 'auto', padding: '18px 18px 86px', background: RF.bg }}>
           <div style={{ width: 'fit-content', margin: '0 auto 14px', background: '#E7F3E7', color: T.primary700, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 800 }}>모여트립이님이 모임에 참여했어요.</div>
           <div style={{ width: 'fit-content', margin: '0 auto 20px', background: '#E7F3E7', color: T.primary700, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 800 }}>숲속여행자님이 모임을 개설했어요.</div>
           <Bubble time="09:30">안녕하세요! 좋은 하루 보내세요 😊</Bubble>
@@ -1047,6 +1137,12 @@ function ScreenChatRoom() {
           <Bubble me time="09:31">안녕하세요! 잘 부탁드려요!</Bubble>
           <div style={{ height: 14 }}/>
           <Bubble time="09:32">저도 함께하게 되어 반갑습니다~</Bubble>
+          <div style={{ height: 16 }}/>
+          <div style={{ margin: '0 auto 6px', maxWidth: 292, background: T.primary50, border: `1px solid ${T.primary100}`, borderRadius: 12, padding: '11px 13px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="refresh" size={14} color={T.primary700}/><div style={{ fontSize: 12, fontWeight: 900, color: T.primary700 }}>호스트가 경로를 수정했어요</div></div>
+            <div style={{ fontSize: 11.5, color: T.text700, lineHeight: '17px', marginTop: 6 }}>3번째 방문지가 <b>주산지 → 달기약수탕</b>으로 바뀌었어요. 여행 확정(5/22) 전까지는 경로가 바뀔 수 있어요.</div>
+            <button type="button" onClick={() => nav.go('course-edit')} style={{ border: 0, background: 'transparent', padding: 0, fontSize: 11, fontWeight: 800, color: T.primary600, marginTop: 8, fontFamily: T.fontStack, cursor: 'pointer' }}>바뀐 경로 보기</button>
+          </div>
         </div>
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 14px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8, alignItems: 'center' }}>
           <div style={{ flex: 1, height: 42, borderRadius: 999, border: `1px solid ${RF.softLine}`, display: 'flex', alignItems: 'center', padding: '0 14px', color: T.text400, fontSize: 13 }}>메시지 입력</div>

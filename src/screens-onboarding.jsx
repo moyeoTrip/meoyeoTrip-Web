@@ -128,6 +128,20 @@ function ScreenOnboarding() {
     },
   ];
   const current = pages[page];
+  const onboardingImage = window.MoyeoImageCache?.themeSource(
+    `assets/onboarding-${page + 1}.webp`,
+    `assets/onboarding-${page + 1}-night.webp`,
+  ) || `assets/onboarding-${page + 1}.webp`;
+
+  React.useEffect(() => {
+    if (page >= pages.length - 1) return;
+    const nextPage = page + 2;
+    window.MoyeoImageCache?.preload(window.MoyeoImageCache.themeSource(
+      `assets/onboarding-${nextPage}.webp`,
+      `assets/onboarding-${nextPage}-night.webp`,
+    ));
+  }, [page]);
+
   const next = () => {
     if (page < pages.length - 1) setPage(page + 1);
     else nav.go('login');
@@ -147,18 +161,13 @@ function ScreenOnboarding() {
           <div
             data-testid="auth-onboarding-illustration"
             data-onboarding-page={page + 1}
-            style={{ width: 224, height: 224, position: 'relative', marginBottom: 26, borderRadius: 24, overflow: 'hidden' }}
+            style={{ width: 224, height: 224, position: 'relative', marginBottom: 26, borderRadius: 24, overflow: 'hidden', background: T.bgSubtle }}
           >
             <img
-              className="moyeo-theme-image moyeo-theme-image-light"
-              src={`assets/onboarding-${page + 1}.png?v=20260805`}
+              src={onboardingImage}
               alt=""
-              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }}
-            />
-            <img
-              className="moyeo-theme-image moyeo-theme-image-dark"
-              src={`assets/onboarding-${page + 1}-night.png?v=20260805`}
-              alt=""
+              loading="eager"
+              decoding="async"
               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }}
             />
           </div>

@@ -1,6 +1,37 @@
 const MOYEO_IMAGE_CACHE_NAME = 'moyeo-images-v1';
 const MOYEO_IMAGE_MAX_ATTEMPTS = 3;
 const moyeoImageMemoryCache = new Map();
+const moyeoImagePreloadCache = new Map();
+
+function moyeoThemeImageSource(lightSource, darkSource) {
+  const requested = new URLSearchParams(window.location.search).get('theme');
+  const theme = requested === 'light' || requested === 'dark'
+    ? requested
+    : document.documentElement.dataset.moyeoTheme || window.getInitialMoyeoThemeMode?.() || 'light';
+  return theme === 'dark' ? darkSource : lightSource;
+}
+
+function preloadMoyeoImages(...sources) {
+  return sources.filter(Boolean).map((source) => {
+    if (moyeoImagePreloadCache.has(source)) return moyeoImagePreloadCache.get(source);
+    const pending = new Promise((resolve) => {
+      const image = new Image();
+      image.decoding = 'async';
+      image.onload = async () => {
+        try {
+          await image.decode?.();
+        } catch (_) {
+          // A loaded image is still usable when explicit decoding is unsupported.
+        }
+        resolve(source);
+      };
+      image.onerror = () => resolve(null);
+      image.src = source;
+    });
+    moyeoImagePreloadCache.set(source, pending);
+    return pending;
+  });
+}
 
 function moyeoImageFileName(source) {
   try {
@@ -87,5 +118,7 @@ Object.assign(window, {
     fetch: fetchMoyeoImage,
     fileName: moyeoImageFileName,
     maxAttempts: MOYEO_IMAGE_MAX_ATTEMPTS,
+    preload: preloadMoyeoImages,
+    themeSource: moyeoThemeImageSource,
   },
 });

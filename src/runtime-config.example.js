@@ -10,4 +10,10 @@ window.MOYEO_RUNTIME_CONFIG = {
   },
   kakaoJavaScriptKey: 'KAKAO_JAVASCRIPT_KEY',
   kakaoRedirectUri: 'https://YOUR_GITHUB_PAGES_HOST/YOUR_REPOSITORY/',
+  sentry: {
+    dsn: 'SENTRY_DSN',
+    environment: 'production',
+    release: 'moyeotrip-web@GIT_SHA',
+    tracesSampleRate: 0,
+  },
 };

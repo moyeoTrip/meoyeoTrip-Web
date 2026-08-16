@@ -134,12 +134,42 @@ html, body {
   opacity: 0;
 }
 
+.moyeo-trip-confirmed-hero {
+  transform: scale(1.14);
+  transform-origin: 50% 50%;
+}
+
 :root[data-moyeo-theme="dark"] .moyeo-theme-image-light {
   opacity: 0;
 }
 
 :root[data-moyeo-theme="dark"] .moyeo-theme-image-dark {
   opacity: 1;
+}
+
+@keyframes moyeo-confetti-burst {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -18px, 0) rotate(0deg) scale(0.72);
+  }
+  18% { opacity: 0.92; }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--confetti-drift, 12px), 210px, 0) rotate(var(--confetti-spin, 240deg)) scale(1);
+  }
+}
+
+.moyeo-confetti-piece {
+  animation: moyeo-confetti-burst 1.9s cubic-bezier(0.18, 0.72, 0.28, 1) both;
+  animation-delay: var(--confetti-delay, 0ms);
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .moyeo-confetti-piece {
+    animation: none;
+    opacity: 0.62;
+  }
 }
 
 .moyeo-login-welcome-light {
@@ -232,11 +262,35 @@ const T = {
   l3: 'var(--moyeo-shadow-l3)',
 
   // Type
-  fontStack: '"Pretendard Variable", "Pretendard", -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
+  fontStack: '"LINE Seed Sans KR", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", system-ui, sans-serif',
 };
 
 // Phosphor-style icon set as tiny SVG strings
 const Icon = ({ name, size = 24, color = 'currentColor', strokeWidth = 1.6 }) => {
+  const lucideNames = {
+    arrow: 'ChevronRight', back: 'ChevronLeft', bell: 'Bell', bookmark: 'Bookmark',
+    calendar: 'CalendarDays', camera: 'Camera', chat: 'MessageCircle', check: 'Check',
+    clock: 'Clock3', close: 'X', feed: 'Newspaper', flag: 'Flag', heart: 'Heart',
+    home: 'House', lock: 'LockKeyhole', map: 'Map', menu: 'Menu', minus: 'Minus',
+    money: 'Banknote', more: 'Ellipsis', note: 'FileText', paperclip: 'Paperclip',
+    phone: 'Phone', pin: 'MapPin', plus: 'Plus', poll: 'ChartNoAxesColumnIncreasing',
+    refresh: 'RefreshCw', search: 'Search', send: 'Send', settings: 'Settings',
+    share: 'Share2', sparkle: 'Sparkles', star: 'Star', sun: 'Sun', user: 'CircleUserRound',
+    users: 'Users', warning: 'TriangleAlert',
+  };
+  const iconNode = window.lucide?.icons?.[lucideNames[name]];
+  if (iconNode && window.lucide?.createElement) {
+    const svg = window.lucide.createElement(iconNode, {
+      width: size,
+      height: size,
+      stroke: color,
+      'stroke-width': strokeWidth,
+      'aria-hidden': 'true',
+      focusable: 'false',
+      style: 'display:block;flex-shrink:0',
+    });
+    return <span aria-hidden="true" style={{ width: size, height: size, display: 'block', flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: svg.outerHTML }}/>;
+  }
   const paths = {
     back: <path d="M15 6l-6 6 6 6" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" fill="none"/>,
     search: <g fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></g>,
@@ -274,6 +328,7 @@ const Icon = ({ name, size = 24, color = 'currentColor', strokeWidth = 1.6 }) =>
     poll: <g fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round"><path d="M6 19V11M12 19V5M18 19v-9"/></g>,
     money: <g fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9v.01M18 15v.01"/></g>,
     note: <g fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round"><path d="M5 4h10l4 4v12H5V4Z"/><path d="M15 4v4h4M8 12h8M8 16h6"/></g>,
+    warning: <g fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5M12 17.5v.01"/></g>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: 'block', flexShrink: 0 }}>

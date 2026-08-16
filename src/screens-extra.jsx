@@ -16,6 +16,10 @@ function continueAuthFlow(nav, context) {
 
 function ScreenLogin() {
   const nav = (window.useNav ? window.useNav() : { go: () => {} });
+  const welcomeImage = window.MoyeoImageCache?.themeSource(
+    'assets/login-welcome.webp',
+    'assets/login-welcome-night.webp',
+  ) || 'assets/login-welcome.webp';
   const [loadingProvider, setLoadingProvider] = React.useState('');
   const [error, setError] = React.useState(() => {
     const startupError = window.__moyeoAuthStartupError || '';
@@ -46,6 +50,7 @@ function ScreenLogin() {
     <button
       type="button"
       data-testid={`auth-login-${provider}`}
+      data-network-action="true"
       disabled={Boolean(loadingProvider)}
       onClick={() => begin(provider)}
       style={{
@@ -71,15 +76,11 @@ function ScreenLogin() {
           style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', overflow: 'hidden', borderRadius: 12, background: T.bgSubtle }}
         >
           <img
-            className="moyeo-login-welcome-light"
-            src="assets/login-welcome.png"
+            src={welcomeImage}
             alt=""
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-          <img
-            className="moyeo-login-welcome-dark"
-            src="assets/login-welcome-night.png"
-            alt=""
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
             style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
           />
         </div>
@@ -201,7 +202,7 @@ function ScreenEmailAuth() {
           {mode === 'login' && (
             <button data-testid="email-password-reset" type="button" onClick={resetPassword} style={{ alignSelf: 'flex-end', border: 0, padding: '2px 0', background: 'transparent', color: T.primary600, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>비밀번호를 잊으셨나요?</button>
           )}
-          <button data-testid="email-auth-submit" type="submit" disabled={!canSubmit} style={{ height: 50, marginTop: 6, border: 0, borderRadius: 10, background: canSubmit ? T.primary600 : T.bgSubtle, color: canSubmit ? '#fff' : T.text400, fontSize: 15, fontWeight: 700, cursor: canSubmit ? 'pointer' : 'default' }}>
+          <button data-testid="email-auth-submit" data-network-action="true" type="submit" disabled={!canSubmit} style={{ height: 50, marginTop: 6, border: 0, borderRadius: 10, background: canSubmit ? T.primary600 : T.bgSubtle, color: canSubmit ? '#fff' : T.text400, fontSize: 15, fontWeight: 700, cursor: canSubmit ? 'pointer' : 'default' }}>
             {loading ? '확인 중...' : mode === 'signup' ? '계정 만들고 계속하기' : '로그인'}
           </button>
         </form>
@@ -215,35 +216,83 @@ function ScreenEmailAuth() {
 // ───────── 14 · 프로필 Step 3 (생년월일/성별) ─────────
 function KoreanBirthDatePicker({ value, onChange }) {
   const [year, month, day] = value.split('-').map(Number);
-  const currentYear = new Date().getFullYear();
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const selectStyle = {
-    flex: 1, minWidth: 0, height: 54, border: 0, borderRadius: 10,
-    padding: '0 10px', background: T.bgRaised, color: T.text900,
-    fontSize: 15, fontWeight: 600, fontFamily: T.fontStack,
+  const [draft, setDraft] = React.useState({ year, month, day });
+  const [open, setOpen] = React.useState(false);
+  const maxYear = new Date().getFullYear();
+  const minimumYear = 1900;
+  const daysInMonth = (targetYear, targetMonth) => new Date(targetYear, targetMonth, 0).getDate();
+  const boundsFor = (field, current) => {
+    if (field === 'year') return [minimumYear, maxYear];
+    if (field === 'month') return [1, 12];
+    return [1, daysInMonth(current.year, current.month)];
   };
-  const update = (nextYear, nextMonth, nextDay) => {
-    const maxDay = new Date(nextYear, nextMonth, 0).getDate();
-    const safeDay = Math.min(nextDay, maxDay);
-    onChange(`${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(safeDay).padStart(2, '0')}`);
+  const wrap = (number, [minimum, maximum]) => {
+    if (number < minimum) return maximum;
+    if (number > maximum) return minimum;
+    return number;
+  };
+  const update = (field, delta) => {
+    setDraft((current) => {
+      const next = { ...current, [field]: wrap(current[field] + delta, boundsFor(field, current)) };
+      next.day = Math.min(next.day, daysInMonth(next.year, next.month));
+      return next;
+    });
+  };
+  const confirm = () => {
+    onChange(`${draft.year}-${String(draft.month).padStart(2, '0')}-${String(draft.day).padStart(2, '0')}`);
+    setOpen(false);
+  };
+  const WheelColumn = ({ field, label, suffix, width = 1 }) => {
+    const bounds = boundsFor(field, draft);
+    const current = draft[field];
+    return (
+      <div style={{ flex: width, minWidth: 0 }}>
+        <div style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: T.text500, marginBottom: 8 }}>{label}</div>
+        <button type="button" aria-label={`${label} 이전 값`} onClick={() => update(field, -1)} style={{ width: '100%', height: 30, border: 0, background: 'transparent', display: 'grid', placeItems: 'center', color: T.text400, cursor: 'pointer' }}>
+          <span style={{ transform: 'rotate(-90deg)', display: 'block' }}><Icon name="arrow" size={17}/></span>
+        </button>
+        <div style={{ height: 34, display: 'grid', placeItems: 'center', color: T.text400, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{wrap(current - 1, bounds)}{suffix}</div>
+        <div style={{ height: 52, display: 'grid', placeItems: 'center', borderRadius: 12, background: T.primary50, border: `1.5px solid ${T.primary300}`, color: T.primary700, fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{current}{suffix}</div>
+        <div style={{ height: 34, display: 'grid', placeItems: 'center', color: T.text400, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{wrap(current + 1, bounds)}{suffix}</div>
+        <button type="button" aria-label={`${label} 다음 값`} onClick={() => update(field, 1)} style={{ width: '100%', height: 30, border: 0, background: 'transparent', display: 'grid', placeItems: 'center', color: T.text400, cursor: 'pointer' }}>
+          <span style={{ transform: 'rotate(90deg)', display: 'block' }}><Icon name="arrow" size={17}/></span>
+        </button>
+      </div>
+    );
   };
 
   return (
-    <div data-testid="auth-birth-date" aria-label="생년월일" style={{
-      display: 'flex', gap: 8, padding: 8, borderRadius: 14,
-      border: `1.5px solid ${T.primary500}`, background: T.bgBase,
-      boxShadow: `0 0 0 4px ${T.primary50}`,
-    }}>
-      <select aria-label="출생 연도" value={year} onChange={(event) => update(Number(event.target.value), month, day)} style={{ ...selectStyle, flex: 1.35 }}>
-        {Array.from({ length: currentYear - 1900 + 1 }, (_, index) => currentYear - index).map((item) => <option key={item} value={item}>{item}년</option>)}
-      </select>
-      <select aria-label="출생 월" value={month} onChange={(event) => update(year, Number(event.target.value), day)} style={selectStyle}>
-        {Array.from({ length: 12 }, (_, index) => index + 1).map((item) => <option key={item} value={item}>{item}월</option>)}
-      </select>
-      <select aria-label="출생 일" value={day} onChange={(event) => update(year, month, Number(event.target.value))} style={selectStyle}>
-        {Array.from({ length: daysInMonth }, (_, index) => index + 1).map((item) => <option key={item} value={item}>{item}일</option>)}
-      </select>
-    </div>
+    <>
+      <button
+        type="button"
+        data-testid="auth-birth-date"
+        aria-label="생년월일 선택"
+        onClick={() => { setDraft({ year, month, day }); setOpen(true); }}
+        style={{ width: '100%', minHeight: 58, padding: '0 16px', borderRadius: 14, border: `1px solid ${T.line200}`, background: T.bgRaised, color: T.text900, display: 'flex', alignItems: 'center', gap: 12, fontFamily: T.fontStack, cursor: 'pointer', boxShadow: T.l1 }}
+      >
+        <span style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center', background: T.primary50, color: T.primary700 }}><Icon name="calendar" size={18}/></span>
+        <span style={{ flex: 1, textAlign: 'left', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{year}년 {month}월 {day}일</span>
+        <Icon name="arrow" size={18} color={T.text400}/>
+      </button>
+      {open && (
+        <div role="dialog" aria-modal="true" aria-label="생년월일 선택" data-testid="auth-birth-date-dialog" style={{ position: 'absolute', inset: 0, zIndex: 260, background: T.bgOverlay, display: 'flex', alignItems: 'flex-end' }}>
+          <div style={{ width: '100%', borderRadius: '22px 22px 0 0', background: T.bgBase, borderTop: `1px solid ${T.line200}`, padding: '10px 20px 30px', boxShadow: T.l3 }}>
+            <div style={{ width: 38, height: 4, borderRadius: 999, background: T.line300, margin: '0 auto 16px' }}/>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <button type="button" onClick={() => setOpen(false)} style={{ width: 52, height: 40, border: 0, background: 'transparent', color: T.text500, fontSize: 14, fontWeight: 700, fontFamily: T.fontStack, cursor: 'pointer' }}>취소</button>
+              <div style={{ fontSize: 17, fontWeight: 700 }}>생년월일 선택</div>
+              <button type="button" data-testid="auth-birth-date-confirm" onClick={confirm} style={{ width: 52, height: 40, border: 0, background: 'transparent', color: T.primary600, fontSize: 14, fontWeight: 700, fontFamily: T.fontStack, cursor: 'pointer' }}>완료</button>
+            </div>
+            <div style={{ fontSize: 12, color: T.text500, textAlign: 'center', marginTop: 4 }}>연도 · 월 · 일 순서로 선택해 주세요</div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginTop: 18 }}>
+              <WheelColumn field="year" label="연도" suffix="년" width={1.25}/>
+              <WheelColumn field="month" label="월" suffix="월"/>
+              <WheelColumn field="day" label="일" suffix="일"/>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -307,7 +356,7 @@ function ScreenProfileBasic() {
         <div style={{ flex: 1 }}/>
         <div style={{ padding: '0 20px 32px', display: 'flex', gap: 8 }}>
           <Btn variant="secondary" onClick={() => nav.back()}>이전</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full disabled={!birthDate || !gender || submitting} onClick={submit} testId="auth-basic-submit">{submitting ? '회원 생성 중...' : '저장하고 프로필 만들기'}</Btn></div>
+          <div style={{ flex: 1 }}><Btn variant="primary" full networkAction disabled={!birthDate || !gender || submitting} onClick={submit} testId="auth-basic-submit">{submitting ? '회원 생성 중...' : '저장하고 프로필 만들기'}</Btn></div>
         </div>
       </div>
     </Phone>
@@ -507,6 +556,17 @@ function ScreenHostManage() {
             <span style={{ color: T.line300 }}>·</span>
             <Chip variant="accent">D-3</Chip>
           </div>
+          <button type="button" data-testid="host-course-edit" onClick={() => nav.go('course-edit')} style={{
+            width: '100%', marginTop: 14, borderRadius: 12, border: `1px solid ${T.primary100}`, background: T.primary50,
+            padding: 12, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontFamily: T.fontStack, textAlign: 'left',
+          }}>
+            <Icon name="map" size={18} color={T.primary600}/>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.primary700 }}>여행 경로 · 방문지 4곳</div>
+              <div style={{ fontSize: 11, color: T.primary600, marginTop: 3 }}>확정 전(D-3)까지 수정할 수 있어요 · 호스트 직접 코스</div>
+            </div>
+            <Icon name="arrow" size={16} color={T.primary600}/>
+          </button>
         </div>
         <div style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -561,60 +621,74 @@ function ScreenHostManage() {
 }
 
 // ───────── 19 · 채팅방 목록 ─────────
-function ScreenChatList() {
+function ScreenChatList({ initialTab = 'live' }) {
   const nav = (window.useNav ? window.useNav() : { go: () => {} });
-  const Row = ({ hue, name, time, count, last, status, unread }) => (
-    <div onClick={() => nav.go('chat')} style={{ height: 88, padding: '16px 20px', display: 'flex', gap: 12, alignItems: 'center', borderBottom: `1px solid ${T.line100}`, cursor: 'pointer' }}>
-      <div style={{ width: 56, height: 56, borderRadius: 16, overflow: 'hidden' }}><ImgPlaceholder height={56} hue={hue} radius={16}/></div>
+  const [tab, setTab] = React.useState(initialTab);
+  const [cancelled, setCancelled] = React.useState([]);
+  const rows = {
+    live: [
+      ['autumn', '경주 단풍·야경', '3:42', '4/8명', '마감 D-3', '우직한 곰: 내일 오후 2시 만나요', 3],
+      ['forest', '주왕산 & 주산지 힐링 트레킹', '09:32', '2/5명', '마감 D-1', '숲속여행자: 집합 위치를 확인해주세요', null],
+      ['coast', '영주 부석사 눈꽃 산책', '어제', '4/5명', '마감 D-2', '느긋한 토끼: 이동 시간을 더 잡을게요', null],
+    ],
+    fixed: [
+      ['coast', '포항·영덕 동해 드라이브', '1:20', '6/6명', '확정', '잔잔한 거북이: 오늘 사진 올릴게요', null],
+      ['forest', '안동 하회마을 한옥체험', '어제', '3/4명', '확정', '고요한 두루미: 내일 출발이에요!', 1],
+    ],
+    done: [
+      ['coast', '울릉도 2박 3일 섬 여행', '지난주', '5/6명', '종료', '시스템: 여행 기록을 남겨보세요', null],
+      ['autumn', '문경 새재 단풍 트레킹', '5월 2일', '5/5명', '종료', '여행 사진 18장이 모였어요', null],
+    ],
+  };
+  const Row = ({ item }) => (
+    <button type="button" onClick={() => nav.go('chat')} style={{ width: '100%', minHeight: 96, padding: '16px 20px', display: 'flex', gap: 12, alignItems: 'center', border: 0, borderBottom: `1px solid ${T.line100}`, background: RF.card, cursor: 'pointer', fontFamily: T.fontStack, textAlign: 'left' }}>
+      <div style={{ width: 56, height: 56, borderRadius: 16, overflow: 'hidden', flexShrink: 0 }}><ImgPlaceholder height={56} hue={item[0]} radius={16}/></div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
-            {unread && <div style={{ width: 6, height: 6, borderRadius: 999, background: T.accent500, flexShrink: 0 }}/>}
-          </div>
-          <div style={{ fontSize: 11, color: T.text400, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{time}</div>
-        </div>
-        <div style={{ fontSize: 12, color: T.text500, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{count} <span style={{ color: T.line300, margin: '0 4px' }}>·</span> {status}</div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, gap: 8 }}>
-          <div style={{ fontSize: 13, color: T.text700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{last}</div>
-          {unread && <div style={{ minWidth: 20, height: 20, borderRadius: 999, background: T.accent500, color: '#fff', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px' }}>{unread}</div>}
-        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}><b style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item[1]}</b><span style={{ fontSize: 11, color: T.text400 }}>{item[2]}</span></div>
+        <div style={{ fontSize: 12, color: T.text500, marginTop: 3 }}>{item[3]} · {item[4]}</div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 5 }}><span style={{ flex: 1, fontSize: 13, color: T.text700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item[5]}</span>{item[6] && <span style={{ minWidth: 20, height: 20, borderRadius: 999, background: T.accent500, color: '#fff', fontSize: 11, display: 'grid', placeItems: 'center' }}>{item[6]}</span>}</div>
       </div>
-    </div>
+    </button>
   );
+  const applications = [
+    { id: 'waiting', hue: 'hanok', name: '안동 한옥 골목 야행', state: '승인 대기', when: '6/7(토) 당일치기 · 14:00-21:00', meet: '13:50 안동역 1번 출구 집합', desc: '호스트가 확인하면 참여 여부가 정해져요. 보통 24시간 이내에 응답해요.' },
+    { id: 'queued', hue: 'coast', name: '포항·영덕 동해안 드라이브', state: '대기열 2번', when: '6/14(토)-6/15(일) · 1박 2일', meet: '09:30 포항역 앞 집합', desc: '정원이 차서 대기 중이에요. 자리가 나면 순서대로 자동 합류돼요.' },
+  ].filter((item) => !cancelled.includes(item.id));
   return (
     <Phone>
-      <div style={{ position: 'absolute', inset: 0, paddingTop: 60 }}>
-        <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center' }}>
-          <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.5px' }}>모임</div>
+      <div style={{ position: 'absolute', inset: 0, paddingTop: 60, background: RF.bg }}>
+        <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center' }}><div style={{ fontSize: 22, fontWeight: 700 }}>모임</div></div>
+        <div role="tablist" aria-label="모임 상태" style={{ padding: '0 20px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderBottom: `1px solid ${T.line100}` }}>
+          {[['live','진행중',3],['applied','신청중',applications.length],['fixed','확정',2],['done','종료',8]].map(([id,label,count]) => {
+            const active = tab === id;
+            return <button key={id} type="button" role="tab" aria-selected={active} data-testid={`meeting-tab-${id}`} onClick={() => setTab(id)} style={{ minHeight: 48, padding: '10px 0', border: 0, borderBottom: active ? `2px solid ${T.primary500}` : '2px solid transparent', background: 'transparent', color: active ? T.primary600 : T.text500, fontFamily: T.fontStack, cursor: 'pointer' }}><span style={{ fontSize: 13, fontWeight: 700 }}>{label}</span><span style={{ fontSize: 11, marginLeft: 3 }}>{count}</span></button>;
+          })}
         </div>
-        <div style={{ padding: '0 20px', display: 'flex', gap: 24, borderBottom: `1px solid ${T.line100}` }}>
-          {[
-            { id: 'a', label: '진행중', count: 3, on: true },
-            { id: 'b', label: '확정', count: 1 },
-            { id: 'c', label: '종료', count: 8 },
-          ].map(t => (
-            <div key={t.id} style={{ padding: '12px 0', borderBottom: t.on ? `2px solid ${T.primary500}` : 'none', marginBottom: -1 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: t.on ? T.primary600 : T.text500 }}>{t.label}</span>
-              <span style={{ fontSize: 12, color: T.text400, marginLeft: 4, fontVariantNumeric: 'tabular-nums' }}>{t.count}</span>
-            </div>
-          ))}
-        </div>
-        <div style={{ overflow: 'auto', maxHeight: 600 }}>
-          <Row kind="a" hue="autumn" name="경주 단풍·야경" time="3:42" count="4/8명" status="마감 D-3" last="우직한 곰: 내일 오후 2시 만나요" unread={3}/>
-          <Row kind="b" hue="coast" name="포항·영덕 동해 드라이브" time="1:20" count="6/6명" status="확정 ✓" last="잔잔한 거북이: 오늘 사진 올릴게요" unread={null}/>
-          <Row kind="c" hue="forest" name="안동 하회마을 한옥체험" time="어제" count="3/4명" status="확정 ✓" last="고요한 두루미: 내일 출발이에요!" unread={1}/>
-          <Row kind="d" hue="sunset" name="문경 새재 단풍 트레킹" time="월" count="2/5명" status="마감 D-1" last="시스템: 모집이 마감 임박입니다" unread={null}/>
-          <Row kind="e" hue="forest" name="주왕산 & 주산지 힐링 트레킹" time="09:32" count="2/5명" status="마감 D-1" last="숲속여행자: 주산지 물안개 시간에 맞춰 출발해요." unread={null}/>
-          <Row kind="f" hue="coast" name="영주 부석사 눈꽃 산책" time="어제" count="4/5명" status="마감 D-2" last="느긋한 토끼: 눈길이라 이동 시간을 조금 더 잡을게요" unread={null}/>
-          <Row kind="g" hue="autumn" name="울진 금강송 숲길 워크" time="수" count="3/6명" status="모집중" last="초록 여우: 숲길 입구 주차 위치 공유했어요" unread={2}/>
-          <Row kind="h" hue="coast" name="울릉도 2박 3일 섬 여행" time="지난주" count="5/6명" status="종료" last="시스템: 여행 기록을 남겨보세요" unread={null}/>
+        <div style={{ position: 'absolute', top: 164, left: 0, right: 0, bottom: 96, overflow: 'auto' }}>
+          {tab === 'applied' ? <div>
+            {applications.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: T.text500, fontSize: 13 }}>신청 중인 모임이 없어요.</div>}
+            {applications.map((item) => <div key={item.id} data-testid={`application-${item.id}`} style={{ padding: '16px 20px', display: 'flex', gap: 12, borderBottom: `1px solid ${T.line100}` }}>
+              <div style={{ width: 56, height: 56, borderRadius: 16, overflow: 'hidden', flexShrink: 0 }}><ImgPlaceholder height={56} hue={item.hue} radius={16}/></div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><b style={{ fontSize: 14 }}>{item.name}</b><Chip variant={item.id === 'waiting' ? 'accent' : 'soft'}>{item.state}</Chip></div>
+                <div style={{ fontSize: 12, color: T.text500, marginTop: 4 }}>{item.when}</div><div style={{ fontSize: 12, color: T.text500, marginTop: 2 }}>{item.meet}</div>
+                <div style={{ marginTop: 8, padding: '9px 11px', borderRadius: 10, background: T.bgSubtle, color: T.text700, fontSize: 12, lineHeight: 1.5 }}>{item.desc}</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button type="button" data-testid={`cancel-application-${item.id}`} onClick={() => setCancelled((current) => [...current, item.id])} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>신청 취소</button>
+                  <button type="button" onClick={() => nav.go('detail')} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>모집 상세</button>
+                </div>
+              </div>
+            </div>)}
+            <div style={{ padding: '14px 20px 24px', fontSize: 11, color: T.text400, lineHeight: 1.6 }}>신청 상태에서는 아직 채팅방에 들어갈 수 없어요. 승인되거나 자리가 나면 알림으로 알려드릴게요.</div>
+          </div> : rows[tab].map((item) => <Row key={item[1]} item={item}/>) }
         </div>
         <BottomNav active="group"/>
       </div>
     </Phone>
   );
 }
+
+function ScreenChatListApplied() { return <ScreenChatList initialTab="applied"/>; }
 
 // ───────── 20 · 알림 센터 ─────────
 function ScreenNotifications() {
@@ -954,9 +1028,9 @@ function ScreenLeaveAlert() {
 
 Object.assign(window, {
   ScreenLogin, ScreenEmailAuth, ScreenProfileBasic, ScreenTerms, ScreenCourseDetail,
-  ScreenCreateReview, ScreenHostManage, ScreenChatList, ScreenNotifications,
+  ScreenCreateReview, ScreenHostManage, ScreenChatList, ScreenChatListApplied, ScreenNotifications,
   ScreenSearch, ScreenExploreMap, ScreenStates, ScreenSpecialMessages, ScreenLeaveAlert,
 });
 
 // ─── window export ───
-Object.assign(window, { ScreenLogin, ScreenEmailAuth, ScreenProfileBasic, ScreenTerms, ScreenCourseDetail, ScreenCreateReview, ScreenHostManage, ScreenChatList, ScreenNotifications, ScreenSearch, ScreenExploreMap, ScreenStates, ScreenSpecialMessages, ScreenLeaveAlert });
+Object.assign(window, { ScreenLogin, ScreenEmailAuth, ScreenProfileBasic, ScreenTerms, ScreenCourseDetail, ScreenCreateReview, ScreenHostManage, ScreenChatList, ScreenChatListApplied, ScreenNotifications, ScreenSearch, ScreenExploreMap, ScreenStates, ScreenSpecialMessages, ScreenLeaveAlert });

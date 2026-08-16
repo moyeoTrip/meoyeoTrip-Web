@@ -448,7 +448,8 @@ function Chip({ children, variant = 'neutral', size = 'sm' }) {
 }
 
 // Button
-function Btn({ children, variant = 'primary', icon, full = false, dark = false, disabled = false, onClick, ariaLabel, testId }) {
+function Btn({ children, variant = 'primary', icon, full = false, dark = false, disabled = false, onClick, ariaLabel, testId, networkAction = false }) {
+  const unavailable = disabled || (networkAction && window.__moyeoOnline === false);
   const styles = {
     primary: { bg: dark ? T.primary400 : T.primary500, fg: T.textInverse, border: 'transparent' },
     secondary: { bg: 'transparent', fg: dark ? T.text900 : T.text900, border: T.line200 },
@@ -456,20 +457,21 @@ function Btn({ children, variant = 'primary', icon, full = false, dark = false, 
     danger: { bg: T.danger, fg: T.textInverse, border: 'transparent' },
     disabled: { bg: T.line100, fg: T.text400, border: 'transparent' },
   };
-  const s = disabled ? styles.disabled : styles[variant];
+  const s = unavailable ? styles.disabled : styles[variant];
   return (
     <button
       type="button"
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
+      onClick={unavailable ? undefined : onClick}
+      disabled={unavailable}
       aria-label={ariaLabel}
       data-testid={testId}
+      data-network-action={networkAction ? 'true' : undefined}
       style={{
       height: 48, padding: '0 20px', borderRadius: 12, border: `1px solid ${s.border}`,
       background: s.bg, color: s.fg, fontSize: 14, fontWeight: 600, fontFamily: T.fontStack,
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-      width: full ? '100%' : 'auto', cursor: disabled ? 'default' : 'pointer',
-      opacity: disabled ? 0.72 : 1,
+      width: full ? '100%' : 'auto', cursor: unavailable ? 'default' : 'pointer',
+      opacity: unavailable ? 0.72 : 1,
     }}>
       {icon && <Icon name={icon} size={18} color={s.fg}/>}
       {children}

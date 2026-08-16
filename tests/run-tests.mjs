@@ -17,6 +17,8 @@ const routes = [
   "login",
   "email-auth",
   "nickname",
+  "profile-image",
+  "profile-basic",
   "terms",
   "home",
   "explore",
@@ -27,9 +29,24 @@ const routes = [
   "trip",
   "apply",
   "create",
+  "custom-course",
+  "create-schedule",
+  "create-people",
+  "create-detail",
+  "create-meet",
+  "create-summary",
+  "create-summary-linked",
+  "course-edit",
+  "course-edit-linked",
+  "course-edit-locked",
   "meetings",
   "chat-list",
+  "chat-list-applied",
   "chat",
+  "chat-menu",
+  "chat-attach",
+  "notice-history",
+  "leave-alert",
   "messages",
   "feed",
   "feed-detail",
@@ -40,6 +57,18 @@ const routes = [
   "profile-edit",
   "settings",
   "auth-methods",
+  "friends",
+  "trip-message",
+  "report",
+  "blocked",
+  "course-publish",
+  "trip-confirmed",
+  "trip-day",
+  "notif-detail",
+  "account-delete",
+  "system-maintenance",
+  "system-error",
+  "feed-comments",
   "auth",
   "special-messages",
 ];
@@ -54,6 +83,8 @@ const expectedTexts = {
   login: ["모여트립에 오신 걸", "환영해요", "카카오 로그인", "이메일로 시작하기", "Google로 계속하기", "Apple로 계속하기"],
   "email-auth": ["이메일로 시작하기", "로그인", "새 계정 만들기", "비밀번호", "비밀번호를 잊으셨나요?"],
   nickname: ["프로필 설정", "어떤 친구로", "시작할까요?", "다른 이름 추천받기", "마음에 들 때까지 새 후보를 받아보세요"],
+  "profile-image": ["프로필 설정", "내 친구를 골라주세요", "새 후보 만들기", "이 친구로 시작하기"],
+  "profile-basic": ["프로필 설정", "생년월일", "성별", "1998년 4월 12일"],
   terms: ["약관", "동의"],
   splash: ["모여트립 in 경북"],
   "feed-write": ["글쓰기", "여행 기록"],
@@ -63,31 +94,60 @@ const expectedTexts = {
   course: ["코스 일정", "용연폭포 쉼터", "함께 보면 좋은 곳"],
   profile: ["최근 여행 (8)", "울진 금강송 숲길", "영주 부석사 눈꽃"],
   "auth-methods": ["로그인 방식", "카카오", "Google", "이메일", "Apple"],
+  create: ["모집 만들기 (1/5)", "코스 선택", "등록된 코스로 떠나기", "코스 직접 만들기", "이 코스로 다음"],
+  "custom-course": ["코스 직접 만들기", "방문지 검색", "최소 2개 · 최대 20개", "여행이 확정되기 전까지"],
+  "create-schedule": ["모집 만들기 (2/5)", "일정 정하기", "당일치기", "1박 이상", "집합 장소 · 집합 시간", "이전", "다음"],
+  "create-people": ["모집 만들기 (3/5)", "몇 명이 모이면 좋을까요?", "최소 인원", "최대 인원", "성별 제한", "이전", "다음"],
+  "create-detail": ["모집 만들기 (4/5)", "어떤 여행인지 알려주세요", "여행명", "신청 승인 방식", "이전", "다음"],
+  "create-meet": ["모집 만들기 (4/5)", "집합 장소 정하기", "검색하거나 지도의 핀을 움직여 정확한 위치를 알려주세요.", "터미널 정문 앞", "2번 출구", "주차장 입구", "좌표 (자동 저장)", "집합 시간", "근처 모집 추천", "이전", "다음"],
+  "create-summary": ["모집 만들기 (5/5)", "이대로 모집을 열까요?", "호스트 직접 코스", "여행이 확정되기 전까지", "이전", "모집 열기"],
+  "create-summary-linked": ["모집 만들기 (5/5)", "이대로 모집을 열까요?", "등록된 코스", "경로(방문지·순서)는 수정할 수 없고", "이전", "모집 열기"],
+  "course-edit": ["여행 경로", "마감 전까지 경로를 바꿀 수 있어요", "저장하고 멤버에게 알리기"],
+  "course-edit-linked": ["여행 경로", "등록된 코스라 경로는 고정이에요", "집합 정보 수정"],
+  "course-edit-locked": ["여행 경로", "여행이 확정돼 경로가 잠겼어요", "공지로 알리기"],
+  "notice-history": ["공지 이력", "상단 고정 중", "지난 공지", "새 공지 작성 (호스트)"],
+  "chat-list-applied": ["신청중", "승인 대기", "대기열 2번", "신청 취소"],
+  chat: ["당일치기", "공지 4개", "경로 수정", "호스트가 경로를 수정했어요"],
+  "leave-alert": ["호스트가 나가면", "이 모임은 종료돼요", "모임 종료"],
+  "chat-menu": ["모임 정보", "동행자", "공지", "공유된 항목"],
+  "chat-attach": ["무엇을 공유할까요?", "사진", "장소", "지도", "투표"],
+  friends: ["친구 관리", "내 친구", "받은 신청", "보낸 신청"],
+  "trip-message": ["함께 걸어준 친구들에게", "한 줄 남겨볼까요?", "도감 카드"],
+  report: ["신고하기", "신고 사유", "차단"],
+  blocked: ["차단한 사용자", "차단 해제"],
+  "course-publish": ["코스 공개", "한 번 공개하면", "코스 공개하기"],
+  "trip-confirmed": ["여행이 확정됐어요!", "확정된 여행", "채팅방으로 가기"],
+  "trip-day": ["여행 중", "현재 방문지", "위치 공유"],
+  "notif-detail": ["채팅 알림", "방해금지", "멘션·답글만"],
+  "account-delete": ["계정 탈퇴", "30일", "탈퇴"],
+  "system-maintenance": ["잠시 점검 중이에요", "다시 확인"],
+  "system-error": ["무언가 살짝", "잘못됐어요", "새로고침"],
+  "feed-comments": ["댓글", "함께 간 친구", "댓글을 남겨주세요"],
 };
 
 const requiredAssets = [
-  "login-welcome.png",
-  "login-welcome-night.png",
-  "splash-generated.png",
-  "splash-generated-night.png",
-  "weather-sunny-cheomseongdae.png",
-  "weather-sunny-cheomseongdae-night.png",
-  "weather-cloudy-bulguksa.png",
-  "weather-cloudy-bulguksa-night.png",
-  "weather-rain-hahoe.png",
-  "weather-rain-hahoe-night.png",
-  "weather-snow-buseoksa.png",
-  "weather-snow-buseoksa-night.png",
-  "weather-fog-seokguram.png",
-  "weather-fog-seokguram-night.png",
-  "weather-wind-homigot.png",
-  "weather-wind-homigot-night.png",
-  "weather-heavy-rain-woljeonggyo.png",
-  "weather-heavy-rain-woljeonggyo-night.png",
-  "weather-heatwave-dosan.png",
-  "weather-heatwave-dosan-night.png",
-  "weather-dust-donggung-wolji.png",
-  "weather-dust-donggung-wolji-night.png",
+  "login-welcome.webp",
+  "login-welcome-night.webp",
+  "splash-generated.webp",
+  "splash-generated-night.webp",
+  "weather-sunny-cheomseongdae.webp",
+  "weather-sunny-cheomseongdae-night.webp",
+  "weather-cloudy-bulguksa.webp",
+  "weather-cloudy-bulguksa-night.webp",
+  "weather-rain-hahoe.webp",
+  "weather-rain-hahoe-night.webp",
+  "weather-snow-buseoksa.webp",
+  "weather-snow-buseoksa-night.webp",
+  "weather-fog-seokguram.webp",
+  "weather-fog-seokguram-night.webp",
+  "weather-wind-homigot.webp",
+  "weather-wind-homigot-night.webp",
+  "weather-heavy-rain-woljeonggyo.webp",
+  "weather-heavy-rain-woljeonggyo-night.webp",
+  "weather-heatwave-dosan.webp",
+  "weather-heatwave-dosan-night.webp",
+  "weather-dust-donggung-wolji.webp",
+  "weather-dust-donggung-wolji-night.webp",
   "kakao-login-ko-official.png",
   "google-g-official.png",
   "apple-continue-black-ko-official.png",
@@ -97,12 +157,19 @@ const requiredAssets = [
   "google-g-dark-official.png",
   "apple-mark-black-official.png",
   "apple-mark-white-official.png",
-  "onboarding-1.png",
-  "onboarding-1-night.png",
-  "onboarding-2.png",
-  "onboarding-2-night.png",
-  "onboarding-3.png",
-  "onboarding-3-night.png",
+  "onboarding-1.webp",
+  "onboarding-1-night.webp",
+  "onboarding-2.webp",
+  "onboarding-2-night.webp",
+  "onboarding-3.webp",
+  "onboarding-3-night.webp",
+  "celebration/trip-confirmed-light.png",
+  "celebration/trip-confirmed-dark.png",
+  "fonts/LINESeedKR-Rg.woff2",
+  "fonts/LINESeedKR-Bd.woff2",
+  "licenses/LINESeedSansKR-OFL.txt",
+  "licenses/Lucide-ISC.txt",
+  "vendor/lucide.js",
 ];
 
 async function fileExists(relativePath) {
@@ -132,6 +199,9 @@ function assertScriptOrder(html) {
     "src/screens-extra.jsx",
     "src/screens-extra2.jsx",
     "src/screens-refined.jsx",
+    "src/screens-additions.jsx",
+    "src/screens-additions2.jsx",
+    "src/screens-additions3.jsx",
     "src/prototype.jsx",
     "src/mobile-app.jsx",
   ];
@@ -152,10 +222,13 @@ async function staticTests() {
     fileExists(".github/workflows/deploy-pages.yml"),
   ]);
 
-  const [html, mobileApp, refined, shared, cachedImage, prototype, onboarding, authApi, extra, extra2, readme, standaloneWorkflow, devServer] = await Promise.all([
+  const [html, mobileApp, refined, additions, additions2, additions3, shared, cachedImage, prototype, onboarding, authApi, extra, extra2, readme, standaloneWorkflow, devServer, observability] = await Promise.all([
     read("index.html"),
     read("src/mobile-app.jsx"),
     read("src/screens-refined.jsx"),
+    read("src/screens-additions.jsx"),
+    read("src/screens-additions2.jsx"),
+    read("src/screens-additions3.jsx"),
     read("src/shared.jsx"),
     read("src/cached-image.jsx"),
     read("src/prototype.jsx"),
@@ -166,9 +239,87 @@ async function staticTests() {
     read("README.md"),
     read(".github/workflows/deploy-pages.yml"),
     read("scripts/dev-server.mjs"),
+    read("src/observability.js"),
   ]);
 
   assertScriptOrder(html);
+  assertIncludes(additions, [
+    "function ScreenCreateSchedule",
+    "function ScreenCreatePeople",
+    "function ScreenCreateMeetPoint",
+    "function ScreenCustomCourse",
+    "function ScreenNoticeHistory",
+    "function ScreenCreateSummary",
+    "function ScreenCourseEdit",
+    "data-testid={`segment-${o.id}`}",
+    "meeting-map-pin",
+    "meeting-latitude",
+    "meeting-longitude",
+    "tourapi-place-search",
+    "custom-course-count",
+    "move-stop-up-",
+    "move-stop-down-",
+    "stops.length >= 20",
+    "notice-composer",
+    "notice-title",
+    "notice-body",
+    "create-summary-${resolvedSource}",
+    "course-edit-${mode}",
+    "window.__moyeoCourseSource || 'custom'",
+    "nav.go('create-people')",
+    "nav.go((window.__moyeoCourseSource || 'custom') === 'linked' ? 'create-summary-linked' : 'create-summary')",
+  ], "changeLog01 additions");
+  assertIncludes(additions2, [
+    "function ScreenCreatePeople",
+    "function ScreenCreateDetail",
+    "function ScreenChatMenu",
+    "function ScreenFriends",
+    "function ScreenTripMessage",
+    "function ScreenCoursePublish",
+  ], "changeLog02-03 additions");
+  assertIncludes(additions3, [
+    "function ScreenTripConfirmed",
+    "moyeo-confetti-piece",
+    "trip-confirmed-light.png",
+    "trip-confirmed-dark.png",
+    "function ScreenTripDay",
+    "function ScreenNotifDetail",
+    "function ScreenAccountDelete",
+    "function ScreenFeedComments",
+  ], "changeLog04 additions");
+  assertIncludes(refined, [
+    "data-testid={`course-source-${id}`}",
+    "등록된 코스는 방문지와 순서가 고정돼요",
+    "최소 2개 · 최대 20개",
+    "36.435612, 129.057214",
+    "chat-notice-history",
+    "chat-course-edit",
+    "호스트가 경로를 수정했어요",
+  ], "changeLog01 refined screens");
+  assert.ok(!refined.includes("'추천시기','봄-가을'"), "course detail must remove recommendation season metric");
+  assertIncludes(extra, [
+    "host-course-edit",
+    "data-testid={`meeting-tab-${id}`}",
+    "data-testid={`application-${item.id}`}",
+    "id: 'waiting'",
+    "id: 'queued'",
+    "신청 상태에서는 아직 채팅방에 들어갈 수 없어요",
+    "function ScreenChatListApplied",
+    "호스트가 나가면<br/>이 모임은 종료돼요",
+  ], "changeLog01 extra screens");
+  assertIncludes(prototype, [
+    "'chat-list-applied': window.ScreenChatListApplied",
+    "'leave-alert': window.ScreenLeaveAlert",
+  ], "changeLog01 routes");
+  assert.ok(!refined.includes("회원가입 로그인 체험"), "home must not restore the removed auth experience button");
+  assert.ok(!refined.includes("회원가입 · 로그인 체험"), "home must not restore the removed auth experience entry");
+  assert.ok(!prototype.includes("system-update"), "forced update route must stay removed");
+  assert.ok(!mobileApp.includes("ScreenOffline"), "web must not render the native full-screen offline states");
+  assertIncludes(readme, [
+    "방문지는 최소 2개, 최대 20개",
+    "여행 확정 뒤에는 출처와 관계없이 경로가 잠깁니다",
+    "호스트가 모임을 나가면 다른 멤버에게 권한을 넘기지 않고 모임이 즉시 종료됩니다",
+  ], "changeLog01 README policy");
   assertIncludes(cachedImage, [
     "moyeo-images-v1",
     "MOYEO_IMAGE_MAX_ATTEMPTS = 3",
@@ -177,6 +328,8 @@ async function staticTests() {
     "cache.put",
     "force-cache",
     "function CachedImage",
+    "preloadMoyeoImages",
+    "moyeoThemeImageSource",
   ], "cached image loader");
   assertIncludes(devServer, [
     "runtime-config.local.js",
@@ -185,7 +338,7 @@ async function staticTests() {
     "KAKAO_REDIRECT_URI",
     "http.server",
   ], "development server");
-  assertIncludes(html, ["react@18.3.1", "@babel/standalone", "firebasejs/12.16.0", "firebase-auth-compat", "kakao_js_sdk/2.8.1", "runtime-config.js", "Pretendard"], "index.html");
+  assertIncludes(html, ["react@18.3.1", "@babel/standalone", "firebasejs/12.16.0", "firebase-auth-compat", "kakao_js_sdk/2.8.1", "runtime-config.js", "LINE Seed Sans KR", "LINESeedKR-Rg.woff2", "LINESeedKR-Bd.woff2", "assets/vendor/lucide.js", "observability.js"], "index.html");
   assertIncludes(authApi, [
     "/api/v1/auth/login",
     "/api/v1/auth/signup",
@@ -207,10 +360,9 @@ async function staticTests() {
   assertIncludes(extra, [
     "auth-login-${provider}",
     "auth-login-welcome-image",
-    "assets/login-welcome.png",
-    "assets/login-welcome-night.png",
-    "moyeo-login-welcome-light",
-    "moyeo-login-welcome-dark",
+    "assets/login-welcome.webp",
+    "assets/login-welcome-night.webp",
+    "fetchPriority=\"high\"",
     "provider=\"kakao\"",
     "provider=\"email\"",
     "provider=\"google\"",
@@ -222,13 +374,25 @@ async function staticTests() {
     "회원 생성 중",
     "MoyeoAuth.signup",
     "KoreanBirthDatePicker",
-    "출생 연도",
+    "auth-birth-date-dialog",
+    "연도 · 월 · 일 순서",
   ], "auth screens");
   assertIncludes(html, ["scrollbar-width: none", "::-webkit-scrollbar", "box-sizing: border-box"], "index CSS");
 
   for (const route of routes) {
     assert.ok(mobileApp.includes(route), `mobile-app route map should include ${route}`);
   }
+  assertIncludes(mobileApp, [
+    "profileImage: 'prof-2'",
+    "'profile-image': 'prof-2'",
+    "'prof-2': 'prof-2'",
+    "profileBasic: 'prof-3'",
+    "'profile-basic': 'prof-3'",
+    "'prof-3': 'prof-3'",
+    "leave: 'leave-alert'",
+  ], "direct route aliases");
+  assertIncludes(additions2, ["nav.go('leave-alert')"], "leave alert entry point");
+  assert.ok(!additions2.includes("nav.go('leave')"), "leave action must not target a missing route");
   assertIncludes(mobileApp, [
     "getInitialTheme",
     "getInitialScroll",
@@ -237,6 +401,8 @@ async function staticTests() {
     "mw-device-shell",
     "display: none",
     "window.PrototypePhone",
+    "mw-offline-banner",
+    "data-network-action",
     "border-radius: 0",
     ".mw-stage-crop .moyeo-web-phone",
   ], "mobile-app.jsx");
@@ -248,13 +414,21 @@ async function staticTests() {
     "width: min(100vw, calc(100dvh * 393 / 852))",
   ], "letterbox sizing");
   assert.ok(!mobileApp.includes("mw-theme-button"), "production web should not render the visual QA theme button");
+  assertIncludes(observability, [
+    "@sentry/browser@10.69.0",
+    "if (!dsn) return",
+    "sendDefaultPii: false",
+    "tracesSampleRate",
+  ], "Sentry safe scaffold");
+  assert.ok(!standaloneWorkflow.includes("SENTRY_AUTH_TOKEN"), "static web deploy must not expose a Sentry auth token");
+  assert.ok(!observability.includes("beforeSend(event)"), "Sentry must not add payload mutation that could re-enable PII");
 
   assertIncludes(refined, [
-    "assets/splash-generated.png",
-    "assets/splash-generated-night.png",
+    "assets/splash-generated.webp",
+    "assets/splash-generated-night.webp",
     "weather-sunny-cheomseongdae",
     "weather-heavy-rain-woljeonggyo",
-    "data-weather-hero-image=\"dark\"",
+    "data-weather-hero-image=\"active\"",
   ], "refined screens");
   assertIncludes(refined, [
     "moyeo-web-phone",
@@ -266,6 +440,11 @@ async function staticTests() {
     "replace: true",
     "height: 96",
   ], "shared bottom navigation");
+  assertIncludes(await read("src/tokens.jsx"), [
+    "window.lucide?.icons",
+    "ChartNoAxesColumnIncreasing",
+    "TriangleAlert",
+  ], "Lucide icon adapter");
   assertIncludes(prototype, [
     "transition === 'tab'",
     "mt-tab-switch",
@@ -484,6 +663,7 @@ function contentType(filePath) {
   if (filePath.endsWith(".js")) return "text/javascript; charset=utf-8";
   if (filePath.endsWith(".css")) return "text/css; charset=utf-8";
   if (filePath.endsWith(".png")) return "image/png";
+  if (filePath.endsWith(".webp")) return "image/webp";
   return "application/octet-stream";
 }
 
@@ -555,6 +735,20 @@ async function dumpDom(chrome, baseUrl, params) {
   return stdout;
 }
 
+async function mapWithConcurrency(items, concurrency, task) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await task(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 async function browserTests() {
   const chrome = await findChrome();
   if (!chrome) {
@@ -567,26 +761,45 @@ async function browserTests() {
 
   const server = await startServer();
   try {
-    for (const screen of routes) {
-      for (const theme of ["light", "dark"]) {
-        const dom = await dumpDom(chrome, server.baseUrl, { screen, theme, mockAuth: "1" });
-        assert.ok(dom.includes("모여트립 in 경북 · Mobile Web"), `${screen}/${theme} should keep document title`);
-        assert.ok(dom.includes("mw-root"), `${screen}/${theme} should render mobile web root`);
-        assert.ok(!dom.includes("화면을 찾을 수 없어요"), `${screen}/${theme} should resolve to a screen`);
-        assert.ok(dom.includes(`data-moyeo-theme="${theme}"`) || dom.includes(`data-moyeo-theme=${theme}`), `${screen}/${theme} should apply theme`);
+    const domCache = new Map();
+    const getDom = async (screen, theme = "dark", extra = {}) => {
+      const key = JSON.stringify({ screen, theme, ...extra });
+      if (!domCache.has(key)) {
+        domCache.set(key, await dumpDom(chrome, server.baseUrl, { screen, theme, mockAuth: "1", ...extra }));
+      }
+      return domCache.get(key);
+    };
+    const renderCases = routes.flatMap((screen) => ["light", "dark"].map((theme) => ({ screen, theme })));
+    await mapWithConcurrency(renderCases, 4, async ({ screen, theme }) => {
+      const dom = await getDom(screen, theme);
+      assert.ok(dom.includes("모여트립 in 경북 · Mobile Web"), `${screen}/${theme} should keep document title`);
+      assert.ok(dom.includes("mw-root"), `${screen}/${theme} should render mobile web root`);
+      assert.ok(!dom.includes("화면을 찾을 수 없어요"), `${screen}/${theme} should resolve to a screen`);
+      assert.ok(dom.includes(`data-moyeo-theme="${theme}"`) || dom.includes(`data-moyeo-theme=${theme}`), `${screen}/${theme} should apply theme`);
+    });
+
+    const missingExpectedTexts = [];
+    for (const [screen, snippets] of Object.entries(expectedTexts)) {
+      const dom = await getDom(screen, "dark");
+      for (const snippet of snippets) {
+        if (!dom.includes(snippet)) missingExpectedTexts.push(`${screen}: ${snippet}`);
       }
     }
+    assert.deepEqual(missingExpectedTexts, [], `browser text contracts drifted:\n${missingExpectedTexts.join("\n")}`);
 
-    for (const [screen, snippets] of Object.entries(expectedTexts)) {
-      const dom = await dumpDom(chrome, server.baseUrl, { screen, theme: "dark", mockAuth: "1" });
-      assertIncludes(dom, snippets, `${screen} browser render`);
-    }
-
-    const bottomDom = await dumpDom(chrome, server.baseUrl, { screen: "home", theme: "dark", scroll: "bottom", mockAuth: "1" });
+    const bottomDom = await getDom("home", "dark", { scroll: "bottom" });
     assert.ok(bottomDom.includes("scroll=bottom") || bottomDom.includes("인기 코스 TOP 3"), "home bottom render should stay valid");
 
     const gatedDom = await dumpDom(chrome, server.baseUrl, { theme: "dark", mockAuth: "1" });
     assertIncludes(gatedDom, ["고민 없이 고르는", "경북 코스", "다음"], "unauthenticated onboarding gate");
+
+    const offlineDom = await getDom("login", "dark", { offline: "1" });
+    assertIncludes(offlineDom, [
+      "mw-offline-banner",
+      "오프라인이에요 · 저장된 화면만 볼 수 있어요",
+      'data-online="false"',
+      'data-network-action="true"',
+    ], "web offline contract");
   } finally {
     await server.close();
   }

@@ -4,4 +4,10 @@ window.MOYEO_RUNTIME_CONFIG = Object.assign({
   firebase: null,
   kakaoJavaScriptKey: '',
   kakaoRedirectUri: '',
+  sentry: {
+    dsn: '',
+    environment: 'development',
+    release: '',
+    tracesSampleRate: 0,
+  },
 }, window.MOYEO_RUNTIME_CONFIG || {});

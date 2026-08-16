@@ -57,7 +57,7 @@ function ScreenDesignSystem() {
         </div>
       </Section>
 
-      <Section title="Typography · Pretendard">
+      <Section title="Typography · LINE Seed Sans KR">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {[
             { l: 'Display-S · 26/34 Bold', s: 26, w: 700, t: '낯선 사람 대신 새 친구' },

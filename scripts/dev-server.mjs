@@ -36,6 +36,12 @@ const config = {
   firebase,
   kakaoJavaScriptKey: process.env.KAKAO_JAVASCRIPT_KEY || existingConfig.kakaoJavaScriptKey || '',
   kakaoRedirectUri: process.env.KAKAO_REDIRECT_URI || existingConfig.kakaoRedirectUri || `${localOrigin}/`,
+  sentry: {
+    dsn: process.env.SENTRY_DSN || existingConfig.sentry?.dsn || '',
+    environment: process.env.SENTRY_ENVIRONMENT || existingConfig.sentry?.environment || 'development',
+    release: process.env.SENTRY_RELEASE || existingConfig.sentry?.release || '',
+    tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || existingConfig.sentry?.tracesSampleRate || 0),
+  },
 };
 
 await writeFile(
