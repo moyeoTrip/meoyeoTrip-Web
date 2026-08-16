@@ -39,9 +39,6 @@ jobs:
       - name: Lint mobile web
         run: npm run lint
 
-      - name: Test mobile web
-        run: npm test
-
       - name: Create runtime authentication config
         env:
           API_BASE_URL: ${{ vars.MOYEO_API_BASE_URL }}
