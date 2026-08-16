@@ -1,0 +1,16 @@
+{
+  "name": "moyeotrip-mobile-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "lint": "eslint . --max-warnings 0",
+    "start": "npm run dev",
+    "test": "node tests/run-tests.mjs",
+    "test:browser": "MOYEO_REQUIRE_BROWSER_TESTS=1 node tests/run-tests.mjs"
+  },
+  "devDependencies": {
+    "eslint": "^10.8.0",
+    "globals": "^17.9.0"
+  }
+}
