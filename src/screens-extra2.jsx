@@ -214,15 +214,22 @@ function ScreenSettings() {
       <div style={{ position: 'absolute', top: 2, left: on ? 20 : 2, width: 22, height: 22, borderRadius: 999, background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.15)', transition: 'left .15s' }}/>
     </div>
   );
-  const ToggleRow = ({ label, on, sub }) => (
-    <div style={{ minHeight: sub ? 64 : 58, padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: rowBorder }}>
+  const ToggleRow = ({ label, on, sub, onClick }) => (
+    <button type="button" onClick={onClick} style={{ width: '100%', minHeight: sub ? 64 : 58, padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: 0, borderBottom: rowBorder, background: 'transparent', textAlign: 'left', fontFamily: T.fontStack, cursor: onClick ? 'pointer' : 'default' }}>
       <div>
         <div style={{ fontSize: 14, color: T.text900, fontWeight: 800 }}>{label}</div>
         {sub && <div style={{ fontSize: 11, color: T.text500, marginTop: 2, fontWeight: 650 }}>{sub}</div>}
       </div>
       <Toggle on={on}/>
-    </div>
+    </button>
   );
+  const [notificationsEnabled, setNotificationsEnabled] = React.useState(
+    typeof Notification !== 'undefined' && Notification.permission === 'granted'
+  );
+  const enableNotifications = async () => {
+    const token = await window.MoyeoPush?.currentToken({ requestPermission: true });
+    setNotificationsEnabled(Boolean(token));
+  };
   const Section = ({ title, children }) => (
     <section style={{ marginBottom: 16 }}>
       <div style={{ fontSize: 12, fontWeight: 800, color: T.text500, padding: '0 20px' }}>{title}</div>
@@ -242,7 +249,7 @@ function ScreenSettings() {
 
         <div style={{ paddingTop: 14, paddingBottom: 34 }}>
         <Section title="알림">
-          <ToggleRow label="채팅 메시지" on={true}/>
+          <ToggleRow label="채팅 메시지" on={notificationsEnabled} onClick={enableNotifications}/>
           <ToggleRow label="모집 마감 임박" on={true} sub="D-3부터 알려드려요"/>
           <ToggleRow label="친구 신청·피드 반응" on={true}/>
           <ToggleRow label="마케팅 알림" on={false} sub="이벤트·새 코스 소개"/>

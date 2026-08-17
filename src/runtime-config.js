@@ -2,6 +2,7 @@
 window.MOYEO_RUNTIME_CONFIG = Object.assign({
   apiBaseUrl: 'https://moyeo-trip-api.jayden-bin.cc',
   firebase: null,
+  firebaseVapidKey: '',
   kakaoJavaScriptKey: '',
   kakaoRedirectUri: '',
   sentry: {

@@ -321,9 +321,12 @@
   };
 
   async function loginWithIdToken(provider, idToken) {
+    const fcmToken = await window.MoyeoPush?.currentToken?.().catch(() => null);
+    const loginBody = { idToken };
+    if (fcmToken) loginBody.fcmToken = fcmToken;
     const login = getConfig().mockBackend
       ? await mockBackend.login(provider)
-      : await rawRequest('/api/v1/auth/login', { method: 'POST', body: { idToken } });
+      : await rawRequest('/api/v1/auth/login', { method: 'POST', body: loginBody });
     if (login.accessToken && login.refreshToken) saveSession(login);
     else clearServiceSession();
     return saveContext({ provider: String(login.providerType || provider).toLowerCase(), idToken, login });
@@ -444,8 +447,9 @@
         if (user) context.idToken = await user.getIdToken(true);
       }
       if (!context?.idToken) throw new AuthApiError('로그인을 다시 시작해주세요.', 0, 'AUTH_CONTEXT_MISSING');
+      const currentFcmToken = fcmToken || await window.MoyeoPush?.currentToken?.().catch(() => null);
       const body = { idToken: context.idToken, nicknameSelectionToken, nickname, gender, birthDate };
-      if (fcmToken) body.fcmToken = fcmToken;
+      if (currentFcmToken) body.fcmToken = currentFcmToken;
       const tokens = getConfig().mockBackend
         ? await mockBackend.signup(body)
         : await rawRequest('/api/v1/auth/signup', { method: 'POST', body });

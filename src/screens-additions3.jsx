@@ -10,6 +10,16 @@
 // 마감일에 인원이 충족된 순간. 서비스에서 confetti를 쓰는 유일한 자리.
 function ScreenTripConfirmed() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  const [themeMode, setThemeMode] = React.useState(
+    () => document.documentElement.dataset.moyeoTheme === 'dark' ? 'dark' : 'light'
+  );
+  React.useEffect(() => {
+    const root = document.documentElement;
+    const syncTheme = () => setThemeMode(root.dataset.moyeoTheme === 'dark' ? 'dark' : 'light');
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(root, { attributes: true, attributeFilter: ['data-moyeo-theme'] });
+    return () => observer.disconnect();
+  }, []);
   const confetti = Array.from({ length: 18 }, (_, i) => ({
     left: (i * 37) % 96,
     top: 6 + ((i * 53) % 34),   // 상단 40% 안쪽 — 본문 텍스트와 겹치지 않게
@@ -41,16 +51,9 @@ function ScreenTripConfirmed() {
         <div style={{ position: 'absolute', top: 92, left: 0, right: 0, bottom: 96, overflow: 'auto', padding: '0 20px', textAlign: 'center' }}>
           <div style={{ margin: '18px auto 0', width: 252, height: 142, position: 'relative', overflow: 'hidden', borderRadius: 18 }}>
             <img
-              className="moyeo-theme-image moyeo-theme-image-light moyeo-trip-confirmed-hero"
-              src="assets/celebration/trip-confirmed-light.png"
+              className="moyeo-trip-confirmed-hero"
+              src={`assets/celebration/trip-confirmed-${themeMode}.webp`}
               alt="여행 확정을 함께 축하하는 모여트립 곰, 토끼, 너구리 캐릭터"
-              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-            />
-            <img
-              className="moyeo-theme-image moyeo-theme-image-dark moyeo-trip-confirmed-hero"
-              src="assets/celebration/trip-confirmed-dark.png"
-              alt=""
-              aria-hidden="true"
               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
             />
           </div>

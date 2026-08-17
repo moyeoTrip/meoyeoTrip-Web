@@ -163,8 +163,8 @@ const requiredAssets = [
   "onboarding-2-night.webp",
   "onboarding-3.webp",
   "onboarding-3-night.webp",
-  "celebration/trip-confirmed-light.png",
-  "celebration/trip-confirmed-dark.png",
+  "celebration/trip-confirmed-light.webp",
+  "celebration/trip-confirmed-dark.webp",
   "fonts/LINESeedKR-Rg.woff2",
   "fonts/LINESeedKR-Bd.woff2",
   "licenses/LINESeedSansKR-OFL.txt",
@@ -191,6 +191,7 @@ function assertScriptOrder(html) {
     "src/tokens.jsx",
     "src/shared.jsx",
     "src/cached-image.jsx",
+    "src/push-notifications.js",
     "src/auth-api.jsx",
     "src/screens-onboarding.jsx",
     "src/screens-home.jsx",
@@ -222,7 +223,7 @@ async function staticTests() {
     fileExists(".github/workflows/deploy-pages.yml"),
   ]);
 
-  const [html, mobileApp, refined, additions, additions2, additions3, shared, cachedImage, prototype, onboarding, authApi, extra, extra2, readme, standaloneWorkflow, devServer, observability] = await Promise.all([
+  const [html, mobileApp, refined, additions, additions2, additions3, shared, cachedImage, pushNotifications, serviceWorker, prototype, onboarding, authApi, extra, extra2, readme, standaloneWorkflow, devServer, observability] = await Promise.all([
     read("index.html"),
     read("src/mobile-app.jsx"),
     read("src/screens-refined.jsx"),
@@ -231,6 +232,8 @@ async function staticTests() {
     read("src/screens-additions3.jsx"),
     read("src/shared.jsx"),
     read("src/cached-image.jsx"),
+    read("src/push-notifications.js"),
+    read("firebase-messaging-sw.js"),
     read("src/prototype.jsx"),
     read("src/screens-onboarding.jsx"),
     read("src/auth-api.jsx"),
@@ -280,8 +283,8 @@ async function staticTests() {
   assertIncludes(additions3, [
     "function ScreenTripConfirmed",
     "moyeo-confetti-piece",
-    "trip-confirmed-light.png",
-    "trip-confirmed-dark.png",
+    "trip-confirmed-${themeMode}.webp",
+    "new MutationObserver(syncTheme)",
     "function ScreenTripDay",
     "function ScreenNotifDetail",
     "function ScreenAccountDelete",
@@ -331,14 +334,28 @@ async function staticTests() {
     "preloadMoyeoImages",
     "moyeoThemeImageSource",
   ], "cached image loader");
+  assertIncludes(pushNotifications, [
+    "Notification.requestPermission",
+    "firebase.messaging",
+    "getToken({ vapidKey, serviceWorkerRegistration: registration })",
+    "moyeo:push-message",
+    "notification-center",
+  ], "FCM browser client");
+  assertIncludes(serviceWorker, [
+    "firebase-messaging-compat.js",
+    "onBackgroundMessage",
+    "notificationclick",
+    "clients.openWindow",
+  ], "FCM service worker");
   assertIncludes(devServer, [
     "runtime-config.local.js",
     "FIREBASE_WEB_API_KEY",
+    "FIREBASE_WEB_VAPID_KEY",
     "KAKAO_JAVASCRIPT_KEY",
     "KAKAO_REDIRECT_URI",
     "http.server",
   ], "development server");
-  assertIncludes(html, ["react@18.3.1", "@babel/standalone", "firebasejs/12.16.0", "firebase-auth-compat", "kakao_js_sdk/2.8.1", "runtime-config.js", "LINE Seed Sans KR", "LINESeedKR-Rg.woff2", "LINESeedKR-Bd.woff2", "assets/vendor/lucide.js", "observability.js"], "index.html");
+  assertIncludes(html, ["react@18.3.1", "@babel/standalone", "firebasejs/12.16.0", "firebase-auth-compat", "firebase-messaging-compat", "push-notifications.js", "kakao_js_sdk/2.8.1", "runtime-config.js", "LINE Seed Sans KR", "LINESeedKR-Rg.woff2", "LINESeedKR-Bd.woff2", "assets/vendor/lucide.js", "observability.js"], "index.html");
   assertIncludes(authApi, [
     "/api/v1/auth/login",
     "/api/v1/auth/signup",
@@ -353,6 +370,8 @@ async function staticTests() {
     "restoreAuthState",
     "signInWithRedirect",
     "getRedirectResult",
+    "loginBody.fcmToken",
+    "currentFcmToken",
     "return { route: 'onboarding' };",
   ], "auth-api.jsx");
   assert.ok(!authApi.includes("/api/v1/auth/login/${"), "auth login must not use provider-specific URLs");
@@ -514,6 +533,9 @@ async function staticTests() {
     const info = await stat(path.join(root, "assets", asset));
     const minimumBytes = asset.includes("-mark-") ? 512 : 1024;
     assert.ok(info.size > minimumBytes, `${asset} should be a non-empty image asset`);
+    if (asset.startsWith("celebration/")) {
+      assert.ok(info.size < 150_000, `${asset} should remain web-optimized`);
+    }
   }
 }
 

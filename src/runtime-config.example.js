@@ -8,6 +8,7 @@ window.MOYEO_RUNTIME_CONFIG = {
     messagingSenderId: 'FIREBASE_MESSAGING_SENDER_ID',
     appId: 'FIREBASE_WEB_APP_ID',
   },
+  firebaseVapidKey: 'FIREBASE_WEB_VAPID_PUBLIC_KEY',
   kakaoJavaScriptKey: 'KAKAO_JAVASCRIPT_KEY',
   kakaoRedirectUri: 'https://YOUR_GITHUB_PAGES_HOST/YOUR_REPOSITORY/',
   sentry: {
