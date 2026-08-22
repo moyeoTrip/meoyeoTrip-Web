@@ -18,6 +18,14 @@
       login: window.ScreenLogin,
       'email-auth': window.ScreenEmailAuth,
       terms: window.ScreenTerms,
+      'terms-detail': window.ScreenTermsDetail,
+      'terms-privacy': window.ScreenTermsPrivacy,
+      'terms-location': window.ScreenTermsLocation,
+      'terms-marketing': window.ScreenTermsMarketing,
+      'terms-settings': window.ScreenTermsSettings,
+      'privacy-settings': window.ScreenPrivacySettings,
+      'location-settings': window.ScreenLocationSettings,
+      'marketing-settings': window.ScreenMarketingSettings,
       home: window.ScreenHome,
       explore: window.ScreenExplore,
       'explore-map': window.ScreenExploreMap,
@@ -28,6 +36,8 @@
       apply: window.ScreenApplySheet,
       'create-review': window.ScreenCreateReview,
       'custom-course': window.ScreenCustomCourse,
+      'place-search': window.ScreenPlaceSearch,
+      'place-detail': window.ScreenPlaceDetail,
       'create-schedule': window.ScreenCreateSchedule,
       'create-people': window.ScreenCreatePeople,
       'create-detail': window.ScreenCreateDetail,
@@ -35,6 +45,7 @@
       'create-summary': window.ScreenCreateSummary,
       'create-summary-linked': window.ScreenCreateSummaryLinked,
       'course-edit': window.ScreenCourseEdit,
+      'course-edit-custom': window.ScreenCourseEdit,
       'course-edit-linked': window.ScreenCourseEditLinked,
       'course-edit-locked': window.ScreenCourseEditLocked,
       'host-manage': window.ScreenHostManage,
@@ -45,10 +56,16 @@
       'chat-attach': window.ScreenChatAttach,
       'notice-history': window.ScreenNoticeHistory,
       'leave-alert': window.ScreenLeaveAlert,
+      states: window.ScreenStates,
       msgs: window.ScreenSpecialMessages,
       feed: window.ScreenFeed,
       'feed-detail': window.ScreenFeedDetail,
       'feed-write': window.ScreenFeedWrite,
+      'feed-write-1': window.ScreenFeedWriteStep1,   // 24-1 코스 확인
+      'feed-write-2': window.ScreenFeedWriteStep2,   // 24-2 사진 선택
+      'feed-write-3': window.ScreenFeedWriteStep3,   // 24-3 사진과 메모
+      'feed-write-4': window.ScreenFeedWriteStep4,   // 24-4 공개 설정
+      'feed-write-5': window.ScreenFeedWriteStep5,   // 24-5 최종 확인
       'public-profile': window.ScreenPublicProfile,
       my: window.ScreenMyPage,
       dex: window.ScreenDex,

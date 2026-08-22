@@ -2,6 +2,9 @@
   const SCREEN_TO_ROUTE = {
     splash: 'splash',
     onboarding: 'onboarding',
+    'onb-1': 'onboarding',
+    'onb-2': 'onboarding',
+    'onb-3': 'onboarding',
     login: 'login',
     'email-auth': 'email-auth',
     emailAuth: 'email-auth',
@@ -14,6 +17,14 @@
     'profile-basic': 'prof-3',
     'prof-3': 'prof-3',
     terms: 'terms',
+    'terms-detail': 'terms-detail',
+    'terms-privacy': 'terms-privacy',
+    'terms-location': 'terms-location',
+    'terms-marketing': 'terms-marketing',
+    'terms-settings': 'terms-settings',
+    'privacy-settings': 'privacy-settings',
+    'location-settings': 'location-settings',
+    'marketing-settings': 'marketing-settings',
     home: 'home',
     explore: 'explore',
     'explore-map': 'explore-map',
@@ -30,6 +41,10 @@
     'create-review': 'create-review',
     customCourse: 'custom-course',
     'custom-course': 'custom-course',
+    placeSearch: 'place-search',
+    'place-search': 'place-search',
+    placeDetail: 'place-detail',
+    'place-detail': 'place-detail',
     createSchedule: 'create-schedule',
     'create-schedule': 'create-schedule',
     createPeople: 'create-people',
@@ -44,6 +59,8 @@
     'create-summary-linked': 'create-summary-linked',
     courseEdit: 'course-edit',
     'course-edit': 'course-edit',
+    courseEditCustom: 'course-edit-custom',
+    'course-edit-custom': 'course-edit-custom',
     courseEditLinked: 'course-edit-linked',
     'course-edit-linked': 'course-edit-linked',
     courseEditLocked: 'course-edit-locked',
@@ -67,6 +84,7 @@
     leaveAlert: 'leave-alert',
     leave: 'leave-alert',
     'leave-alert': 'leave-alert',
+    states: 'states',
     messages: 'msgs',
     msgs: 'msgs',
     'special-messages': 'msgs',
@@ -76,6 +94,11 @@
     feedDetail: 'feed-detail',
     'feed-write': 'feed-write',
     feedWrite: 'feed-write',
+    'feed-write-1': 'feed-write-1',
+    'feed-write-2': 'feed-write-2',
+    'feed-write-3': 'feed-write-3',
+    'feed-write-4': 'feed-write-4',
+    'feed-write-5': 'feed-write-5',
     profile: 'public-profile',
     'public-profile': 'public-profile',
     my: 'my',
@@ -282,13 +305,19 @@
     return new URLSearchParams(window.location.search).get('capture') === '1';
   }
 
+  // 스크롤 페이지 캡처. 화면 안쪽 컨테이너가 스크롤되므로 페이지 전체 캡처로는 아래를 볼 수 없다.
+  function getCapturePage() {
+    const raw = Number(new URLSearchParams(window.location.search).get('page') || '1');
+    return Number.isFinite(raw) && raw > 1 ? Math.min(Math.floor(raw), 5) : 1;
+  }
+
   function getInitialOnline() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('offline') === '1') return false;
     return window.navigator.onLine !== false;
   }
 
-  function MobileStage({ initial, initialScroll, bootstrapAuth, online }) {
+  function MobileStage({ initial, initialScroll, capturePage = 1, bootstrapAuth, online }) {
     const shellRef = React.useRef(null);
     const [scale, setScale] = React.useState(1);
     const [logicalHeight, setLogicalHeight] = React.useState(852);
@@ -312,21 +341,30 @@
     }, []);
 
     React.useEffect(() => {
-      if (initialScroll === 'top') return undefined;
+      if (initialScroll === 'top' && capturePage === 1) return undefined;
 
       const scrollLargestScrollable = () => {
         const candidates = Array.from(document.querySelectorAll('.mw-stage-crop *'))
           .filter((el) => el.scrollHeight > el.clientHeight + 8)
           .sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight));
         const target = candidates[0];
-        if (!target) return;
+        if (!target) {
+          window.__moyeoScrollPages = 1;
+          return;
+        }
         const maxScroll = target.scrollHeight - target.clientHeight;
+        const step = Math.max(target.clientHeight - 40, 1);
+        window.__moyeoScrollPages = Math.min(Math.ceil(maxScroll / step) + 1, 5);
+        if (capturePage > 1) {
+          target.scrollTop = Math.min(maxScroll, step * (capturePage - 1));
+          return;
+        }
         target.scrollTop = initialScroll === 'middle' ? Math.floor(maxScroll / 2) : maxScroll;
       };
 
       const timers = [450, 1000, 1700].map((delay) => window.setTimeout(scrollLargestScrollable, delay));
       return () => timers.forEach((timer) => window.clearTimeout(timer));
-    }, [initialScroll, initial]);
+    }, [initialScroll, initial, capturePage]);
 
     return (
       <main className="mw-letterbox" aria-label="모여트립 모바일 웹">
@@ -390,7 +428,7 @@
 
     return (
       <div className={`mw-root${captureMode ? ' mw-capture' : ''}`} data-online={online ? 'true' : 'false'}>
-        <MobileStage initial={initial} initialScroll={initialScroll} bootstrapAuth={bootstrapAuth} online={online}/>
+        <MobileStage initial={initial} initialScroll={initialScroll} capturePage={getCapturePage()} bootstrapAuth={bootstrapAuth} online={online}/>
       </div>
     );
   }

@@ -68,7 +68,10 @@ function ScreenLogin() {
   );
   return (
     <Phone>
-      <div data-testid="auth-login-screen" style={{ position: 'absolute', inset: 0, padding: '66px 18px 28px', overflowY: 'auto', background: T.bgBase }}>
+      <div data-testid="auth-login-screen" style={{ position: 'absolute', inset: 0, paddingTop: 46, display: 'flex', flexDirection: 'column', background: T.bgBase }}>
+        {/* 가입은 7단계 한 흐름이다 — 로그인 방식 선택도 4/7로 위치를 알려준다 */}
+        <AuthProgressHeader label="로그인" current={4} showBack onBack={() => nav.back?.()}/>
+        <div style={{ flex: 1, minHeight: 0, padding: '10px 18px 28px', overflowY: 'auto' }}>
         <div
           data-testid="auth-login-welcome-image"
           role="img"
@@ -80,7 +83,7 @@ function ScreenLogin() {
             alt=""
             loading="eager"
             decoding="async"
-            fetchPriority="high"
+            fetchpriority="high"
             style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
           />
         </div>
@@ -114,9 +117,11 @@ function ScreenLogin() {
             </span>}>
             Apple로 계속하기
           </ProviderButton>
-          <div role="status" data-testid="auth-login-status" style={{ minHeight: 18, fontSize: 12, lineHeight: '18px', color: error ? T.danger : T.text400, textAlign: 'center' }}>
-            {error || '로그인 후 신규 회원만 프로필 설정을 이어가요.'}
+          {/* 오류만 알린다 — 신규/기존 분기는 서버가 정하므로 미리 안내하지 않는다 */}
+          <div role="status" data-testid="auth-login-status" style={{ minHeight: 18, fontSize: 12, lineHeight: '18px', color: T.danger, textAlign: 'center' }}>
+            {error}
           </div>
+        </div>
         </div>
       </div>
     </Phone>
@@ -299,10 +304,11 @@ function KoreanBirthDatePicker({ value, onChange }) {
 function ScreenProfileBasic() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
   const [birthDate, setBirthDate] = React.useState('1998-04-12');
-  const [gender, setGender] = React.useState('F');
+  // 성별은 사용자가 직접 고르는 값이다 (화면기획·앱과 같이 기본 선택 없음)
+  const [gender, setGender] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState('');
-  const nickname = window.__moyeoSelectedNickname || '선택한 닉네임';
+  const nickname = window.__moyeoSelectedNickname || '따스한 사슴 3492';
 
   const submit = async () => {
     if (!birthDate || !gender || submitting) return;
@@ -350,7 +356,7 @@ function ScreenProfileBasic() {
             </div>
           </div>
           <div role="status" style={{ minHeight: 20, marginTop: 14, fontSize: 12, color: error ? T.danger : T.text400, textAlign: 'center' }}>
-            {error || '저장 후 프로필 이미지 만들기를 이어가요.'}
+            {error}
           </div>
         </div>
         <div style={{ flex: 1 }}/>
@@ -372,7 +378,7 @@ function ScreenTerms() {
   const requiredKeys = ['age', 'service', 'privacy'];
   const allKeys = [...requiredKeys, 'location', 'marketing'];
   const requiredReady = requiredKeys.every((key) => agreed.has(key));
-  const Row = ({ itemKey, required, text, master }) => {
+  const Row = ({ itemKey, required, text, master, detailRoute }) => {
     const checked = master ? allKeys.every((key) => agreed.has(key)) : agreed.has(itemKey);
     const toggle = () => {
       if (submitting) return;
@@ -386,18 +392,13 @@ function ScreenTerms() {
         return next;
       });
     };
-    return (
-    <button type="button" onClick={toggle} style={{ width: '100%', height: 52, display: 'flex', alignItems: 'center', gap: 12, padding: '0 4px', border: 'none', borderTop: master ? 'none' : `1px solid ${T.line100}`, background: 'transparent', fontFamily: T.fontStack, cursor: 'pointer' }}>
-      <div style={{ width: 24, height: 24, borderRadius: 6, background: checked ? T.primary500 : 'transparent', border: checked ? 'none' : `1.5px solid ${T.line300}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {checked && <Icon name="check" size={16} color="#fff" strokeWidth={2.5}/>}
-      </div>
-      <div style={{ flex: 1, fontSize: master ? 16 : 14, fontWeight: master ? 600 : 400, color: T.text900 }}>
-        {text} {required && !master && <span style={{ color: T.text500, fontSize: 12, fontWeight: 400 }}>(필수)</span>}
-        {!required && !master && <span style={{ color: T.text500, fontSize: 12, fontWeight: 400 }}>(선택)</span>}
-      </div>
-      {!master && <Icon name="arrow" size={16} color={T.text400}/>}
-    </button>
-  );
+    return <div style={{ width: '100%', height: 52, display: 'flex', alignItems: 'center', borderTop: master ? 'none' : `1px solid ${T.line100}` }}>
+      <button type="button" onClick={toggle} aria-label={`${text} ${checked ? '동의 해제' : '동의'}`} style={{ flex: 1, alignSelf: 'stretch', display: 'flex', alignItems: 'center', gap: 12, padding: '0 4px', border: 0, background: 'transparent', color: T.text900, textAlign: 'left', fontFamily: T.fontStack, cursor: 'pointer' }}>
+        <span style={{ width: 24, height: 24, borderRadius: 6, background: checked ? T.primary500 : 'transparent', border: checked ? 'none' : `1.5px solid ${T.line300}`, display: 'grid', placeItems: 'center' }}>{checked && <Icon name="check" size={16} color="#fff" strokeWidth={2.5}/>}</span>
+        <span style={{ flex: 1, fontSize: master ? 16 : 14, fontWeight: master ? 600 : 400 }}>{text} {required && !master && <span style={{ color: T.text500, fontSize: 12, fontWeight: 400 }}>(필수)</span>}{!required && !master && <span style={{ color: T.text500, fontSize: 12, fontWeight: 400 }}>(선택)</span>}</span>
+      </button>
+      {detailRoute && <button type="button" aria-label={`${text} 내용 보기`} data-testid={`terms-open-${itemKey}`} onClick={() => nav.go(detailRoute)} style={{ alignSelf: 'stretch', width: 44, border: 0, background: 'transparent', display: 'grid', placeItems: 'center', cursor: 'pointer' }}><Icon name="arrow" size={16} color={T.text400}/></button>}
+    </div>;
   };
   const finish = async () => {
     if (!requiredReady || submitting) return;
@@ -420,17 +421,15 @@ function ScreenTerms() {
           <Row master text="모두 동의"/>
           <div style={{ height: 1, background: T.line200, margin: '4px 0' }}/>
           <Row itemKey="age" required text="만 14세 이상"/>
-          <Row itemKey="service" required text="이용약관 동의"/>
-          <Row itemKey="privacy" required text="개인정보 처리방침"/>
-          <Row itemKey="location" required={false} text="위치정보 이용"/>
-          <Row itemKey="marketing" required={false} text="마케팅 정보 수신"/>
-          <div role="status" style={{ minHeight: 20, marginTop: 12, fontSize: 12, color: error ? T.danger : T.text400, textAlign: 'center' }}>
-            {error || '선택 동의 항목은 나중에 설정에서 바꿀 수 있어요.'}
-          </div>
+          <Row itemKey="service" required text="이용약관 동의" detailRoute="terms-detail"/>
+          <Row itemKey="privacy" required text="개인정보 처리방침" detailRoute="terms-privacy"/>
+          <Row itemKey="location" required={false} text="위치정보 이용" detailRoute="terms-location"/>
+          <Row itemKey="marketing" required={false} text="마케팅 정보 수신" detailRoute="terms-marketing"/>
+          <div role="status" style={{ minHeight: 20, marginTop: 12, fontSize: 12, color: T.danger, textAlign: 'center' }}>{error}</div>
         </div>
         <div style={{ position: 'absolute', bottom: 32, left: 20, right: 20 }}>
           <Btn variant="primary" full disabled={!requiredReady || submitting} onClick={finish} testId="auth-terms-finish">
-            {submitting ? '저장 중...' : '동의 저장'}
+            {submitting ? '계정을 만들고 있어요...' : '동의하고 시작'}
           </Btn>
         </div>
       </div>
@@ -460,10 +459,10 @@ function ScreenCourseDetail() {
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
         <ImgPlaceholder height={280} hue="autumn" radius={0} label="course hero"/>
         <div style={{ position: 'absolute', top: 60, left: 16, right: 16, display: 'flex', justifyContent: 'space-between' }}>
-          <div style={{ width: 40, height: 40, borderRadius: 999, background: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)' }}><div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={20}/></div></div>
+          <div style={{ width: 40, height: 40, borderRadius: 999, background: T.overlayPanel, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)' }}><div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={20}/></div></div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 999, background: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="share" size={18}/></div>
-            <div style={{ width: 40, height: 40, borderRadius: 999, background: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="bookmark" size={18}/></div>
+            <div style={{ width: 40, height: 40, borderRadius: 999, background: T.overlayPanel, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="share" size={18}/></div>
+            <div style={{ width: 40, height: 40, borderRadius: 999, background: T.overlayPanel, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="bookmark" size={18}/></div>
           </div>
         </div>
         <div style={{ position: 'absolute', top: 240, left: 0, right: 0, bottom: 88, background: T.bgBase, borderRadius: '24px 24px 0 0', padding: '24px 20px', overflow: 'auto' }}>
@@ -547,7 +546,8 @@ function ScreenHostManage() {
         <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: T.bgBase, borderBottom: `1px solid ${T.line100}` }}>
           <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
           <div style={{ fontSize: 15, fontWeight: 600 }}>모집 관리</div>
-          <Icon name="more" size={24}/>
+          {/* 우측 상단 더보기(⋯)는 항목이 정의되지 않아 두지 않는다 (앱과 동일) */}
+          <span aria-hidden="true" style={{ width: 24, height: 24 }}/>
         </div>
         <div style={{ padding: 20, background: T.bgBase, borderBottom: `1px solid ${T.line100}` }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>경주 단풍·야경 1박2일</div>
@@ -625,19 +625,26 @@ function ScreenChatList({ initialTab = 'live' }) {
   const nav = (window.useNav ? window.useNav() : { go: () => {} });
   const [tab, setTab] = React.useState(initialTab);
   const [cancelled, setCancelled] = React.useState([]);
+  // 목데이터는 4개 플랫폼 공통 값이다 (docs/alignment/MOCKDATA-CANON.md)
   const rows = {
     live: [
-      ['autumn', '경주 단풍·야경', '3:42', '4/8명', '마감 D-3', '우직한 곰: 내일 오후 2시 만나요', 3],
-      ['forest', '주왕산 & 주산지 힐링 트레킹', '09:32', '2/5명', '마감 D-1', '숲속여행자: 집합 위치를 확인해주세요', null],
-      ['coast', '영주 부석사 눈꽃 산책', '어제', '4/5명', '마감 D-2', '느긋한 토끼: 이동 시간을 더 잡을게요', null],
+      ['autumn', '가을 경주 야경 같이 봐요', '3:42', '4/8명', '마감 D-3', '우직한 곰: 내일 오후 2시 만나요', 3, '경주 단풍·야경 1박 2일'],
+      ['coast', '바다 보면서 드라이브해요', '1:20', '6/6명', '확정', '잔잔한 거북이: 오늘 사진 올릴게요', null, '포항·영덕 동해 드라이브'],
+      ['coast', '섬에서 이틀 더 걷기', '방금', '3/5명', '확정', '잔잔한 거북이: 배편 시간 다시 확인했어요', null, '울릉도 2박 3일 섬 여행'],
+      ['forest', '한옥에서 하룻밤 어때요', '어제', '3/6명', '확정', '고요한 두루미: 내일 출발이에요!', 1, '안동 하회마을 한옥체험'],
+      ['forest', '그늘만 골라 걷는 서원 길', '어제', '2/4명', '모집중', '초록 여우: 그늘 길 위주로 천천히 걸어요', null, '안동 도산서원 그늘 코스'],
+      ['autumn', '천천히 걷는 단풍길', '월', '2/5명', '마감 D-1', '시스템: 모집이 마감 임박입니다', null, '문경 새재 단풍 트레킹'],
+      ['forest', '30대끼리 느긋하게 힐링 여행가요~', '09:32', '2/5명', '마감 D-3', '숲속여행자: 주산지 물안개 시간에 맞춰 출발해요.', null, '주왕산 & 주산지 힐링 트레킹'],
+      ['coast', '눈꽃 보러 부석사 갈까요', '어제', '4/5명', '마감 D-2', '느긋한 토끼: 눈길이라 이동 시간을 조금 더 잡을게요', null, '영주 부석사 눈꽃 산책'],
     ],
     fixed: [
-      ['coast', '포항·영덕 동해 드라이브', '1:20', '6/6명', '확정', '잔잔한 거북이: 오늘 사진 올릴게요', null],
-      ['forest', '안동 하회마을 한옥체험', '어제', '3/4명', '확정', '고요한 두루미: 내일 출발이에요!', 1],
+      ['coast', '바다 보면서 드라이브해요', '1:20', '6/6명', '확정', '잔잔한 거북이: 오늘 사진 올릴게요', null, '포항·영덕 동해 드라이브'],
+      ['coast', '섬에서 이틀 더 걷기', '방금', '3/5명', '확정', '잔잔한 거북이: 배편 시간 다시 확인했어요', null, '울릉도 2박 3일 섬 여행'],
+      ['forest', '한옥에서 하룻밤 어때요', '어제', '3/6명', '확정', '고요한 두루미: 내일 출발이에요!', 1, '안동 하회마을 한옥체험'],
     ],
     done: [
-      ['coast', '울릉도 2박 3일 섬 여행', '지난주', '5/6명', '종료', '시스템: 여행 기록을 남겨보세요', null],
-      ['autumn', '문경 새재 단풍 트레킹', '5월 2일', '5/5명', '종료', '여행 사진 18장이 모였어요', null],
+      ['forest', '안동 봄날 고택 산책', '4월', '5/5명', '종료', '시스템: 여행 기록이 피드에 저장됐어요', null, '안동 봄날 고택 산책'],
+      ['coast', '첫 울릉도 함께 다녀왔어요', '3월', '5/5명', '종료', '시스템: 도감 친구 3명이 추가됐어요', null, '울릉도 2박 3일 섬 여행'],
     ],
   };
   const Row = ({ item }) => (
@@ -645,6 +652,7 @@ function ScreenChatList({ initialTab = 'live' }) {
       <div style={{ width: 56, height: 56, borderRadius: 16, overflow: 'hidden', flexShrink: 0 }}><ImgPlaceholder height={56} hue={item[0]} radius={16}/></div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}><b style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item[1]}</b><span style={{ fontSize: 11, color: T.text400 }}>{item[2]}</span></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: T.text500, marginTop: 3 }}><Icon name="map" size={11} color={T.text500}/><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item[7]}</span></div>
         <div style={{ fontSize: 12, color: T.text500, marginTop: 3 }}>{item[3]} · {item[4]}</div>
         <div style={{ display: 'flex', gap: 8, marginTop: 5 }}><span style={{ flex: 1, fontSize: 13, color: T.text700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item[5]}</span>{item[6] && <span style={{ minWidth: 20, height: 20, borderRadius: 999, background: T.accent500, color: '#fff', fontSize: 11, display: 'grid', placeItems: 'center' }}>{item[6]}</span>}</div>
       </div>
@@ -656,29 +664,50 @@ function ScreenChatList({ initialTab = 'live' }) {
   ].filter((item) => !cancelled.includes(item.id));
   return (
     <Phone>
-      <div style={{ position: 'absolute', inset: 0, paddingTop: 60, background: RF.bg }}>
-        <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center' }}><div style={{ fontSize: 22, fontWeight: 700 }}>모임</div></div>
-        <div role="tablist" aria-label="모임 상태" style={{ padding: '0 20px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderBottom: `1px solid ${T.line100}` }}>
-          {[['live','진행중',3],['applied','신청중',applications.length],['fixed','확정',2],['done','종료',8]].map(([id,label,count]) => {
+      <div style={{ position: 'absolute', inset: 0, paddingTop: 60, background: RF.bg, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', flexShrink: 0 }}><div style={{ fontSize: 22, fontWeight: 700 }}>모임</div></div>
+        {/* 여행 뒤 남는 특별 메시지 진입 — 앱과 같은 위치·문구 */}
+        <button
+          type="button"
+          data-testid="meeting-special-messages"
+          onClick={() => nav.go('trip-message')}
+          style={{ height: 54, padding: '0 20px', display: 'flex', alignItems: 'center', gap: 10, border: 0, background: 'transparent', color: T.text900, textAlign: 'left', fontFamily: T.fontStack, cursor: 'pointer', borderBottom: `1px solid ${T.line100}`, flexShrink: 0 }}>
+          <span style={{ width: 34, height: 34, borderRadius: 999, background: T.primary100, color: T.primary600, display: 'grid', placeItems: 'center', fontSize: 17, fontWeight: 800 }}>✦</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: 15, fontWeight: 800 }}>친구 도감 메시지</span>
+            <span style={{ display: 'block', fontSize: 12, color: T.text500, marginTop: 2, fontWeight: 600 }}>여행 뒤 남는 특별 메시지를 모아봐요.</span>
+          </span>
+          <Icon name="arrow" size={18} color={T.text500}/>
+        </button>
+        <div role="tablist" aria-label="모임 상태" style={{ padding: '0 20px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderBottom: `1px solid ${T.line100}`, flexShrink: 0 }}>
+          {[['live','진행중',8],['applied','신청중',applications.length],['fixed','확정',3],['done','종료',2]].map(([id,label,count]) => {
             const active = tab === id;
             return <button key={id} type="button" role="tab" aria-selected={active} data-testid={`meeting-tab-${id}`} onClick={() => setTab(id)} style={{ minHeight: 48, padding: '10px 0', border: 0, borderBottom: active ? `2px solid ${T.primary500}` : '2px solid transparent', background: 'transparent', color: active ? T.primary600 : T.text500, fontFamily: T.fontStack, cursor: 'pointer' }}><span style={{ fontSize: 13, fontWeight: 700 }}>{label}</span><span style={{ fontSize: 11, marginLeft: 3 }}>{count}</span></button>;
           })}
         </div>
-        <div style={{ position: 'absolute', top: 164, left: 0, right: 0, bottom: 96, overflow: 'auto' }}>
+        {/* 탭 바로 아래에서 목록이 시작한다 — 절대 위치 매직넘버는 탭 높이가 바뀌면 유격이 생긴다 */}
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingBottom: 96 }}>
           {tab === 'applied' ? <div>
             {applications.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: T.text500, fontSize: 13 }}>신청 중인 모임이 없어요.</div>}
-            {applications.map((item) => <div key={item.id} data-testid={`application-${item.id}`} style={{ padding: '16px 20px', display: 'flex', gap: 12, borderBottom: `1px solid ${T.line100}` }}>
+            {applications.some((item) => item.id === 'waiting') && <div style={{ padding: '14px 20px 0', fontSize: 12, fontWeight: 800, color: T.text500 }}>호스트 승인을 기다리는 중</div>}
+            {applications.map((item) => {
+              // 승인 대기는 "기다리는 중"이라 경고 틴트, 대기열은 "자리가 나면 합류"라 브랜드 틴트를 쓴다
+              const waiting = item.id === 'waiting';
+              const badgeBg = waiting ? T.warningBg : T.primary50;
+              const badgeFg = waiting ? T.warningText : T.primary700;
+              return <div key={item.id} data-testid={`application-${item.id}`} style={{ padding: '16px 20px', display: 'flex', gap: 12, borderBottom: `1px solid ${T.line100}` }}>
               <div style={{ width: 56, height: 56, borderRadius: 16, overflow: 'hidden', flexShrink: 0 }}><ImgPlaceholder height={56} hue={item.hue} radius={16}/></div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><b style={{ fontSize: 14 }}>{item.name}</b><Chip variant={item.id === 'waiting' ? 'accent' : 'soft'}>{item.state}</Chip></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><b style={{ fontSize: 14 }}>{item.name}</b><span style={{ height: 22, padding: '0 9px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', background: badgeBg, color: badgeFg, fontSize: 11, fontWeight: 800 }}>{item.state}</span></div>
                 <div style={{ fontSize: 12, color: T.text500, marginTop: 4 }}>{item.when}</div><div style={{ fontSize: 12, color: T.text500, marginTop: 2 }}>{item.meet}</div>
-                <div style={{ marginTop: 8, padding: '9px 11px', borderRadius: 10, background: T.bgSubtle, color: T.text700, fontSize: 12, lineHeight: 1.5 }}>{item.desc}</div>
+                <div style={{ marginTop: 8, padding: '9px 11px', borderRadius: 10, background: badgeBg, color: badgeFg, fontSize: 12, lineHeight: 1.5 }}>{item.desc}</div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                   <button type="button" data-testid={`cancel-application-${item.id}`} onClick={() => setCancelled((current) => [...current, item.id])} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>신청 취소</button>
                   <button type="button" onClick={() => nav.go('detail')} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>모집 상세</button>
                 </div>
               </div>
-            </div>)}
+            </div>;
+            })}
             <div style={{ padding: '14px 20px 24px', fontSize: 11, color: T.text400, lineHeight: 1.6 }}>신청 상태에서는 아직 채팅방에 들어갈 수 없어요. 승인되거나 자리가 나면 알림으로 알려드릴게요.</div>
           </div> : rows[tab].map((item) => <Row key={item[1]} item={item}/>) }
         </div>
@@ -700,13 +729,13 @@ function ScreenNotifications() {
     { icon: 'pin', color: T.primary600, bg: T.primary100, title: <><b>주왕산</b> 모임의 집결지가 업데이트됐어요</>, time: '5시간 전' },
   ];
   const yesterdayItems = [
-    { icon: 'user', color: T.info, bg: '#E8F1FB', title: <>엉뚱한 토끼 1457님이 <b>친구 요청</b>을 보냈어요</>, time: '어제 오후 4시', action: true },
+    { icon: 'user', color: T.info, bg: T.bgSubtle, title: <>엉뚱한 토끼 1457님이 <b>친구 요청</b>을 보냈어요</>, time: '어제 오후 4시', action: true },
     { icon: 'heart', color: T.accent500, bg: T.accent100, title: <><b>3명</b>이 내 피드에 좋아요를 눌렀어요</>, time: '어제 오전 11시' },
     { icon: 'sparkle', color: T.primary600, bg: T.primary100, title: <>내 취향에 맞는 <b>울진 금강송 숲길 워크</b>가 열렸어요</>, time: '어제 오전 9시' },
   ];
   const olderItems = [
     { icon: 'bookmark', color: T.primary600, bg: T.primary100, title: <><b>영주 부석사 눈꽃 산책</b> 찜한 코스가 모집을 시작했어요</>, time: '2일 전' },
-    { icon: 'feed', color: T.info, bg: '#E8F1FB', title: <>지난 <b>포항·영덕 동해 드라이브</b> 기록을 남겨보세요</>, time: '3일 전' },
+    { icon: 'feed', color: T.info, bg: T.bgSubtle, title: <>지난 <b>포항·영덕 동해 드라이브</b> 기록을 남겨보세요</>, time: '3일 전' },
     { icon: 'users', color: T.primary600, bg: T.primary100, title: <>새 친구 2명이 <b>친구 도감</b>에 추가됐어요</>, time: '4일 전' },
   ];
   const Item = ({ icon, color, bg, title, time, action, last }) => (
@@ -754,23 +783,13 @@ function ScreenNotifications() {
 // ───────── 21 · 검색 ─────────
 function ScreenSearch() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
-  const recent = ['경주', '단풍', '황리단길', '안동 한옥', '주왕산', '월정교 야경', '문경 새재', '포항 바다'];
+  const recent = ['경주', '단풍', '황리단길', '안동 한옥', '주왕산'];
   const popular = [
     { n: 1, w: '주왕산', up: true },
     { n: 2, w: '안동 한옥마을', up: true },
     { n: 3, w: '경주 야경', up: false },
     { n: 4, w: '포항 호미곶', up: true },
     { n: 5, w: '문경 새재', up: false },
-    { n: 6, w: '영주 부석사', up: true },
-    { n: 7, w: '울진 금강송', up: true },
-    { n: 8, w: '청송 얼음골', up: false },
-    { n: 9, w: '울릉도 산책', up: true },
-    { n: 10, w: '봉화 분천역', up: false },
-  ];
-  const recommendations = [
-    { title: '경주 단풍·야경 1박 2일', meta: '첨성대 · 월정교 · 동궁과 월지' },
-    { title: '청송 주왕산 물안개 코스', meta: '주왕산 · 주산지 · 절골계곡' },
-    { title: '안동 하회마을 한옥 하루', meta: '하회마을 · 부용대 · 월영교' },
   ];
   return (
     <Phone>
@@ -805,19 +824,6 @@ function ScreenSearch() {
               <div style={{ fontSize: 11, color: r.up ? T.accent500 : T.text400 }}>{r.up ? '▲' : '—'}</div>
             </div>
           ))}
-          <div style={{ fontSize: 13, fontWeight: 600, marginTop: 26, marginBottom: 12 }}>추천 검색 결과</div>
-          {recommendations.map((item) => (
-            <div key={item.title} onClick={() => nav.go('detail')} style={{ height: 68, borderRadius: 12, border: `1px solid ${T.line100}`, background: T.bgBase, display: 'flex', alignItems: 'center', gap: 12, padding: '0 12px', marginBottom: 10, cursor: 'pointer' }}>
-              <div style={{ width: 36, height: 36, borderRadius: 999, background: T.primary50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="pin" size={16} color={T.primary600}/>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.title}</div>
-                <div style={{ fontSize: 11, color: T.text500, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.meta}</div>
-              </div>
-              <Icon name="arrow" size={15} color={T.text400}/>
-            </div>
-          ))}
         </div>
       </div>
     </Phone>
@@ -830,7 +836,7 @@ function ScreenExploreMap() {
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0 }}>
-        <div style={{ position: 'absolute', inset: 0, background: '#EEF4F0' }}>
+        <div style={{ position: 'absolute', inset: 0, background: T.bgSubtle }}>
           <MiniMap height={852} withRoute={false} pins={[]}/>
           {/* Multi pins for explore */}
           <svg width="100%" height="100%" viewBox="0 0 393 852" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
@@ -1009,7 +1015,7 @@ function ScreenLeaveAlert() {
     <div style={{ width: 393, height: 852, background: 'rgba(15,23,20,0.48)', borderRadius: 24, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.fontStack, overflow: 'hidden' }}>
       {/* dimmed bg hint */}
       <div style={{ position: 'absolute', inset: 0, background: T.bgSubtle, opacity: 0.4 }}/>
-      <div style={{ position: 'relative', width: 320, background: T.bgBase, borderRadius: 20, padding: 24, boxShadow: T.l3 }}>
+      <div style={{ position: 'relative', width: 320, background: T.bgBase, borderRadius: 20, border: `1px solid ${T.line200}`, padding: 24, boxShadow: T.l3 }}>
         <div style={{ width: 48, height: 48, borderRadius: 999, background: T.dangerBg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, fontSize: 22 }}>⚠</div>
         <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.4, letterSpacing: '-0.3px' }}>호스트가 나가면<br/>이 모임은 종료돼요</div>
         <div style={{ fontSize: 13, color: T.text500, marginTop: 10, lineHeight: 1.6 }}>승인된 4명에게 알림이 가고, 채팅방은 14일 동안 read-only로 유지된 후 사라져요.</div>

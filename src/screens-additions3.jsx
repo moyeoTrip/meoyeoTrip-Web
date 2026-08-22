@@ -77,7 +77,7 @@ function ScreenTripConfirmed() {
             {[
               ['calendar', '5/25(토) 당일치기 · 08:00 – 18:00'],
               ['pin', '07:50 청송 시외버스터미널 정문 앞'],
-              ['users', '5명 · 최소 3명 충족'],
+              ['users', '3명 · 최소 3명 충족'],
             ].map((r) => (
               <div key={r[1]} style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 8, fontSize: 12.5, color: T.text900, fontWeight: 700 }}>
                 <Icon name={r[0]} size={15} color={T.primary600}/>{r[1]}
@@ -111,10 +111,9 @@ function ScreenTripConfirmed() {
   );
 }
 
-// ───────── 35 · 여행 날 채팅방 (진행 위젯 · 위치 공유) ─────────
+// ───────── 35 · 여행 날 채팅방 (진행 위젯) ─────────
 function ScreenTripDay() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
-  const [share, setShare] = React.useState(true);
   const stops = ['청송터미널', '주왕산', '주산지', '달기약수탕'];
   const current = 2; // 1-indexed
 
@@ -168,27 +167,7 @@ function ScreenTripDay() {
           </div>
         </div>
 
-        {/* 실시간 위치 공유 — 여행 날에만, 기본 옵트인 필요 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: `1px solid ${RF.softLine}`, background: RF.card }}>
-          <Icon name="map" size={15} color={share ? T.primary600 : T.text500}/>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 800 }}>{share ? '3명이 위치를 공유 중이에요' : '위치 공유 꺼짐'}</div>
-            <div style={{ fontSize: 10.5, color: T.text500, marginTop: 2 }}>여행이 끝나면 자동으로 꺼져요</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShare((v) => !v)}
-            aria-label="위치 공유 토글"
-            style={{
-              width: 44, height: 26, borderRadius: 999, border: 'none', cursor: 'pointer', padding: 2,
-              background: share ? T.primary500 : T.line200,
-              display: 'flex', justifyContent: share ? 'flex-end' : 'flex-start', alignItems: 'center',
-            }}>
-            <span style={{ width: 22, height: 22, borderRadius: 999, background: '#fff', boxShadow: T.l1 }}/>
-          </button>
-        </div>
-
-        <div style={{ height: 'calc(100% - 336px)', overflow: 'auto', padding: '16px 18px 86px', background: T.chatCanvas }}>
+        <div style={{ height: 'calc(100% - 274px)', overflow: 'auto', padding: '16px 18px 86px', background: T.chatCanvas }}>
           <div style={{ width: 'fit-content', margin: '0 auto 14px', background: T.systemMsg, color: T.primary700, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 800 }}>
             오늘 여행이 시작됐어요 🎒
           </div>
@@ -345,25 +324,7 @@ function ScreenNotifDetail() {
             )}
           </div>
 
-          <div style={{ height: 8, background: T.bgSubtle, margin: '18px 0 0' }}/>
-
-          {/* 방별 음소거 */}
-          <div style={{ padding: '16px 20px 0' }}>
-            <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 4 }}>모임별 알림</div>
-            {[
-              { n: '주왕산 & 주산지 힐링 트레킹', on: true, hue: 'forest' },
-              { n: '포항·영덕 동해 드라이브', on: false, hue: 'coast' },
-              { n: '안동 하회마을 한옥체험', on: true, hue: 'hanok' },
-            ].map((room) => (
-              <div key={room.n} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '11px 0', borderBottom: `1px solid ${RF.softLine}` }}>
-                <div style={{ width: 34, height: 34, borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
-                  <Photo hue={room.hue} height={34} radius={0}/>
-                </div>
-                <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{room.n}</div>
-                <Toggle on={room.on}/>
-              </div>
-            ))}
-          </div>
+          {/* 모임별 알림은 여기서 다루지 않는다 — 각 채팅방 설정에서 그 방의 알림을 켜고 끈다 */}
         </div>
       </div>
     </Phone>
@@ -374,6 +335,7 @@ function ScreenNotifDetail() {
 function ScreenAccountDelete() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const [reason, setReason] = React.useState('');
+  const [deleteAcknowledged, setDeleteAcknowledged] = React.useState(false);
   const [confirm, setConfirm] = React.useState(false);
   const reasons = [
     '여행을 자주 가지 않게 됐어요',
@@ -455,12 +417,37 @@ function ScreenAccountDelete() {
               </div>
             ))}
           </div>
+
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={deleteAcknowledged}
+            onClick={() => setDeleteAcknowledged((value) => !value)}
+            style={{
+              width: '100%', marginTop: 12, padding: '12px 13px', borderRadius: 12,
+              border: `1px solid ${deleteAcknowledged ? T.dangerText : RF.softLine}`,
+              background: deleteAcknowledged ? T.dangerBg : RF.card,
+              display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left',
+              color: T.text900, fontFamily: T.fontStack, cursor: 'pointer',
+            }}>
+            <span style={{
+              width: 20, height: 20, borderRadius: 5, flexShrink: 0, marginTop: 1,
+              border: `1.5px solid ${deleteAcknowledged ? T.dangerText : T.line300}`,
+              background: deleteAcknowledged ? T.dangerText : 'transparent',
+              display: 'grid', placeItems: 'center',
+            }}>
+              {deleteAcknowledged && <Icon name="check" size={13} color="#fff" strokeWidth={3}/>}
+            </span>
+            <span style={{ fontSize: 12, lineHeight: '18px', fontWeight: 700 }}>
+              삭제되는 정보와 30일 복구 대기 정책을 확인했어요.
+            </span>
+          </button>
         </div>
 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}>
           <Btn variant="ghost" onClick={nav.back}>돌아가기</Btn>
           <div style={{ flex: 1 }}>
-            <Btn variant="danger" full disabled={!reason} onClick={() => setConfirm(true)}>탈퇴하기</Btn>
+            <Btn variant="danger" full disabled={!reason || !deleteAcknowledged} onClick={() => setConfirm(true)}>탈퇴하기</Btn>
           </div>
         </div>
 

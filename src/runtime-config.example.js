@@ -9,6 +9,7 @@ window.MOYEO_RUNTIME_CONFIG = {
     appId: 'FIREBASE_WEB_APP_ID',
   },
   firebaseVapidKey: 'FIREBASE_WEB_VAPID_PUBLIC_KEY',
+  pushTokenRegistrationPath: '/api/v1/users/me/fcm-token',
   kakaoJavaScriptKey: 'KAKAO_JAVASCRIPT_KEY',
   kakaoRedirectUri: 'https://YOUR_GITHUB_PAGES_HOST/YOUR_REPOSITORY/',
   sentry: {

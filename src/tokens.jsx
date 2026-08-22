@@ -44,6 +44,31 @@ const MOYEO_THEME_CSS = `
   --moyeo-google-button-bg: #FFFFFF;
   --moyeo-google-button-border: #747775;
   --moyeo-google-button-text: #1F1F1F;
+  /* 브랜드 틴트 — 다크에서는 어두운 틴트로 뒤집힌다 */
+  --moyeo-primary-50: #F0F8F4;
+  --moyeo-primary-100: #DCEFE3;
+  --moyeo-primary-600: #1F7346;
+  --moyeo-primary-700: #155735;
+  --moyeo-accent-100: #FFE4DA;
+  --moyeo-accent-700: #B64227;
+  --moyeo-warning-bg: #FFF1D6;
+  --moyeo-warning-text: #A67318;
+  --moyeo-danger-bg: #FFDDD8;
+  --moyeo-danger-text: #B73520;
+  /* 프로필 커버 — 다크 모드에서도 앱과 같은 어두운 초록이 되게 토큰으로 뺀다 */
+  --moyeo-cover-top: #C9E9C9;
+  --moyeo-cover-bottom: #EAF4E5;
+  --moyeo-cover-hill: #8FC482;
+  /* 미니맵 — 다크 모드에서도 앱과 같은 어두운 지도를 쓰기 위해 토큰으로 뺀다 */
+  --moyeo-map-bg: #EEF4F0;
+  --moyeo-map-land: #E0EAD8;
+  --moyeo-map-water: #CDDDE8;
+  --moyeo-map-road: #D9DDD9;
+  /* 이미지·지도 위에 얹는 반투명 패널, 아바타 링, 채팅 캔버스 */
+  --moyeo-overlay-panel: rgba(255,255,255,0.94);
+  --moyeo-avatar-ring: #FFFFFF;
+  --moyeo-chat-canvas: #FCFDFB;
+  --moyeo-system-msg: #E7F3E7;
   color-scheme: light;
 }
 
@@ -88,6 +113,27 @@ const MOYEO_THEME_CSS = `
   --moyeo-google-button-bg: #131314;
   --moyeo-google-button-border: #8E918F;
   --moyeo-google-button-text: #E3E3E3;
+  --moyeo-primary-50: #12251C;
+  --moyeo-primary-100: #1C3728;
+  --moyeo-primary-600: #7EC49B;
+  --moyeo-primary-700: #B4DDC3;
+  --moyeo-accent-100: #46231A;
+  --moyeo-accent-700: #FFAE95;
+  --moyeo-warning-bg: #3A2B12;
+  --moyeo-warning-text: #F0C77A;
+  --moyeo-danger-bg: #44201A;
+  --moyeo-danger-text: #FFAEA0;
+  --moyeo-cover-top: #16342A;
+  --moyeo-cover-bottom: #0E241D;
+  --moyeo-cover-hill: #2E6B4B;
+  --moyeo-map-bg: #1A2320;
+  --moyeo-map-land: #222C28;
+  --moyeo-map-water: #1A2A36;
+  --moyeo-map-road: #323D38;
+  --moyeo-overlay-panel: rgba(13,20,17,0.92);
+  --moyeo-avatar-ring: #18231E;
+  --moyeo-chat-canvas: #101815;
+  --moyeo-system-msg: #1C3728;
   color-scheme: dark;
 }
 
@@ -216,32 +262,47 @@ setMoyeoThemeMode(initialMoyeoThemeMode);
 
 const T = {
   // Brand Primary - 경북 포레스트
-  primary50:  '#F0F8F4',
-  primary100: '#DCEFE3',
+  // 틴트 배경(50·100)과 텍스트용 진한 톤(600·700)은 테마별로 뒤집힌다.
+  // 브랜드 채움색(200~500, 800·900)은 라이트/다크 공통.
+  primary50:  'var(--moyeo-primary-50)',
+  primary100: 'var(--moyeo-primary-100)',
   primary200: '#B4DDC3',
   primary300: '#7EC49B',
   primary400: '#4FAA74',
   primary500: '#2D8F5A',
-  primary600: '#1F7346',
-  primary700: '#155735',
+  primary600: 'var(--moyeo-primary-600)',
+  primary700: 'var(--moyeo-primary-700)',
   primary800: '#0D3C25',
   primary900: '#061E13',
 
   // Accent - 선셋 코랄
-  accent100: '#FFE4DA',
+  accent100: 'var(--moyeo-accent-100)',
   accent300: '#FFAE95',
   accent500: '#FF7550',
-  accent700: '#B64227',
+  accent700: 'var(--moyeo-accent-700)',
 
   // Semantic
   success: '#2D8F5A',
   warning: '#E8A547',
-  warningBg: '#FFF1D6',
-  warningText: '#A67318',
+  warningBg: 'var(--moyeo-warning-bg)',
+  warningText: 'var(--moyeo-warning-text)',
   danger: '#E85547',
-  dangerBg: '#FFDDD8',
-  dangerText: '#B73520',
+  dangerBg: 'var(--moyeo-danger-bg)',
+  dangerText: 'var(--moyeo-danger-text)',
   info: '#4A90E2',
+
+  // 표면 보조 — 이미지/지도 위 패널, 아바타 링, 채팅 캔버스, 시스템 메시지
+  overlayPanel: 'var(--moyeo-overlay-panel)',
+  coverTop: 'var(--moyeo-cover-top)',
+  coverBottom: 'var(--moyeo-cover-bottom)',
+  coverHill: 'var(--moyeo-cover-hill)',
+  mapBg: 'var(--moyeo-map-bg)',
+  mapLand: 'var(--moyeo-map-land)',
+  mapWater: 'var(--moyeo-map-water)',
+  mapRoad: 'var(--moyeo-map-road)',
+  avatarRing: 'var(--moyeo-avatar-ring)',
+  chatCanvas: 'var(--moyeo-chat-canvas)',
+  systemMsg: 'var(--moyeo-system-msg)',
 
   // Neutrals - Light
   bgBase: 'var(--moyeo-bg-base)',

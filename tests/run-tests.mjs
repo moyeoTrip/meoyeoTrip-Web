@@ -14,12 +14,25 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const routes = [
   "splash",
   "onboarding",
+  "onb-1",
+  "onb-2",
+  "onb-3",
   "login",
   "email-auth",
   "nickname",
   "profile-image",
   "profile-basic",
+  "prof-1",
+  "prof-2",
+  "prof-3",
   "terms",
+  "terms-detail",
+  "terms-privacy",
+  "terms-location",
+  "terms-marketing",
+  "terms-settings",
+  "place-search",
+  "place-detail",
   "home",
   "explore",
   "explore-map",
@@ -39,6 +52,7 @@ const routes = [
   "course-edit",
   "course-edit-linked",
   "course-edit-locked",
+  "course-edit-custom",
   "meetings",
   "chat-list",
   "chat-list-applied",
@@ -51,6 +65,11 @@ const routes = [
   "feed",
   "feed-detail",
   "feed-write",
+  "feed-write-1",
+  "feed-write-2",
+  "feed-write-3",
+  "feed-write-4",
+  "feed-write-5",
   "profile",
   "my",
   "dex",
@@ -78,7 +97,7 @@ const expectedTexts = {
   explore: ["탐색", "어디로 떠나고 싶나요?", "주왕산 & 주산지 힐링 트레킹", "울진 금강송 숲길 워크"],
   "explore-map": ["탐색", "경북"],
   meetings: ["모임", "진행중", "확정", "종료", "울릉도 2박 3일 섬 여행"],
-  feed: ["피드", "여행 기록", "울진 금강송 숲길에서 쉬어간 오후"],
+  feed: ["피드", "여행 기록", "울릉도는 천천히 움직여야 보여요"],
   my: ["내 여행", "진행중", "지난여행", "찜한 코스", "영주 부석사 눈꽃 산책"],
   login: ["모여트립에 오신 걸", "환영해요", "카카오 로그인", "이메일로 시작하기", "Google로 계속하기", "Apple로 계속하기"],
   "email-auth": ["이메일로 시작하기", "로그인", "새 계정 만들기", "비밀번호", "비밀번호를 잊으셨나요?"],
@@ -86,20 +105,36 @@ const expectedTexts = {
   "profile-image": ["프로필 설정", "내 친구를 골라주세요", "새 후보 만들기", "이 친구로 시작하기"],
   "profile-basic": ["프로필 설정", "생년월일", "성별", "1998년 4월 12일"],
   terms: ["약관", "동의"],
+  "terms-detail": ["이용약관", "필수", "동의하고 돌아가기", "최소 인원 3명"],
+  "terms-privacy": ["개인정보 처리방침", "필수", "보관 기간", "동의하고 돌아가기"],
+  "terms-location": ["위치정보 이용 동의", "선택", "이 항목에 동의하기"],
+  "terms-marketing": ["마케팅 정보 수신 동의", "선택", "이 항목에 동의하기"],
+  "terms-settings": ["이용약관", "필수", "이전 판본"],
+  "place-search": ["방문지 검색", "관광지", "주왕산국립공원", "코스에 반영"],
+  "place-detail": ["달기약수터 백숙거리", "우편번호 37411", "메뉴판 4", "이 장소를 코스에 담기"],
   splash: ["모여트립 in 경북"],
-  "feed-write": ["글쓰기", "여행 기록"],
+  "onb-1": ["온보딩", "1/7", "고민 없이 고르는", "경북 코스"],
+  "onb-2": ["온보딩", "2/7", "3명이 모이면", "채팅방이 열려요"],
+  "onb-3": ["온보딩", "3/7", "여행 뒤엔", "자연스럽게 친구로"],
+  "feed-write": ["피드 글쓰기", "STEP 3"],
+  "feed-write-1": ["피드 글쓰기", "STEP 1 · 코스 확인", "기록할 코스", "경로 (자동)"],
+  "feed-write-2": ["피드 글쓰기", "STEP 2 · 사진 선택", "대표", "사진 추가"],
+  "feed-write-3": ["피드 글쓰기", "STEP 3 · 사진 & 메모", "여행 어땠어요?"],
+  "feed-write-4": ["피드 글쓰기", "STEP 4 · 공개 설정", "공개 범위", "친구만"],
+  "feed-write-5": ["피드 글쓰기", "STEP 5 · 최종 확인", "게시하기"],
   "feed-detail": ["피드", "댓글"],
   notifications: ["알림", "울진 금강송 숲길 워크", "영주 부석사 눈꽃 산책"],
-  search: ["최근 검색어", "청송 얼음골", "추천 검색 결과", "청송 주왕산 물안개 코스"],
-  course: ["코스 일정", "용연폭포 쉼터", "함께 보면 좋은 곳"],
+  // 추천 검색 결과 섹션은 화면기획에 없어 삭제했고, 인기 검색어는 5개로 제한한다
+  search: ["최근 검색어", "인기 검색어", "주왕산", "문경 새재"],
+  course: ["코스 상세", "숲속여행자 님이 다녀온 코스", "여행자 코스", "코스 미리보기"],
   profile: ["최근 여행 (8)", "울진 금강송 숲길", "영주 부석사 눈꽃"],
   "auth-methods": ["로그인 방식", "카카오", "Google", "이메일", "Apple"],
   create: ["모집 만들기 (1/5)", "코스 선택", "등록된 코스로 떠나기", "코스 직접 만들기", "이 코스로 다음"],
   "custom-course": ["코스 직접 만들기", "방문지 검색", "최소 2개 · 최대 20개", "여행이 확정되기 전까지"],
   "create-schedule": ["모집 만들기 (2/5)", "일정 정하기", "당일치기", "1박 이상", "집합 장소 · 집합 시간", "이전", "다음"],
-  "create-people": ["모집 만들기 (3/5)", "몇 명이 모이면 좋을까요?", "최소 인원", "최대 인원", "성별 제한", "이전", "다음"],
-  "create-detail": ["모집 만들기 (4/5)", "어떤 여행인지 알려주세요", "여행명", "신청 승인 방식", "이전", "다음"],
-  "create-meet": ["모집 만들기 (4/5)", "집합 장소 정하기", "검색하거나 지도의 핀을 움직여 정확한 위치를 알려주세요.", "터미널 정문 앞", "2번 출구", "주차장 입구", "좌표 (자동 저장)", "집합 시간", "근처 모집 추천", "이전", "다음"],
+  "create-people": ["모집 만들기 (3/5)", "몇 명이 모이면 좋을까요?", "최소 인원", "최대 인원", "20~100세", "성별 제한", "이전", "다음"],
+  "create-detail": ["모집 만들기 (4/5)", "어떤 여행인지 알려주세요", "모집 이름 (채팅방 이름)", "주왕산 &amp; 주산지 힐링 트레킹", "신청 승인 방식", "이전", "다음"],
+  "create-meet": ["모집 만들기 (2/5)", "집합 장소 정하기", "검색하거나 지도의 핀을 움직여 정확한 위치를 알려주세요.", "터미널 정문 앞", "2번 출구", "주차장 입구", "좌표 (자동 저장)", "집합 시간", "근처 모집 추천", "이전", "이 위치로 지정"],
   "create-summary": ["모집 만들기 (5/5)", "이대로 모집을 열까요?", "호스트 직접 코스", "여행이 확정되기 전까지", "이전", "모집 열기"],
   "create-summary-linked": ["모집 만들기 (5/5)", "이대로 모집을 열까요?", "등록된 코스", "경로(방문지·순서)는 수정할 수 없고", "이전", "모집 열기"],
   "course-edit": ["여행 경로", "마감 전까지 경로를 바꿀 수 있어요", "저장하고 멤버에게 알리기"],
@@ -117,7 +152,7 @@ const expectedTexts = {
   blocked: ["차단한 사용자", "차단 해제"],
   "course-publish": ["코스 공개", "한 번 공개하면", "코스 공개하기"],
   "trip-confirmed": ["여행이 확정됐어요!", "확정된 여행", "채팅방으로 가기"],
-  "trip-day": ["여행 중", "현재 방문지", "위치 공유"],
+  "trip-day": ["여행 중", "현재 방문지", "다음 일정"],
   "notif-detail": ["채팅 알림", "방해금지", "멘션·답글만"],
   "account-delete": ["계정 탈퇴", "30일", "탈퇴"],
   "system-maintenance": ["잠시 점검 중이에요", "다시 확인"],
@@ -193,6 +228,7 @@ function assertScriptOrder(html) {
     "src/cached-image.jsx",
     "src/push-notifications.js",
     "src/auth-api.jsx",
+    "src/tourism-api.js",
     "src/screens-onboarding.jsx",
     "src/screens-home.jsx",
     "src/screens-chat.jsx",
@@ -203,6 +239,7 @@ function assertScriptOrder(html) {
     "src/screens-additions.jsx",
     "src/screens-additions2.jsx",
     "src/screens-additions3.jsx",
+    "src/screens-additions4.jsx",
     "src/prototype.jsx",
     "src/mobile-app.jsx",
   ];
@@ -223,13 +260,14 @@ async function staticTests() {
     fileExists(".github/workflows/deploy-pages.yml"),
   ]);
 
-  const [html, mobileApp, refined, additions, additions2, additions3, shared, cachedImage, pushNotifications, serviceWorker, prototype, onboarding, authApi, extra, extra2, readme, standaloneWorkflow, devServer, observability] = await Promise.all([
+  const [html, mobileApp, refined, additions, additions2, additions3, additions4, shared, cachedImage, pushNotifications, serviceWorker, prototype, onboarding, authApi, tourismApi, extra, extra2, readme, standaloneWorkflow, devServer, observability] = await Promise.all([
     read("index.html"),
     read("src/mobile-app.jsx"),
     read("src/screens-refined.jsx"),
     read("src/screens-additions.jsx"),
     read("src/screens-additions2.jsx"),
     read("src/screens-additions3.jsx"),
+    read("src/screens-additions4.jsx"),
     read("src/shared.jsx"),
     read("src/cached-image.jsx"),
     read("src/push-notifications.js"),
@@ -237,6 +275,7 @@ async function staticTests() {
     read("src/prototype.jsx"),
     read("src/screens-onboarding.jsx"),
     read("src/auth-api.jsx"),
+    read("src/tourism-api.js"),
     read("src/screens-extra.jsx"),
     read("src/screens-extra2.jsx"),
     read("README.md"),
@@ -270,8 +309,12 @@ async function staticTests() {
     "course-edit-${mode}",
     "window.__moyeoCourseSource || 'custom'",
     "nav.go('create-people')",
-    "nav.go((window.__moyeoCourseSource || 'custom') === 'linked' ? 'create-summary-linked' : 'create-summary')",
   ], "changeLog01 additions");
+  assertIncludes(
+    additions2,
+    ["nav.go((window.__moyeoCourseSource || 'custom') === 'linked' ? 'create-summary-linked' : 'create-summary')"],
+    "linked summary routing"
+  );
   assertIncludes(additions2, [
     "function ScreenCreatePeople",
     "function ScreenCreateDetail",
@@ -288,8 +331,24 @@ async function staticTests() {
     "function ScreenTripDay",
     "function ScreenNotifDetail",
     "function ScreenAccountDelete",
+    "삭제되는 정보와 30일 복구 대기 정책을 확인했어요.",
+    "disabled={!reason || !deleteAcknowledged}",
     "function ScreenFeedComments",
   ], "changeLog04 additions");
+  assertIncludes(additions4, [
+    "function ScreenPlaceSearch",
+    "function ScreenPlaceDetail",
+    "function ScreenTermsDetail",
+    "doc=\"marketing\"",
+    "from=\"settings\"",
+    "current.postalCode",
+    "메뉴판 탭은 음식점 콘텐츠에서만",
+  ], "changeLog06-07 additions");
+  assertIncludes(additions2, ["모집 이름 (채팅방 이름)", "20~100세", "1인 45,000원", "마감 D-3"], "changeLog06 recruitment details");
+  assertIncludes(extra, ["terms-open-${itemKey}", "detailRoute=\"terms-detail\"", "detailRoute=\"terms-marketing\""], "terms row entry separation");
+  assertIncludes(extra2, ["privacy-settings", "terms-settings"], "settings terms entries");
+  assertIncludes(prototype, ["'place-search': window.ScreenPlaceSearch", "'terms-marketing': window.ScreenTermsMarketing"], "changeLog06-07 routes");
+  assertIncludes(mobileApp, ["'onb-1': 'onboarding'", "'place-detail': 'place-detail'", "'terms-settings': 'terms-settings'"], "design artboard route aliases");
   assertIncludes(refined, [
     "data-testid={`course-source-${id}`}",
     "등록된 코스는 방문지와 순서가 고정돼요",
@@ -300,6 +359,15 @@ async function staticTests() {
     "호스트가 경로를 수정했어요",
   ], "changeLog01 refined screens");
   assert.ok(!refined.includes("'추천시기','봄-가을'"), "course detail must remove recommendation season metric");
+  assertIncludes(refined, [
+    "숲속여행자 님이 다녀온 코스",
+    "2026.05.25 여행 후 공개 · 이 코스로 떠난 모임 3",
+    "여행자 코스",
+  ], "course detail source attribution");
+  assert.ok(!refined.includes("<div style={{ fontSize: 15, fontWeight: 900, marginTop: 24, marginBottom: 10 }}>코스 일정</div>"), "course detail must not duplicate the itinerary already represented by the route preview");
+  assert.ok(!refined.includes("<div style={{ fontSize: 15, fontWeight: 900, marginTop: 24, marginBottom: 10 }}>함께 보면 좋은 곳</div>"), "course detail must not add planning-only nearby recommendations");
+  assert.ok(!refined.includes("영주 부석사 눈길은 조용해서 더 좋았어요"), "feed mock data must stay aligned with the six planning feed cards");
+  assert.ok(!refined.includes("울진 금강송 숲길에서 쉬어간 오후"), "feed mock data must stay aligned with the six planning feed cards");
   assertIncludes(extra, [
     "host-course-edit",
     "data-testid={`meeting-tab-${id}`}",
@@ -312,6 +380,7 @@ async function staticTests() {
   ], "changeLog01 extra screens");
   assertIncludes(prototype, [
     "'chat-list-applied': window.ScreenChatListApplied",
+    "'course-edit-custom': window.ScreenCourseEdit",
     "'leave-alert': window.ScreenLeaveAlert",
   ], "changeLog01 routes");
   assert.ok(!refined.includes("회원가입 로그인 체험"), "home must not restore the removed auth experience button");
@@ -337,8 +406,17 @@ async function staticTests() {
   assertIncludes(pushNotifications, [
     "Notification.requestPermission",
     "firebase.messaging",
-    "getToken({ vapidKey, serviceWorkerRegistration: registration })",
+    "instance.getToken({",
+    "vapidKey: config().firebaseVapidKey",
+    "serviceWorkerRegistration: registration",
     "moyeo:push-message",
+    "moyeo:push-state",
+    "moyeo:push-token",
+    "setTokenRegistrar",
+    "syncToken",
+    "document.baseURI",
+    "STATUS.DENIED",
+    "STATUS.UNSUPPORTED",
     "notification-center",
   ], "FCM browser client");
   assertIncludes(serviceWorker, [
@@ -346,11 +424,13 @@ async function staticTests() {
     "onBackgroundMessage",
     "notificationclick",
     "clients.openWindow",
+    "self.registration.scope",
   ], "FCM service worker");
   assertIncludes(devServer, [
     "runtime-config.local.js",
     "FIREBASE_WEB_API_KEY",
     "FIREBASE_WEB_VAPID_KEY",
+    "MOYEO_FCM_TOKEN_REGISTRATION_PATH",
     "KAKAO_JAVASCRIPT_KEY",
     "KAKAO_REDIRECT_URI",
     "http.server",
@@ -372,16 +452,35 @@ async function staticTests() {
     "getRedirectResult",
     "loginBody.fcmToken",
     "currentFcmToken",
+    "pushTokenRegistrationPath",
+    "setTokenRegistrar",
     "return { route: 'onboarding' };",
   ], "auth-api.jsx");
   assert.ok(!authApi.includes("/api/v1/auth/login/${"), "auth login must not use provider-specific URLs");
   assert.ok(!authApi.includes("/api/v1/auth/signup/${"), "auth signup must not use provider-specific URLs");
+  assertIncludes(tourismApi, [
+    "/api/v1/tourism-contents",
+    "normalizeListItem",
+    "normalizeDetail",
+    "thumbnailUrl",
+    "postalCode",
+    "menuImages",
+    "SCHEMA_MISMATCH",
+    "usesDeterministicSamples",
+  ], "tourism API client");
+  assertIncludes(additions4, [
+    "window.MoyeoTourism.list()",
+    "window.MoyeoTourism.detail(selectedId)",
+    "예시 장소를 대신 보여드려요",
+    "예시 상세를 대신 보여드려요",
+    "PlaceImage",
+  ], "live tourism screens");
   assertIncludes(extra, [
     "auth-login-${provider}",
     "auth-login-welcome-image",
     "assets/login-welcome.webp",
     "assets/login-welcome-night.webp",
-    "fetchPriority=\"high\"",
+    "fetchpriority=\"high\"",
     "provider=\"kakao\"",
     "provider=\"email\"",
     "provider=\"google\"",
@@ -488,10 +587,9 @@ async function staticTests() {
     "{color.label}",
     "description: candidate?.description || DEFAULT_NICKNAME_DESCRIPTION",
     "{candidate.description}",
-    "새 후보를 하나씩 추가",
-    "이전 후보는 그대로 보관",
+    "후보를 하나씩 추가해요",
+    "이전에 만든 후보는 사라지지 않아요",
     "새 후보 만들기",
-    "나갔다 돌아와도 후보는 다시 불러와요",
     "profile-image-generating",
     "닉네임에서 여행 친구의 분위기를 찾고 있어요",
     "다른 화면으로 이동해도 완성된 후보는 서버에 보관돼요",
@@ -537,6 +635,197 @@ async function staticTests() {
       assert.ok(info.size < 150_000, `${asset} should remain web-optimized`);
     }
   }
+}
+
+async function pushContractTests() {
+  const source = await read("src/push-notifications.js");
+
+  function createPushWindow({ permission = "default", supported = true, secure = true } = {}) {
+    const events = [];
+    const registrations = [];
+    const notifications = [];
+    let foregroundHandler = null;
+    const Notification = {
+      permission,
+      async requestPermission() {
+        this.permission = "granted";
+        return this.permission;
+      },
+    };
+    const registration = {
+      async showNotification(title, options) { notifications.push({ title, options }); },
+    };
+    const navigator = {
+      serviceWorker: {
+        async register(url, options) {
+          registrations.push({ url: String(url), options });
+          return registration;
+        },
+      },
+    };
+    const messagingInstance = {
+      async getToken(options) {
+        assert.equal(options.vapidKey, "test-vapid-key");
+        assert.equal(options.serviceWorkerRegistration, registration);
+        return "web-fcm-token";
+      },
+      onMessage(handler) { foregroundHandler = handler; },
+    };
+    const messaging = () => messagingInstance;
+    messaging.isSupported = () => supported;
+    const window = {
+      MOYEO_RUNTIME_CONFIG: {
+        firebase: {
+          apiKey: "api-key",
+          authDomain: "project.firebaseapp.com",
+          projectId: "project",
+          messagingSenderId: "1234",
+          appId: "app-id",
+        },
+        firebaseVapidKey: "test-vapid-key",
+      },
+      PushManager: function PushManager() {},
+      Notification,
+      isSecureContext: secure,
+      firebase: {
+        apps: [],
+        initializeApp(options) { this.apps.push(options); },
+        messaging,
+      },
+      dispatchEvent(event) { events.push(event); },
+      addEventListener() {},
+    };
+    const document = { baseURI: "https://example.test/repository/", visibilityState: "visible" };
+    class CustomEvent {
+      constructor(type, init = {}) { this.type = type; this.detail = init.detail; }
+    }
+    vm.runInNewContext(source, {
+      window,
+      navigator,
+      Notification,
+      document,
+      CustomEvent,
+      URL,
+      JSON,
+      String,
+      Boolean,
+      Promise,
+      Object,
+      btoa,
+    });
+    return { window, events, registrations, notifications, getForegroundHandler: () => foregroundHandler };
+  }
+
+  const ready = createPushWindow();
+  assert.equal((await ready.window.MoyeoPush.capability()).status, "prompt");
+  assert.equal(await ready.window.MoyeoPush.currentToken({ requestPermission: true }), "web-fcm-token");
+  assert.equal(ready.registrations.length, 1);
+  const workerUrl = new URL(ready.registrations[0].url);
+  assert.equal(workerUrl.pathname, "/repository/firebase-messaging-sw.js");
+  assert.equal(ready.registrations[0].options.scope, "/repository/");
+
+  let registeredToken = null;
+  ready.window.MoyeoPush.setTokenRegistrar(async (token, metadata) => {
+    registeredToken = { token, metadata };
+  });
+  await ready.window.MoyeoPush.syncToken({ reason: "test" });
+  assert.equal(registeredToken.token, "web-fcm-token");
+  assert.equal(registeredToken.metadata.reason, "test");
+
+  await ready.window.MoyeoPush.initialize();
+  await ready.getForegroundHandler()({ data: { title: "새 모집", screen: "meetings" } });
+  assert.ok(ready.events.some((event) => event.type === "moyeo:push-message"));
+  assert.equal(ready.notifications.length, 0, "visible foreground messages should be handled in-app without duplicate system notifications");
+
+  const denied = createPushWindow({ permission: "denied" });
+  assert.equal((await denied.window.MoyeoPush.capability()).status, "denied");
+  assert.equal(await denied.window.MoyeoPush.currentToken({ requestPermission: true }), null);
+
+  const unsupported = createPushWindow({ supported: false });
+  assert.equal((await unsupported.window.MoyeoPush.capability()).status, "unsupported");
+  const insecure = createPushWindow({ secure: false });
+  assert.equal((await insecure.window.MoyeoPush.capability()).status, "insecure");
+}
+
+async function tourismContractTests() {
+  const source = await read("src/tourism-api.js");
+  const requests = [];
+  const responses = [
+    {
+      data: {
+        content: [{
+          contentId: 77,
+          contentType: "RESTAURANT",
+          title: "실제 식당",
+          address: "경상북도 청송군",
+          thumbnailUrl: "https://cdn.example/thumb.webp",
+          latitude: 36.4,
+          longitude: 129.1,
+        }],
+      },
+    },
+    {
+      data: {
+        contentId: 77,
+        contentType: "RESTAURANT",
+        title: "실제 식당",
+        address: "경상북도 청송군",
+        postalCode: "37411",
+        phoneNumber: "054-000-0000",
+        phoneName: "안내소",
+        homepage: "https://example.test",
+        description: "상세 소개",
+        images: [{ imageUrl: "https://cdn.example/a.webp" }],
+        menuImages: ["https://cdn.example/menu.webp"],
+        latitude: 36.4,
+        longitude: 129.1,
+      },
+    },
+  ];
+  const window = {
+    MOYEO_RUNTIME_CONFIG: { apiBaseUrl: "https://api.example.test" },
+    location: { search: "" },
+    localStorage: { getItem: () => JSON.stringify({ accessToken: "access-token" }) },
+    sessionStorage: { getItem: () => null, setItem() {} },
+    AbortController,
+    setTimeout,
+    clearTimeout,
+  };
+  const fetchImpl = async (url, options) => {
+    requests.push({ url: String(url), options });
+    return new Response(JSON.stringify(responses.shift()), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  vm.runInNewContext(source, {
+    window,
+    fetch: fetchImpl,
+    Response,
+    URLSearchParams,
+    encodeURIComponent,
+    Error,
+    JSON,
+    String,
+    Number,
+    Boolean,
+    Array,
+    Object,
+  });
+
+  const list = await window.MoyeoTourism.list();
+  assert.equal(list[0].contentId, "77");
+  assert.equal(list[0].type, "food");
+  assert.equal(list[0].thumbnailUrl, "https://cdn.example/thumb.webp");
+  assert.equal(requests[0].url, "https://api.example.test/api/v1/tourism-contents");
+  assert.equal(requests[0].options.headers.Authorization, "Bearer access-token");
+
+  const detail = await window.MoyeoTourism.detail("77");
+  assert.equal(detail.postalCode, "37411");
+  assert.equal(detail.phoneName, "안내소");
+  assert.equal(detail.images[0], "https://cdn.example/a.webp");
+  assert.equal(detail.menuImages[0], "https://cdn.example/menu.webp");
+  assert.equal(requests[1].url, "https://api.example.test/api/v1/tourism-contents/77");
+
+  window.location.search = "?mockAuth=1";
+  assert.equal(window.MoyeoTourism.usesDeterministicSamples(), true);
 }
 
 async function authContractTests() {
@@ -830,6 +1119,8 @@ async function browserTests() {
 async function main() {
   await staticTests();
   await authContractTests();
+  await pushContractTests();
+  await tourismContractTests();
   if (!process.env.MOYEO_SKIP_BROWSER_TESTS) {
     await browserTests();
   }

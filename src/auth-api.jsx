@@ -38,6 +38,7 @@
       firebase: window.MOYEO_FIREBASE_CONFIG || runtime.firebase || null,
       kakaoJavaScriptKey: window.MOYEO_KAKAO_JAVASCRIPT_KEY || runtime.kakaoJavaScriptKey || '',
       kakaoRedirectUri: window.MOYEO_KAKAO_REDIRECT_URI || runtime.kakaoRedirectUri || '',
+      pushTokenRegistrationPath: runtime.pushTokenRegistrationPath || '',
       mockIdentity: mockAll || window.MOYEO_MOCK_IDENTITY === true,
       mockBackend: mockAll || window.MOYEO_MOCK_AUTH_BACKEND === true,
     };
@@ -495,4 +496,11 @@
 
   window.MoyeoAuth = api;
   window.MoyeoAuthApiError = AuthApiError;
+  if (getConfig().pushTokenRegistrationPath) {
+    window.MoyeoPush?.setTokenRegistrar?.((fcmToken) => request(getConfig().pushTokenRegistrationPath, {
+      method: 'POST',
+      authenticated: true,
+      body: { fcmToken },
+    }));
+  }
 })();

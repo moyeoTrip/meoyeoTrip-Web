@@ -111,7 +111,7 @@ function ScreenCreatePeople() {
 
           <div style={{ marginTop: 20 }}>
             <AddFieldLabel>나이대 제한</AddFieldLabel>
-            <AddFieldBox icon="users" value="25 ~ 35세" chevron caption="조건에 맞지 않는 사용자에게는 신청 버튼이 비활성으로 보여요."/>
+            <AddFieldBox icon="users" value="25 ~ 35세" chevron caption="최소·최대 모두 20~100세 사이에서 정할 수 있어요. 조건에 맞지 않는 사용자에게는 신청 버튼이 비활성으로 보여요."/>
           </div>
         </div>
 
@@ -128,8 +128,8 @@ function ScreenCreatePeople() {
 function ScreenCreateDetail() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const [approval, setApproval] = React.useState('auto');
-  const [intro, setIntro] = React.useState('느긋하게 걷고 사진 많이 찍는 여행이에요. 처음이셔도 편하게 오세요!');
-  const presets = ['느긋하게 걷는', '사진 많이 찍는', '맛집 위주로 도는'];
+  // 키워드 추천 칩은 스펙아웃 — 자동 추출 근거가 없어 화면기획에서 삭제됐다
+  const [intro] = React.useState('느긋하게 걷고 사진 많이 찍는 여행이에요. 처음이셔도 편하게 오세요!');
 
   return (
     <Phone>
@@ -142,24 +142,22 @@ function ScreenCreateDetail() {
           <div style={{ fontSize: 12, color: T.text500, marginTop: 6 }}>신청 전에 가장 많이 읽는 부분이에요.</div>
 
           <div style={{ marginTop: 16 }}>
-            <AddFieldLabel required>여행명</AddFieldLabel>
-            <AddFieldBox icon="note" value="청송 주왕산 힐링 트레킹" chevron={false} caption="코스와 테마로 자동 제안했어요. 자유롭게 고칠 수 있어요."/>
+            <AddFieldLabel>코스</AddFieldLabel>
+            <div style={{ height: 48, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: T.bgSubtle, display: 'flex', alignItems: 'center', gap: 9, padding: '0 13px' }}>
+              <Icon name="map" size={17} color={T.text400}/>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 800, color: T.text500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>주왕산 &amp; 주산지 힐링 트레킹</span>
+              <Icon name="lock" size={14} color={T.text400}/>
+            </div>
+            <div style={{ fontSize: 11, color: T.text500, marginTop: 6 }}>Step 1에서 고른 코스 이름이에요. 여기서는 바꿀 수 없어요.</div>
+          </div>
+
+          <div style={{ marginTop: 20 }}>
+            <AddFieldLabel required>모집 이름 (채팅방 이름)</AddFieldLabel>
+            <AddFieldBox icon="users" value="30대끼리 느긋하게 힐링 여행가요~" chevron={false} caption="어떤 사람들과 어떻게 가고 싶은지를 담아요. 채팅방 이름으로도 쓰여요."/>
           </div>
 
           <div style={{ marginTop: 20 }}>
             <AddFieldLabel>소개글</AddFieldLabel>
-            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 8 }}>
-              {presets.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setIntro(`${p} 여행이에요. 처음이셔도 편하게 오세요!`)}
-                  style={{
-                    height: 30, padding: '0 11px', borderRadius: 999, cursor: 'pointer', fontFamily: T.fontStack,
-                    fontSize: 12, fontWeight: 700, border: `1px solid ${T.line200}`, background: RF.card, color: T.text700,
-                  }}>{p}</button>
-              ))}
-            </div>
             <div style={{
               minHeight: 96, borderRadius: 12, border: `1px solid ${T.line200}`, background: RF.card,
               padding: 13, fontSize: 13, lineHeight: '20px', color: T.text900,
@@ -217,7 +215,8 @@ function ScreenCreateDetail() {
 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}>
           <Btn variant="ghost" onClick={nav.back}>이전</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={() => nav.go('create-summary')}>다음</Btn></div>
+          {/* 등록된 코스로 만든 모집은 링크된 요약(17-7)으로 간다 */}
+          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={() => nav.go((window.__moyeoCourseSource || 'custom') === 'linked' ? 'create-summary-linked' : 'create-summary')}>다음</Btn></div>
         </div>
       </div>
     </Phone>
@@ -259,9 +258,13 @@ function ScreenChatMenu() {
         <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 0, overflow: 'auto', paddingBottom: 24 }}>
           {/* 모임 요약 */}
           <div style={{ padding: '4px 20px 16px', borderBottom: `8px solid ${T.bgSubtle}` }}>
-            <div style={{ fontSize: 15, fontWeight: 900 }}>주왕산 &amp; 주산지 힐링 트레킹</div>
+            <div style={{ fontSize: 15, fontWeight: 900 }}>30대끼리 느긋하게 힐링 여행가요~</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, fontSize: 12, color: T.text500 }}><Icon name="map" size={13} color={T.text500}/><b>주왕산 &amp; 주산지 힐링 트레킹</b></div>
             <div style={{ fontSize: 12, color: T.text500, marginTop: 5, fontVariantNumeric: 'tabular-nums' }}>5/25(토) 당일치기 · 08:00 – 18:00</div>
             <div style={{ fontSize: 12, color: T.text500, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>07:50 청송 시외버스터미널 정문 앞 집합</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+              {['1인 45,000원', '마감 D-3', '25~35세', '성별 무관'].map((condition) => <Chip key={condition} variant={condition === '마감 D-3' ? 'accent' : 'neutral'}>{condition}</Chip>)}
+            </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
               <Btn variant="secondary" style={{ height: 40, flex: 1 }} onClick={() => nav.go('detail')}>모집 상세</Btn>
               <Btn variant="secondary" style={{ height: 40, flex: 1 }} onClick={() => nav.go('course-edit')}>여행 경로</Btn>

@@ -45,6 +45,12 @@ LINE Seed Sans KR은 SIL Open Font License 1.1에 따라 개인 및 상업 프�
 - 집합 장소는 위도·경도를 함께 저장해 모집 상세, 채팅 지도, 길 찾기와 근처 추천에서 같은 좌표를 사용합니다.
 - 호스트가 모임을 나가면 다른 멤버에게 권한을 넘기지 않고 모임이 즉시 종료됩니다.
 
+### 관광 콘텐츠 API
+
+일반 실행의 방문지 검색/상세는 각각 `GET /api/v1/tourism-contents`, `GET /api/v1/tourism-contents/{contentId}`를 호출합니다. 목록은 콘텐츠 ID·타입·제목·주소·썸네일·위경도를, 상세는 우편번호·전화번호/안내명·홈페이지·소개·일반/메뉴 이미지까지 구분해 정규화합니다. 배열 또는 `data.content`/`data.items`/`content`/`items` envelope를 허용합니다.
+
+현재 배포 Swagger `/api/v3/api-docs`가 인증 없이 401이고 로컬 BE에도 해당 DTO가 없어 검색 query parameter와 정확한 enum/필드명은 확정할 수 없습니다. 따라서 현재 목록 endpoint 전체를 받은 뒤 검색어와 타입을 클라이언트에서 거릅니다. API 401·미구현·네트워크 오류·스키마 불일치 때에는 오류와 다시 시도를 표시하면서 샘플 데이터를 유지합니다. `?mockAuth=1`, `?capture=1`, `?uitest=1`에서는 처음부터 결정적 샘플을 사용합니다.
+
 ## 인증 설정
 
 기본 실행은 배포 API와 실제 Firebase 인증을 사용합니다. `src/runtime-config.example.js`를 참고해 개발 PC에는 Git에서 제외되는 `src/runtime-config.local.js`를 만듭니다.
@@ -53,6 +59,8 @@ LINE Seed Sans KR은 SIL Open Font License 1.1에 따라 개인 및 상업 프�
 window.MOYEO_RUNTIME_CONFIG = {
   apiBaseUrl: "https://moyeo-trip-api.jayden-bin.cc",
   firebase: { /* Firebase Web 앱 설정 */ },
+  firebaseVapidKey: "Firebase Cloud Messaging 웹 푸시 인증서의 공개 키",
+  pushTokenRegistrationPath: "전용 토큰 등록 API가 있을 때만 입력",
   kakaoJavaScriptKey: "카카오 JavaScript 키",
   kakaoRedirectUri: "현재 웹의 정확한 로그인 복귀 URL",
   sentry: {
@@ -67,6 +75,17 @@ window.MOYEO_RUNTIME_CONFIG = {
 Firebase Console에서 Email/Password, Google, Apple 제공자를 활성화하고 로컬 및 배포 도메인을 Authorized domains에 등록해야 합니다. 카카오 개발자 콘솔에는 JavaScript SDK 도메인과 정확한 Redirect URI를 등록합니다. 인증 뒤 화면 이동은 로컬 기록이 아니라 BE의 `signupState`를 따르며, 외부 인증 왕복이나 새로고침 뒤에도 서버 상태로 가입 단계를 복구합니다.
 
 화면 기획 및 자동화 테스트에서만 `?mockAuth=1`을 붙여 인증을 모킹할 수 있습니다. 배포 기본값은 목업이 아닙니다.
+
+## Web FCM 설정
+
+웹 알림은 Firebase Messaging compat SDK와 저장소 루트의 `firebase-messaging-sw.js`를 사용합니다. 서비스 워커 주소와 알림 클릭 주소는 `document.baseURI`/등록 scope를 기준으로 계산하므로 `https://사용자.github.io/저장소명/`처럼 GitHub Pages 하위 경로에서도 저장소 prefix를 유지합니다.
+
+1. Firebase Console에서 이 웹 앱의 Cloud Messaging을 활성화하고 `프로젝트 설정 > 클라우드 메시징 > 웹 푸시 인증서`에서 VAPID 키 쌍을 생성합니다.
+2. 로컬 `src/runtime-config.local.js`에는 Firebase Web 앱 설정과 공개 VAPID 키인 `firebaseVapidKey`를 넣습니다. 알림 권한과 서비스 워커는 `localhost` 또는 HTTPS에서만 동작합니다.
+3. GitHub Actions에는 `FIREBASE_WEB_API_KEY` Secret과 `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_WEB_APP_ID`, `FIREBASE_WEB_VAPID_KEY` Variables를 등록합니다.
+4. 로그인/회원가입 요청에는 얻을 수 있는 경우 `fcmToken`이 함께 전송됩니다. BE에 로그인과 별도의 토큰 갱신 API가 생기면 Repository Variable `MOYEO_FCM_TOKEN_REGISTRATION_PATH`에 `/api/...` 경로를 넣습니다. 비어 있으면 별도 API를 추측해 호출하지 않고 `MoyeoPush.setTokenRegistrar()` 경계만 유지합니다.
+
+설정 화면에서 사용자가 직접 알림을 켤 때만 권한을 요청합니다. 미지원 브라우저, HTTP, 권한 거부, Firebase 설정 누락은 각각 안내 문구로 대체되며 반복해서 권한 창을 띄우지 않습니다. 포그라운드 메시지는 `moyeo:push-message`, 토큰은 `moyeo:push-token`, 상태 변화는 `moyeo:push-state` 이벤트로 앱 UI에 전달됩니다.
 
 ## Sentry 설정
 

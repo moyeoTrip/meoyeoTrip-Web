@@ -35,6 +35,7 @@ const config = {
   apiBaseUrl: process.env.MOYEO_API_BASE_URL || existingConfig.apiBaseUrl || 'https://moyeo-trip-api.jayden-bin.cc',
   firebase,
   firebaseVapidKey: process.env.FIREBASE_WEB_VAPID_KEY || existingConfig.firebaseVapidKey || '',
+  pushTokenRegistrationPath: process.env.MOYEO_FCM_TOKEN_REGISTRATION_PATH || existingConfig.pushTokenRegistrationPath || '',
   kakaoJavaScriptKey: process.env.KAKAO_JAVASCRIPT_KEY || existingConfig.kakaoJavaScriptKey || '',
   kakaoRedirectUri: process.env.KAKAO_REDIRECT_URI || existingConfig.kakaoRedirectUri || `${localOrigin}/`,
   sentry: {

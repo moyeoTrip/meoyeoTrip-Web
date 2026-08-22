@@ -98,7 +98,9 @@ function ScreenSplash() {
 // 1.2 Onboarding card 2
 function ScreenOnboarding() {
   const nav = (window.useNav ? window.useNav() : { go: () => {} });
-  const requestedPage = Number(new URLSearchParams(window.location.search).get('onboardingPage'));
+  const onboardingParams = new URLSearchParams(window.location.search);
+  const artboardPage = { 'onb-1': 1, 'onb-2': 2, 'onb-3': 3 }[onboardingParams.get('screen')];
+  const requestedPage = artboardPage || Number(onboardingParams.get('onboardingPage'));
   const [page, setPage] = React.useState(
     Number.isInteger(requestedPage) && requestedPage >= 1 && requestedPage <= 3
       ? requestedPage - 1
@@ -554,12 +556,14 @@ function ScreenProfileCharacter() {
             여행에서 만날<br/>내 친구를 골라주세요
           </div>
           <div style={{ fontSize: 14, lineHeight: '21px', color: T.text500, marginTop: 10 }}>
-            {nickname} 닉네임을 바탕으로 새 후보를 하나씩 추가해드려요. 이전 후보는 그대로 보관돼요.
+            {nickname} 닉네임을 바탕으로 후보를 하나씩 추가해요. 이전에 만든 후보는 사라지지 않아요.
           </div>
           {isGenerating && <ProfileGenerationWaiting nickname={nickname}/>}
-          <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', alignContent: 'center', gap: 10 }}>
+          {/* 후보는 항상 수평 배치 — 1개는 가운데, 2개는 좌우, 3개는 3등분.
+              선택은 외곽선·배경 변화로만 표시하고 체크 배지는 두지 않는다 */}
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
             {!loading && candidates.length === 0 && (
-              <div style={{ gridColumn: '1 / -1', minHeight: 150, borderRadius: 18, border: `1px dashed ${T.line300}`, background: T.bgSubtle, display: 'grid', placeItems: 'center', padding: 20, textAlign: 'center', color: T.text500, fontSize: 14, lineHeight: '21px' }}>
+              <div style={{ flex: 1, minHeight: 150, borderRadius: 18, border: `1px dashed ${T.line300}`, background: T.bgSubtle, display: 'grid', placeItems: 'center', padding: 20, textAlign: 'center', color: T.text500, fontSize: 14, lineHeight: '21px' }}>
                 아래 버튼을 눌러 첫 프로필 이미지를 만들어보세요.
               </div>
             )}
@@ -572,28 +576,30 @@ function ScreenProfileCharacter() {
                   aria-label={`프로필 이미지 후보 ${candidate.profileImageId} 선택`}
                   onClick={() => setSelectedId(candidate.profileImageId)}
                   style={{
-                    height: 150, borderRadius: 18, border: selected ? `2px solid ${T.primary500}` : `1px solid ${T.line200}`,
-                    background: T.bgRaised, padding: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    cursor: 'pointer', position: 'relative', overflow: 'hidden',
+                    flex: '1 1 0', minWidth: 0,
+                    maxWidth: candidates.length === 1 ? 'calc((100% - 20px) / 3)' : 'none',
+                    aspectRatio: '1 / 1.16', borderRadius: 18,
+                    border: selected ? `2px solid ${T.primary500}` : `1px solid ${T.line200}`,
+                    background: selected ? T.primary50 : T.bgRaised, padding: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', overflow: 'hidden',
                   }}
                 >
                   {candidate.profileImageUrl
-                    ? <CachedImage src={candidate.profileImageUrl} alt="생성된 프로필 후보" fallback={<AnimalAvatar kind={candidate.mockKind || 'deer'} size={92} bg={T.primary50}/>} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }}/>
-                    : <AnimalAvatar kind={candidate.mockKind || 'deer'} size={92} bg={T.primary50}/>}
-                  {selected && <div style={{ position: 'absolute', top: 8, right: 8, width: 24, height: 24, borderRadius: 999, background: T.primary500, display: 'grid', placeItems: 'center' }}><Icon name="check" size={15} color="#fff"/></div>}
+                    ? <CachedImage src={candidate.profileImageUrl} alt="생성된 프로필 후보" fallback={<AnimalAvatar kind={candidate.mockKind || 'deer'} size={82} bg={T.primary50}/>} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }}/>
+                    : <AnimalAvatar kind={candidate.mockKind || 'deer'} size={82} bg={T.primary50}/>}
                 </button>
               );
             })}
-            {loading && !isGenerating && candidates.length === 0 && [0, 1, 2].map((index) => <div key={index} style={{ height: 150, borderRadius: 18, background: T.line100, opacity: 0.6 }}/>) }
-          </div>
-          <Btn variant="secondary" full icon="refresh" disabled={loading || remaining === 0} onClick={generate} testId="profile-image-generate">
-            {loading ? '새 후보를 만들고 있어요...' : `새 후보 만들기 (${remaining}회 남음)`}
-          </Btn>
-          <div role="status" style={{ minHeight: 20, marginTop: 10, fontSize: 12, color: error ? T.danger : T.text400, textAlign: 'center' }}>
-            {error || '최대 3개 후보 중 고른 한 장이 최종 프로필이 돼요. 나갔다 돌아와도 후보는 다시 불러와요.'}
+            {loading && !isGenerating && candidates.length === 0 && [0, 1, 2].map((index) => <div key={index} style={{ flex: 1, aspectRatio: '1 / 1.16', borderRadius: 18, background: T.line100, opacity: 0.6 }}/>) }
           </div>
         </div>
-        <div style={{ padding: '12px 20px 32px' }}>
+        <div style={{ padding: '12px 20px 32px', display: 'grid', gap: 10 }}>
+          <Btn variant="secondary" full icon="refresh" disabled={loading || remaining === 0} onClick={generate} testId="profile-image-generate">
+            {loading ? '새 후보를 만들고 있어요...' : `새 후보 만들기 · ${remaining}회 남음`}
+          </Btn>
+          <div role="status" style={{ minHeight: 18, fontSize: 12, color: error ? T.danger : T.text400, textAlign: 'center' }}>
+            {error}
+          </div>
           <Btn variant="primary" full disabled={!selectedId || loading} onClick={complete} testId="profile-image-complete">이 친구로 시작하기</Btn>
         </div>
       </div>

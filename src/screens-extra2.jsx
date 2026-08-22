@@ -1,77 +1,212 @@
 // Feed Write (5 steps), Dex (도감), Profile Edit, Settings, Public Profile
 
-// ───────── 26 · 피드 글쓰기 (5단계 통합 뷰) ─────────
-function ScreenFeedWrite() {
+// ───────── 24-1~24-5 · 피드 글쓰기 (단계별 화면) ─────────
+// 5단계를 한 화면에 겹쳐 보여주면 각 단계에서 실제로 무엇을 하는지 검수할 수 없어서
+// 단계마다 독립 화면으로 분리했다. 단계 정의는 iOS/Android 구현과 같은 5단계다.
+const FEED_WRITE_STEPS = [
+  { step: 1, label: 'STEP 1 · 코스 확인', title: '어떤 여행을 기록할까요?', helper: '방문 코스와 함께한 멤버를 먼저 확인해요.' },
+  { step: 2, label: 'STEP 2 · 사진 선택', title: '대표 사진을 골라요', helper: '사진과 지도 조합이 피드 첫 화면에 함께 보여요.' },
+  { step: 3, label: 'STEP 3 · 사진 & 메모', title: '여행 어땠어요?', helper: '대부분 자동으로 채워졌어요. 한 줄만 남겨주세요.' },
+  { step: 4, label: 'STEP 4 · 공개 설정', title: '누구에게 보여줄까요?', helper: '친구에게만 공개하고 경로와 멤버 정보를 함께 보여줘요.' },
+  { step: 5, label: 'STEP 5 · 최종 확인', title: '게시 전 마지막 확인이에요', helper: '사진, 경로, 멤버가 한 장의 피드처럼 구성됐어요.' },
+];
+
+const FEED_WRITE_MEMBERS = [
+  { k: 'deer', n: '따스한 사슴 3492', me: true },
+  { k: 'bear', n: '우직한 곰 7821' },
+  { k: 'turtle', n: '잔잔한 거북이 9032' },
+  { k: 'crane', n: '고요한 두루미 1130' },
+];
+
+function FeedWriteCard({ title, children, tone = 'base' }) {
+  return (
+    <div style={{ background: tone === 'base' ? T.bgBase : T.bgSubtle, border: `1px solid ${T.line100}`, borderRadius: 16, padding: 14, marginBottom: 12 }}>
+      {title && <div style={{ fontSize: 12, fontWeight: 800, color: T.text700, marginBottom: 10 }}>{title}</div>}
+      {children}
+    </div>
+  );
+}
+
+function FeedWriteMemoCard() {
+  return (
+    <FeedWriteCard>
+      <div style={{ fontSize: 18, fontWeight: 800, color: T.text900 }}>첫 반패키지 단풍 여행</div>
+      <div style={{ fontSize: 14, lineHeight: '22px', color: T.text700, marginTop: 8 }}>
+        처음 반패키지 여행이었는데 동행분들이 너무 좋으셨어요. 첨성대 야경이 진짜 인생샷...
+      </div>
+      <div style={{ fontSize: 11, color: T.text400, textAlign: 'right', marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>54 / 500</div>
+    </FeedWriteCard>
+  );
+}
+
+function FeedWritePhotoGrid() {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+      <div style={{ height: 110, borderRadius: 12, position: 'relative', overflow: 'hidden' }}>
+        <ImgPlaceholder height={110} hue="autumn" radius={12}/>
+        <div style={{ position: 'absolute', top: 6, left: 6, padding: '2px 7px', borderRadius: 6, background: T.primary500, color: '#fff', fontSize: 10, fontWeight: 800 }}>대표</div>
+      </div>
+      <div style={{ height: 110, borderRadius: 12, overflow: 'hidden' }}><ImgPlaceholder height={110} hue="night" radius={12}/></div>
+      <div style={{ height: 110, borderRadius: 12, overflow: 'hidden' }}><ImgPlaceholder height={110} hue="sunset" radius={12}/></div>
+      <div style={{ height: 110, borderRadius: 12, border: `1.5px dashed ${T.line200}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, color: T.text500 }}>
+        <Icon name="plus" size={18} color={T.text500}/>
+        <div style={{ fontSize: 11 }}>사진 추가</div>
+      </div>
+    </div>
+  );
+}
+
+function FeedWriteRouteCard() {
+  return (
+    <FeedWriteCard title="경로 (자동)" tone="subtle">
+      <MiniMap height={140} pins={[1, 2, 3, 4]}/>
+      <div style={{ fontSize: 11, color: T.text500, marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <Icon name="pin" size={11} color={T.primary600}/>
+        경주 · 4 stops · 11/8 ~ 11/9
+      </div>
+    </FeedWriteCard>
+  );
+}
+
+function FeedWriteMembersCard() {
+  return (
+    <FeedWriteCard title={`함께 간 멤버 (${FEED_WRITE_MEMBERS.length})`}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {FEED_WRITE_MEMBERS.map((m) => (
+          <div key={m.n} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px 6px 6px', borderRadius: 999, background: m.me ? T.primary100 : T.bgSubtle }}>
+            <AnimalAvatar kind={m.k} size={24} bg={T.bgBase}/>
+            <div style={{ fontSize: 12, fontWeight: 600, color: m.me ? T.primary700 : T.text700 }}>{m.n}{m.me && ' (나)'}</div>
+          </div>
+        ))}
+      </div>
+    </FeedWriteCard>
+  );
+}
+
+function FeedWriteCourseCards() {
+  const courses = [
+    { t: '경주 감성 힐링 코스', s: '경주 · 1박 2일', on: true, hue: 'autumn' },
+    { t: '주왕산 & 주산지 힐링 트레킹', s: '청송 · 당일치기', on: false, hue: 'forest' },
+    { t: '안동 하회마을 하루 코스', s: '안동 · 당일치기', on: false, hue: 'hanok' },
+  ];
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 800, color: T.text900, marginBottom: 10 }}>기록할 코스</div>
+      <div style={{ display: 'flex', gap: 10, overflow: 'hidden' }}>
+        {courses.map((c) => (
+          <div key={c.t} style={{
+            width: 168, flexShrink: 0, padding: 10, borderRadius: 16,
+            background: c.on ? T.primary50 : T.bgBase,
+            border: `1px solid ${c.on ? T.primary500 : T.line100}`,
+          }}>
+            <div style={{ borderRadius: 10, overflow: 'hidden' }}><ImgPlaceholder height={66} hue={c.hue} radius={10}/></div>
+            <div style={{ fontSize: 12, fontWeight: 800, marginTop: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.t}</div>
+            <div style={{ fontSize: 11, color: T.text500, marginTop: 3 }}>{c.s}</div>
+            <div style={{
+              marginTop: 8, height: 24, borderRadius: 999, display: 'inline-flex', alignItems: 'center', padding: '0 10px',
+              background: c.on ? T.primary500 : T.primary50, color: c.on ? '#fff' : T.primary700,
+              fontSize: 11, fontWeight: 800,
+            }}>{c.on ? '선택됨' : '이 코스로 기록'}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FeedWriteMetaCard() {
+  const rows = [
+    ['map', '코스', '경주 감성 힐링 코스'],
+    ['pin', '지역', '경주 · 1박 2일 · 42.6km'],
+    ['eye', '공개', '친구만 · 경로지도 포함'],
+  ];
+  return (
+    <FeedWriteCard>
+      <div style={{ display: 'grid', gap: 12 }}>
+        {rows.map((r) => (
+          <div key={r[1]} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
+            <Icon name={r[0]} size={15} color={T.text500}/>
+            <span style={{ width: 40, color: T.text500, flexShrink: 0 }}>{r[1]}</span>
+            <span style={{ flex: 1, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r[2]}</span>
+          </div>
+        ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <MemberStack size={26} members={['deer', 'bear', 'turtle']}/>
+          <span style={{ fontSize: 12.5, fontWeight: 800 }}>함께한 멤버 3명</span>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {['친구만', '경로지도', '경주', '힐링', '야경'].map((tag) => (
+            <span key={tag} style={{ height: 26, padding: '0 10px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', background: T.primary50, color: T.primary700, fontSize: 11, fontWeight: 800 }}>{tag}</span>
+          ))}
+        </div>
+      </div>
+    </FeedWriteCard>
+  );
+}
+
+function FeedWriteVisibilityCard() {
+  const options = ['전체공개', '친구만', '나만 보기'];
+  const selected = '친구만';
+  return (
+    <FeedWriteCard title="공개 범위">
+      <div style={{ display: 'flex', gap: 8 }}>
+        {options.map((o) => (
+          <span key={o} style={{
+            height: 34, padding: '0 12px', borderRadius: 999, display: 'inline-flex', alignItems: 'center',
+            background: o === selected ? T.primary500 : T.primary50,
+            color: o === selected ? '#fff' : T.primary700,
+            fontSize: 12, fontWeight: 800,
+          }}>{o}</span>
+        ))}
+      </div>
+      <div style={{ fontSize: 11.5, color: T.text500, marginTop: 10, lineHeight: '17px' }}>
+        서로 친구인 사람에게만 보여요. 기본값이에요.
+      </div>
+    </FeedWriteCard>
+  );
+}
+
+function ScreenFeedWrite({ step = 3 }) {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
+  const meta = FEED_WRITE_STEPS[Math.min(Math.max(step, 1), 5) - 1];
+  const isLast = meta.step === 5;
+
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0, paddingTop: 60, background: T.bgSubtle }}>
         <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: T.bgBase }}>
           <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="close" size={24}/></div>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>피드 글쓰기</div>
-          <div style={{ fontSize: 13, color: T.primary600, fontWeight: 600 }}>게시</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>피드 글쓰기</div>
+          <div style={{ fontSize: 13, color: isLast ? T.primary600 : T.text400, fontWeight: 700 }}>게시</div>
         </div>
         <div style={{ padding: '8px 20px 16px', background: T.bgBase, display: 'flex', gap: 6, borderBottom: `1px solid ${T.line100}` }}>
-          {[1,2,3,4,5].map(i => <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= 3 ? T.primary500 : T.line100 }}/>)}
+          {[1, 2, 3, 4, 5].map((i) => <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= meta.step ? T.primary500 : T.line100 }}/>)}
         </div>
-        <div style={{ padding: 20, overflow: 'auto', maxHeight: 600 }}>
-          <div style={{ fontSize: 11, color: T.text500, marginBottom: 4, fontWeight: 600, letterSpacing: 0.5 }}>STEP 3 · 사진 & 메모</div>
-          <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.3, marginBottom: 4, letterSpacing: '-0.5px' }}>여행 어땠어요?</div>
-          <div style={{ fontSize: 13, color: T.text500, marginBottom: 16 }}>대부분 자동으로 채워졌어요. 한 줄만 남겨주세요.</div>
-          
-          <div style={{ background: T.bgBase, borderRadius: 16, padding: 14, marginBottom: 14 }}>
-            <input style={{ width: '100%', border: 'none', outline: 'none', fontSize: 18, fontWeight: 700, fontFamily: T.fontStack, padding: 0, background: 'transparent' }} defaultValue="첫 반패키지 단풍 여행" />
-            <textarea style={{ width: '100%', border: 'none', outline: 'none', fontSize: 14, fontFamily: T.fontStack, marginTop: 8, padding: 0, background: 'transparent', resize: 'none', minHeight: 80, color: T.text700, lineHeight: 1.6 }} defaultValue="처음 반패키지 여행이었는데 동행분들이 너무 좋으셨어요. 첨성대 야경이 진짜 인생샷..." />
-            <div style={{ fontSize: 11, color: T.text400, textAlign: 'right' }}>54 / 500</div>
-          </div>
+        <div style={{ position: 'absolute', top: 132, left: 0, right: 0, bottom: 92, overflow: 'auto', padding: '20px 20px 8px' }}>
+          <div style={{ fontSize: 11, color: T.text500, marginBottom: 4, fontWeight: 700, letterSpacing: 0.5 }}>{meta.label}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.3, marginBottom: 4, letterSpacing: '-0.5px' }}>{meta.title}</div>
+          <div style={{ fontSize: 13, color: T.text500, marginBottom: 16 }}>{meta.helper}</div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-            <div style={{ height: 110, borderRadius: 12, position: 'relative', overflow: 'hidden' }}>
-              <ImgPlaceholder height={110} hue="autumn" radius={12}/>
-              <div style={{ position: 'absolute', top: 6, left: 6, padding: '2px 6px', borderRadius: 6, background: T.primary500, color: '#fff', fontSize: 10, fontWeight: 600 }}>대표</div>
-            </div>
-            <div style={{ height: 110, borderRadius: 12, overflow: 'hidden' }}><ImgPlaceholder height={110} hue="night" radius={12}/></div>
-            <div style={{ height: 110, borderRadius: 12, overflow: 'hidden' }}><ImgPlaceholder height={110} hue="sunset" radius={12}/></div>
-            <div style={{ height: 110, borderRadius: 12, border: `1.5px dashed ${T.line200}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, color: T.text500 }}>
-              <Icon name="plus" size={18} color={T.text500}/>
-              <div style={{ fontSize: 11 }}>사진 추가</div>
-            </div>
-          </div>
-
-          <div style={{ background: T.bgBase, borderRadius: 16, padding: 14, marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: T.text700, marginBottom: 10 }}>경로 (자동)</div>
-            <MiniMap height={140} pins={[1,2,3,4]}/>
-            <div style={{ fontSize: 11, color: T.text500, marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Icon name="pin" size={11} color={T.primary600}/>
-              경주 · 4 stops · 11/8 ~ 11/9
-            </div>
-          </div>
-
-          <div style={{ background: T.bgBase, borderRadius: 16, padding: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: T.text700, marginBottom: 10 }}>함께 간 멤버 (4)</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {[
-                { k: 'deer', n: '따스한 사슴 3492', me: true },
-                { k: 'bear', n: '우직한 곰 7821' },
-                { k: 'turtle', n: '잔잔한 거북이 9032' },
-                { k: 'crane', n: '고요한 두루미 1130' },
-              ].map((m, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px 6px 6px', borderRadius: 999, background: m.me ? T.primary100 : T.bgSubtle }}>
-                  <AnimalAvatar kind={m.k} size={24} bg={T.bgBase}/>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: m.me ? T.primary700 : T.text700 }}>{m.n}{m.me && ' (나)'}</div>
-                </div>
-              ))}
-            </div>
-          </div>
+          {meta.step === 1 && <><FeedWriteCourseCards/><FeedWriteRouteCard/><FeedWriteMembersCard/></>}
+          {meta.step === 2 && <><FeedWritePhotoGrid/><FeedWriteRouteCard/></>}
+          {meta.step === 3 && <><FeedWriteMemoCard/><FeedWritePhotoGrid/></>}
+          {meta.step === 4 && <><FeedWriteVisibilityCard/><FeedWriteMetaCard/></>}
+          {meta.step === 5 && <><FeedWriteMemoCard/><FeedWritePhotoGrid/><FeedWriteRouteCard/><FeedWriteMetaCard/></>}
         </div>
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '12px 20px 32px', background: T.bgBase, borderTop: `1px solid ${T.line100}`, display: 'flex', gap: 8 }}>
           <Btn variant="ghost">이전</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full>다음 (4/5)</Btn></div>
+          <div style={{ flex: 1 }}><Btn variant="primary" full>{isLast ? '게시하기' : `다음 (${meta.step + 1}/5)`}</Btn></div>
         </div>
       </div>
     </Phone>
   );
 }
+
+function ScreenFeedWriteStep1() { return <ScreenFeedWrite step={1}/>; }
+function ScreenFeedWriteStep2() { return <ScreenFeedWrite step={2}/>; }
+function ScreenFeedWriteStep3() { return <ScreenFeedWrite step={3}/>; }
+function ScreenFeedWriteStep4() { return <ScreenFeedWrite step={4}/>; }
+function ScreenFeedWriteStep5() { return <ScreenFeedWrite step={5}/>; }
 
 // ───────── 27 · 도감 (Friends Dex) ─────────
 function ScreenDex() {
@@ -226,9 +361,45 @@ function ScreenSettings() {
   const [notificationsEnabled, setNotificationsEnabled] = React.useState(
     typeof Notification !== 'undefined' && Notification.permission === 'granted'
   );
+  const [pushStatus, setPushStatus] = React.useState('checking');
+  const pushStatusCopy = {
+    checking: '알림 사용 가능 여부를 확인하고 있어요',
+    ready: '이 기기에서 알림을 받을 수 있어요',
+    prompt: '눌러서 알림 권한을 허용해주세요',
+    denied: '브라우저 설정에서 알림 권한을 허용해주세요',
+    unsupported: '이 브라우저는 웹 알림을 지원하지 않아요',
+    insecure: 'HTTPS 환경에서만 웹 알림을 쓸 수 있어요',
+    unconfigured: 'Firebase Messaging 설정이 필요해요',
+    error: '알림 연결을 확인하지 못했어요. 다시 시도해주세요',
+  };
+  React.useEffect(() => {
+    let active = true;
+    const updateState = (event) => {
+      if (!active) return;
+      setPushStatus(event.detail?.status || 'error');
+      setNotificationsEnabled(event.detail?.permission === 'granted');
+    };
+    window.addEventListener('moyeo:push-state', updateState);
+    window.MoyeoPush?.capability?.().then((state) => {
+      if (!active) return;
+      setPushStatus(state?.status || 'unsupported');
+      setNotificationsEnabled(state?.permission === 'granted');
+    });
+    return () => {
+      active = false;
+      window.removeEventListener('moyeo:push-state', updateState);
+    };
+  }, []);
   const enableNotifications = async () => {
-    const token = await window.MoyeoPush?.currentToken({ requestPermission: true });
-    setNotificationsEnabled(Boolean(token));
+    try {
+      const token = await window.MoyeoPush?.syncToken({ requestPermission: true, reason: 'settings' });
+      const state = await window.MoyeoPush?.capability?.();
+      setPushStatus(state?.status || (token ? 'ready' : 'unsupported'));
+      setNotificationsEnabled(Boolean(token));
+    } catch (_) {
+      setPushStatus('error');
+      setNotificationsEnabled(false);
+    }
   };
   const Section = ({ title, children }) => (
     <section style={{ marginBottom: 16 }}>
@@ -249,10 +420,11 @@ function ScreenSettings() {
 
         <div style={{ paddingTop: 14, paddingBottom: 34 }}>
         <Section title="알림">
-          <ToggleRow label="채팅 메시지" on={notificationsEnabled} onClick={enableNotifications}/>
+          <ToggleRow label="채팅 메시지" on={notificationsEnabled} sub={pushStatusCopy[pushStatus]} onClick={enableNotifications}/>
           <ToggleRow label="모집 마감 임박" on={true} sub="D-3부터 알려드려요"/>
           <ToggleRow label="친구 신청·피드 반응" on={true}/>
           <ToggleRow label="마케팅 알림" on={false} sub="이벤트·새 코스 소개"/>
+          <Row label="알림 세부 설정" value="방해금지 22:30~07:00" onClick={() => nav.go('notif-detail')} testId="settings-notif-detail"/>
         </Section>
 
         <Section title="화면">
@@ -263,8 +435,8 @@ function ScreenSettings() {
         <Section title="계정">
           <Row label="로그인 방식" value="관리" onClick={() => nav.go('auth-methods')} testId="settings-auth-methods"/>
           <Row label="차단한 사용자" value="2명"/>
-          <Row label="개인정보 처리방침"/>
-          <Row label="이용약관"/>
+          <Row label="개인정보 처리방침" onClick={() => nav.go('privacy-settings')} testId="settings-privacy"/>
+          <Row label="이용약관" onClick={() => nav.go('terms-settings')} testId="settings-terms"/>
         </Section>
 
         <Section title="정보">
@@ -272,7 +444,7 @@ function ScreenSettings() {
           <Row label="문의하기"/>
           <Row label="앱 평가하기"/>
           <Row label="로그아웃" danger testId="settings-sign-out" onClick={async () => { await window.MoyeoAuth.signOut(); nav.go('login', { replace: true }); }}/>
-          <Row label="계정 탈퇴" danger sub="즉시 영구 삭제" testId="settings-withdraw" onClick={async () => { if (!window.confirm('계정을 즉시 영구 삭제할까요?')) return; await window.MoyeoAuth.withdraw(); nav.go('login', { replace: true }); }}/>
+          <Row label="계정 탈퇴" danger sub="30일 안에는 되살릴 수 있어요" testId="settings-withdraw" onClick={async () => { if (!window.confirm('계정을 즉시 영구 삭제할까요?')) return; await window.MoyeoAuth.withdraw(); nav.go('login', { replace: true }); }}/>
         </Section>
         </div>
       </div>
@@ -446,8 +618,9 @@ function ScreenPublicProfile() {
 }
 
 Object.assign(window, {
-  ScreenFeedWrite, ScreenDex, ScreenProfileEdit, ScreenSettings, ScreenAuthMethods, ScreenPublicProfile,
+  ScreenFeedWrite, ScreenFeedWriteStep1, ScreenFeedWriteStep2, ScreenFeedWriteStep3, ScreenFeedWriteStep4, ScreenFeedWriteStep5,
+  ScreenDex, ScreenProfileEdit, ScreenSettings, ScreenAuthMethods, ScreenPublicProfile,
 });
 
 // ─── window export ───
-Object.assign(window, { ScreenFeedWrite, ScreenDex, ScreenProfileEdit, ScreenSettings, ScreenAuthMethods, ScreenPublicProfile });
+Object.assign(window, { ScreenFeedWrite, ScreenFeedWriteStep1, ScreenFeedWriteStep2, ScreenFeedWriteStep3, ScreenFeedWriteStep4, ScreenFeedWriteStep5, ScreenDex, ScreenProfileEdit, ScreenSettings, ScreenAuthMethods, ScreenPublicProfile });

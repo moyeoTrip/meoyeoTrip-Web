@@ -479,7 +479,7 @@ function HeroIllustration({ weather = 'sunny' }) {
         alt=""
         loading="eager"
         decoding="async"
-        fetchPriority="high"
+        fetchpriority="high"
         style={imageStyle}
       />
       <div style={{
@@ -539,7 +539,7 @@ function ScreenSplash() {
           alt=""
           loading="eager"
           decoding="async"
-          fetchPriority="high"
+          fetchpriority="high"
           style={splashImageStyle}
         />
         <div style={{ position: 'absolute', inset: 0, background: 'var(--moyeo-splash-overlay)' }}/>
@@ -680,15 +680,16 @@ function ScreenHome() {
 
 function ScreenExplore() {
   const nav = window.useNav ? window.useNav() : { go: () => {} };
+  // 목데이터는 4개 플랫폼 공통 값이다 (docs/alignment/MOCKDATA-CANON.md)
   const rows = [
-    { title: '주왕산 & 주산지 힐링 트레킹', area: '청송 · 자연', people: '2/5명', hue: 'forest', liked: true, status: '진행중' },
+    { title: '주왕산 & 주산지 힐링 트레킹', area: '청송 · 자연, 히든명소', people: '2/5명', hue: 'forest', liked: true, status: '진행중' },
     { title: '안동 하회마을 하루 코스', area: '안동 · 역사, 문화', people: '3/6명', hue: 'autumn', liked: false, status: '진행중' },
-    { title: '울릉도 2박 3일 섬 여행', area: '울릉 · 자연, 힐링', people: '1/5명', hue: 'coast', liked: false, status: '진행중' },
-    { title: '경주 역사 감성 여행', area: '경주 · 역사', people: '4/6명', hue: 'hanok', liked: false, status: '진행중' },
-    { title: '포항·영덕 동해 드라이브', area: '포항 · 바다, 로컬푸드', people: '6/6명', hue: 'coast', liked: true, status: '출발확정' },
-    { title: '문경 새재 단풍 트레킹', area: '문경 · 산책, 단풍', people: '2/5명', hue: 'autumn', liked: false, status: '마감임박' },
-    { title: '영주 부석사 눈꽃 산책', area: '영주 · 사찰, 겨울', people: '4/5명', hue: 'coast', liked: false, status: '진행중' },
-    { title: '울진 금강송 숲길 워크', area: '울진 · 숲길, 치유', people: '3/6명', hue: 'forest', liked: false, status: '진행중' },
+    { title: '울릉도 2박 3일 섬 여행', area: '울릉 · 자연, 힐링', people: '3/5명', hue: 'coast', liked: false, status: '진행중' },
+    { title: '경주 감성 힐링 코스', area: '경주 · 역사, 야경', people: '4/6명', hue: 'hanok', liked: false, status: '진행중' },
+    { title: '포항·영덕 동해 드라이브', area: '포항 · 바다, 드라이브', people: '6/6명', hue: 'coast', liked: true, status: '확정' },
+    { title: '문경 새재 단풍 트레킹', area: '문경 · 자연, 단풍', people: '2/5명', hue: 'autumn', liked: false, status: '진행중' },
+    { title: '영주 부석사 눈꽃 산책', area: '영주 · 역사, 사찰', people: '4/5명', hue: 'coast', liked: false, status: '진행중' },
+    { title: '안동 도산서원 그늘 코스', area: '안동 · 역사, 그늘', people: '2/4명', hue: 'forest', liked: false, status: '진행중' },
   ];
   return (
     <Phone>
@@ -733,11 +734,11 @@ function ScreenExploreMap() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   return (
     <Phone>
-      <div style={{ position: 'absolute', inset: 0, background: '#E9F3E7' }}>
+      <div style={{ position: 'absolute', inset: 0, background: RF.mapGreen }}>
         <MiniMap height={852} withRoute={false} pins={[]}/>
         <svg width="393" height="852" viewBox="0 0 393 852" style={{ position: 'absolute', inset: 0 }}>
-          <path d="M0 180 Q85 130 166 180 T393 150 L393 852 L0 852 Z" fill="#DCEAD5" opacity="0.55"/>
-          <path d="M265 0 Q336 154 393 216 L393 852 L316 852 Q324 601 292 450 T265 0 Z" fill="#BFDCE8" opacity="0.8"/>
+          <path d="M0 180 Q85 130 166 180 T393 150 L393 852 L0 852 Z" fill={T.mapLand} opacity="0.55"/>
+          <path d="M265 0 Q336 154 393 216 L393 852 L316 852 Q324 601 292 450 T265 0 Z" fill={T.mapWater} opacity="0.8"/>
           {[
             { x: 73, y: 337, n: 1 },
             { x: 196, y: 300, n: 6 },
@@ -785,19 +786,6 @@ function ScreenExploreMap() {
 
 function ScreenCourseDetail() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
-  const itinerary = [
-    { time: '08:00', title: '청송 시외버스터미널', desc: '모임 확인과 간단한 코스 브리핑' },
-    { time: '09:20', title: '주왕산 단풍 물길', desc: '폭포길과 기암절벽을 따라 천천히 걷기' },
-    { time: '11:40', title: '용연폭포 쉼터', desc: '사진을 남기고 따뜻한 차로 쉬어가기' },
-    { time: '13:10', title: '청송 로컬 점심', desc: '사과 막걸리와 산채 정식 추천' },
-    { time: '15:00', title: '주산지 물안개길', desc: '왕버들과 호수 풍경을 보는 짧은 산책' },
-    { time: '17:30', title: '청송 시외버스터미널', desc: '여행 기록 정리 후 해산' },
-  ];
-  const nearby = [
-    ['절골계곡', '가볍게 이어 걷기 좋은 숲길'],
-    ['객주문학관', '비 오는 날 대체 실내 코스'],
-    ['청송 사과카페', '짧은 휴식과 로컬 간식'],
-  ];
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
@@ -810,6 +798,16 @@ function ScreenCourseDetail() {
               <Chip variant="soft">자연</Chip>
               <Chip variant="soft">히든명소</Chip>
               <Chip variant="soft">추천</Chip>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 14, padding: 11, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card }}>
+              <AnimalAvatar kind="bear" size={30} bg={T.primary50}/>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 800 }}>숲속여행자 님이 다녀온 코스</div>
+                <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>2026.05.25 여행 후 공개 · 이 코스로 떠난 모임 3</div>
+              </div>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 24, padding: '0 9px', borderRadius: 999, background: T.primary50, color: T.primary700, fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
+                <Icon name="user" size={11} color={T.primary700} strokeWidth={2}/> 여행자 코스
+              </span>
             </div>
             <div style={{ fontSize: 13, color: T.text700, lineHeight: '21px', marginTop: 14 }}>
               기암절벽과 맑은 주산지의 풍경을 함께 즐기는 힐링 코스예요.
@@ -829,27 +827,6 @@ function ScreenCourseDetail() {
             </div>
             <div style={{ fontSize: 15, fontWeight: 900, marginTop: 28, marginBottom: 10 }}>코스 미리보기</div>
             <RouteMap height={146}/>
-            <div style={{ fontSize: 15, fontWeight: 900, marginTop: 24, marginBottom: 10 }}>코스 일정</div>
-            <div style={{ border: `1px solid ${RF.softLine}`, borderRadius: 12, overflow: 'hidden', background: RF.card }}>
-              {itinerary.map((item, index) => (
-                <div key={item.time} style={{ display: 'grid', gridTemplateColumns: '52px 1fr', gap: 10, padding: '12px 12px', borderBottom: index < itinerary.length - 1 ? `1px solid ${RF.softLine}` : 'none' }}>
-                  <div style={{ fontSize: 11, color: T.text500, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{item.time}</div>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 900 }}>{item.title}</div>
-                    <div style={{ marginTop: 3, fontSize: 11.5, lineHeight: '17px', color: T.text500 }}>{item.desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div style={{ fontSize: 15, fontWeight: 900, marginTop: 24, marginBottom: 10 }}>함께 보면 좋은 곳</div>
-            <div style={{ display: 'grid', gap: 9, paddingBottom: 8 }}>
-              {nearby.map((item) => (
-                <div key={item[0]} style={{ minHeight: 52, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: '10px 12px' }}>
-                  <div style={{ fontSize: 13, fontWeight: 900 }}>{item[0]}</div>
-                  <div style={{ marginTop: 3, fontSize: 11.5, color: T.text500 }}>{item[1]}</div>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 18px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -887,11 +864,16 @@ function ScreenGroupDetail() {
           padding: '24px 20px 18px',
           overflow: 'auto',
         }}>
-          <h1 style={{ margin: 0, fontSize: 23, lineHeight: '31px', fontWeight: 900, letterSpacing: 0 }}>주왕산 & 주산지 힐링 트레킹</h1>
+          <h1 style={{ margin: 0, fontSize: 23, lineHeight: '31px', fontWeight: 900, letterSpacing: 0 }}>30대끼리 느긋하게 힐링 여행가요~</h1>
           <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, color: T.text500 }}>청송 · 자연, 트레킹</span>
             {window.CourseSourceBadge ? <window.CourseSourceBadge source="custom"/> : null}
           </div>
+          <button type="button" onClick={() => nav.go('course')} style={{ width: '100%', marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, color: T.text900, display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', fontFamily: T.fontStack, cursor: 'pointer' }}>
+            <span style={{ width: 34, height: 34, borderRadius: 10, background: T.primary50, display: 'grid', placeItems: 'center' }}><Icon name="map" size={17} color={T.primary600}/></span>
+            <span style={{ flex: 1 }}><b style={{ display: 'block', fontSize: 13 }}>주왕산 &amp; 주산지 힐링 트레킹</b><span style={{ display: 'block', marginTop: 3, fontSize: 11, color: T.text500 }}>방문지 4곳 · 호스트 직접 코스</span></span>
+            <Icon name="arrow" size={15} color={T.text400}/>
+          </button>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }}>
             <MemberStack members={['bear','rabbit','raccoon']} more={2}/>
             <div style={{ fontSize: 12, color: T.text500 }}>최소 3명 이상</div>
@@ -921,6 +903,9 @@ function ScreenGroupDetail() {
               <span style={{ flex: 1, fontSize: 11.5, color: T.text500, fontVariantNumeric: 'tabular-nums' }}>36.435612, 129.057214</span>
               <button type="button" style={{ border: 0, background: 'transparent', padding: 0, fontSize: 12, fontWeight: 800, color: T.primary600, fontFamily: T.fontStack, cursor: 'pointer' }}>길 찾기</button>
             </div>
+          </div>
+          <div style={{ marginTop: 10, border: `1px solid ${RF.softLine}`, borderRadius: 12, padding: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {[['money', '예상 비용', '1인 45,000원'], ['clock', '모집 마감', 'D-3 · 5/22(금)'], ['users', '나이대', '25~35세'], ['user', '성별', '성별 무관']].map((item) => <div key={item[1]} style={{ display: 'flex', gap: 8 }}><Icon name={item[0]} size={15} color={T.text500}/><span><span style={{ display: 'block', fontSize: 10.5, color: T.text500 }}>{item[1]}</span><b style={{ display: 'block', marginTop: 3, fontSize: 12 }}>{item[2]}</b></span></div>)}
           </div>
           <div style={{ marginTop: 10, display: 'flex', gap: 9, alignItems: 'flex-start', padding: 12, borderRadius: 12, background: T.primary50, border: `1px solid ${T.primary100}` }}>
             <Icon name="refresh" size={15} color={T.primary700}/>
@@ -956,7 +941,7 @@ function ScreenApplySheet() {
       <div style={{ position: 'absolute', inset: 0, background: '#111' }}>
         <Photo hue="forest" height={330} radius={0} overlay>
           <div style={{ position: 'absolute', top: 58, left: 18 }}>
-            <IconButton name="back" onClick={nav.back} bg="rgba(255,255,255,0.88)"/>
+            <IconButton name="back" onClick={nav.back} bg={T.overlayPanel}/>
           </div>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.44)' }}/>
         </Photo>
@@ -967,11 +952,11 @@ function ScreenApplySheet() {
           </div>
           <div style={{ fontSize: 13, fontWeight: 900, marginTop: 18 }}>한마디를 남겨주세요!</div>
           <div style={{ marginTop: 10, height: 112, borderRadius: 12, border: `1px solid ${T.line200}`, padding: 14, color: T.text400, fontSize: 13, lineHeight: '20px' }}>
-            간단한 인사나 기대하는 마음을<br/>남겨주세요 😊 (최대 100자)
-            <div style={{ textAlign: 'right', marginTop: 30, fontSize: 11 }}>0/100</div>
+            간단한 인사나 기대하는 마음을<br/>남겨주세요 😊 (10자 이상 200자 이하)
+            <div style={{ textAlign: 'right', marginTop: 30, fontSize: 11 }}>0/200</div>
           </div>
           <div style={{ fontSize: 13, fontWeight: 900, marginTop: 18 }}>내 소개 카드</div>
-          <div style={{ marginTop: 10, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: '#FFFDF7', padding: 12, display: 'flex', gap: 12 }}>
+          <div style={{ marginTop: 10, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: T.bgSubtle, padding: 12, display: 'flex', gap: 12 }}>
             <AnimalAvatar kind="bear" size={54} bg={T.primary50}/>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 900 }}>모여트립이</div>
@@ -1112,9 +1097,12 @@ function ScreenChatRoom() {
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
-        <Header title="주왕산 & 주산지 힐링 트레킹" left center onBack={nav.back} right={<><IconButton name="phone"/><IconButton name="more"/></>}/>
+        <Header title="30대끼리 느긋하게 힐링 여행가요~" left center onBack={nav.back} right={<><IconButton name="phone"/><IconButton name="more" onClick={() => nav.go('chat-menu')}/></>}/>
         <div style={{ textAlign: 'center', fontSize: 12, color: T.text500, lineHeight: '18px', paddingBottom: 10, borderBottom: `1px solid ${RF.softLine}`, fontVariantNumeric: 'tabular-nums' }}>
-          2/5명 · 5/25(토) 08:00-18:00 · 당일치기
+          2/5명 · 5/25(토) 08:00-18:00 · 당일치기 · <b style={{ color: T.accent500 }}>마감 D-3</b>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 6, padding: '7px 12px', borderBottom: `1px solid ${RF.softLine}`, background: RF.card }}>
+          {['1인 45,000원', '25~35세', '성별 무관'].map((condition) => <Chip key={condition} variant="neutral">{condition}</Chip>)}
         </div>
         <button type="button" data-testid="chat-notice-history" onClick={() => nav.go('notice-history')} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${T.primary100}`, cursor: 'pointer', background: T.primary50, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, fontFamily: T.fontStack, textAlign: 'left' }}>
           <Icon name="note" size={15} color={T.primary700}/>
@@ -1126,7 +1114,7 @@ function ScreenChatRoom() {
         </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 16px', borderBottom: `1px solid ${RF.softLine}`, background: RF.card }}>
           <Icon name="map" size={15} color={T.text500}/>
-          <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.text700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>방문지 4곳 · <b>호스트 직접 코스</b></div>
+          <div style={{ flex: 1, minWidth: 0 }}><b style={{ display: 'block', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>주왕산 &amp; 주산지 힐링 트레킹</b><span style={{ display: 'block', marginTop: 2, fontSize: 10.5, color: T.text500 }}>방문지 4곳 · 호스트 직접 코스</span></div>
           <button type="button" data-testid="chat-course-edit" onClick={() => nav.go('course-edit')} style={{ border: `1px solid ${T.primary200}`, background: T.primary50, color: T.primary700, borderRadius: 999, height: 26, padding: '0 10px', fontSize: 11, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>경로 수정</button>
         </div>
         <div style={{ height: 'calc(100% - 268px)', overflow: 'auto', padding: '18px 18px 86px', background: RF.bg }}>
@@ -1145,6 +1133,10 @@ function ScreenChatRoom() {
           </div>
         </div>
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 14px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* 첨부 진입 — 특수 메시지 6종은 여기서 열린다 */}
+          <button type="button" data-testid="chat-attach" onClick={() => nav.go('chat-attach')} style={{ width: 38, height: 38, borderRadius: 999, border: `1px solid ${RF.softLine}`, background: RF.card, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }} aria-label="첨부">
+            <Icon name="plus" size={18} color={T.text700}/>
+          </button>
           <div style={{ flex: 1, height: 42, borderRadius: 999, border: `1px solid ${RF.softLine}`, display: 'flex', alignItems: 'center', padding: '0 14px', color: T.text400, fontSize: 13 }}>메시지 입력</div>
           <button style={{ width: 38, height: 38, borderRadius: 999, border: 'none', background: T.primary500, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
             <Icon name="send" size={17} color="#fff"/>
@@ -1158,14 +1150,12 @@ function ScreenChatRoom() {
 function ScreenFeed() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, toggleLike: () => {}, isLiked: () => false };
   const feedItems = [
-    { kind: 'bear', author: '숲속여행자', time: '2시간 전', title: '주왕산 & 주산지 힐링 트레킹', subtitle: '청송', hue: 'forest', likes: 128, comments: 18 },
-    { kind: 'rabbit', author: '토끼여행자', time: '5시간 전', title: '안동 하회마을, 잊지 못할 하루', subtitle: '#한옥산책 #가을여행', hue: 'hanok', likes: 128, comments: 18 },
-    { kind: 'crane', author: '고요한 두루미 1130', time: '어제', title: '경주 역사 감성 여행', subtitle: '#경주 #야경 #월정교', hue: 'autumn', likes: 56, comments: 12 },
-    { kind: 'rabbit', author: '달빛 토끼 6142', time: '2일 전', title: '포항 바다와 시장을 한 번에', subtitle: '#포항 #바다 #드라이브', hue: 'coast', likes: 73, comments: 9 },
-    { kind: 'deer', author: '초록 여우 5824', time: '3일 전', title: '문경새재 길은 천천히 걸을수록 좋아요', subtitle: '#문경 #단풍 #숲길', hue: 'forest', likes: 64, comments: 7 },
-    { kind: 'turtle', author: '잔잔한 거북이 9032', time: '2주 전', title: '울릉도는 천천히 움직여야 보여요', subtitle: '#울릉 #섬여행 #해안산책', hue: 'coast', likes: 89, comments: 16 },
-    { kind: 'bear', author: '우직한 곰 7821', time: '3주 전', title: '영주 부석사 눈길은 조용해서 더 좋았어요', subtitle: '#영주 #부석사 #눈꽃', hue: 'coast', likes: 42, comments: 8 },
-    { kind: 'deer', author: '따스한 사슴 3492', time: '한 달 전', title: '울진 금강송 숲길에서 쉬어간 오후', subtitle: '#울진 #금강송 #치유여행', hue: 'forest', likes: 51, comments: 6 },
+    { kind: 'bear', author: '숲속여행자', time: '2시간 전', title: '주왕산 & 주산지 힐링 트레킹', subtitle: '청송 · #주왕산 #주산지 #숲길', hue: 'forest', likes: 128, comments: 18 },
+    { kind: 'rabbit', author: '토끼여행자', time: '5시간 전', title: '안동 하회마을, 잊지 못할 하루', subtitle: '안동 · #한옥산책 #가을여행', hue: 'hanok', likes: 128, comments: 18 },
+    { kind: 'crane', author: '고요한 두루미 1130', time: '어제', title: '경주 역사 감성 여행', subtitle: '경주 · #야경 #월정교', hue: 'autumn', likes: 56, comments: 12 },
+    { kind: 'rabbit', author: '달빛 토끼 6142', time: '2일 전', title: '포항 바다와 시장을 한 번에', subtitle: '포항 · #바다 #드라이브', hue: 'coast', likes: 73, comments: 9 },
+    { kind: 'deer', author: '초록 여우 5824', time: '3일 전', title: '문경새재 길은 천천히 걸을수록 좋아요', subtitle: '문경 · #단풍 #숲길', hue: 'forest', likes: 64, comments: 7 },
+    { kind: 'turtle', author: '잔잔한 거북이 9032', time: '2주 전', title: '울릉도는 천천히 움직여야 보여요', subtitle: '울릉 · #섬여행 #해안산책', hue: 'coast', likes: 89, comments: 16 },
   ];
   return (
     <Phone>
@@ -1221,9 +1211,17 @@ function ScreenFeedDetail() {
               <div style={{ fontSize: 12, fontWeight: 900 }}>숲속여행자</div>
               <div style={{ fontSize: 10, color: T.text500, marginTop: 2 }}>2시간 전</div>
             </div>
+            {/* 공개범위 — 이 글이 누구에게 보이는지 글쓴이와 독자가 같은 자리에서 확인한다 (기본 친구만) */}
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4, height: 24, padding: '0 9px', borderRadius: 999,
+              background: T.bgSubtle, border: `1px solid ${RF.softLine}`, color: T.text500, fontSize: 10.5, fontWeight: 800,
+            }}>
+              <Icon name="users" size={12} color={T.text500}/> 친구만
+            </span>
           </div>
           <div style={{ fontSize: 15, fontWeight: 900, marginTop: 14 }}>주왕산 & 주산지 힐링 트레킹</div>
-          <div style={{ fontSize: 12, color: T.text500, marginTop: 5 }}>청송</div>
+          {/* 부제는 "장소 · 해시태그" 한 줄이다 (4개 플랫폼 공통, docs/alignment/MOCKDATA-CANON.md) */}
+          <div style={{ fontSize: 12, color: T.text500, marginTop: 5 }}>청송 · #주왕산 #주산지 #숲길</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, marginTop: 14, borderRadius: 10, overflow: 'hidden', position: 'relative' }}>
             <Photo hue="forest" height={198} radius={0}/>
             <RouteMap height={198}/>
@@ -1234,7 +1232,7 @@ function ScreenFeedDetail() {
             {[
               ['이동 거리', '12.4km'],
               ['소요 시간', '4시간 30분'],
-              ['방문지', '5곳'],
+              ['방문지', '3곳'],
             ].map((s) => (
               <div key={s[0]} style={{ borderRadius: 10, background: RF.subtle, padding: '12px 6px', textAlign: 'center' }}>
                 <div style={{ fontSize: 10, color: T.text500 }}>{s[0]}</div>
@@ -1244,7 +1242,7 @@ function ScreenFeedDetail() {
           </div>
           <div style={{ display: 'flex', gap: 18, marginTop: 18, paddingBottom: 14, borderBottom: `1px solid ${RF.softLine}`, fontSize: 13, color: T.text700 }}>
             <span>좋아요 128개</span>
-            <span>댓글 18</span>
+            <span onClick={() => nav.go && nav.go('feed-comments')} style={{ cursor: 'pointer', fontWeight: 800, color: T.primary600 }}>댓글 18개 모두 보기 →</span>
           </div>
         </div>
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 16px 28px', borderTop: `1px solid ${RF.softLine}`, background: RF.card, display: 'flex', gap: 8 }}>
@@ -1266,13 +1264,14 @@ function ScreenMyPage() {
     return mySegments.includes(requested) ? requested : '진행중';
   })();
   const [selectedSegment, setSelectedSegment] = React.useState(initialSegment);
+  // 진행중 여행 카드는 4개 플랫폼 공통 목데이터다 (docs/alignment/MOCKDATA-CANON.md)
   const activeTrips = [
-    { title: '주왕산 & 주산지 힐링 트레킹', date: '2024.05.25 (토)', place: '청송 시외버스터미널', people: '2/5명', current: 2, max: 5, dday: 'D-2', hue: 'forest', members: ['bear', 'deer'] },
-    { title: '안동 하회마을 하루여행', date: '2024.05.21 (화)', place: '안동터미널 대합실', people: '1/4명', current: 1, max: 4, dday: 'D-5', hue: 'hanok', members: ['bear'] },
-    { title: '경주 단풍·야경 1박 2일', date: '11월 8일 토요일 14:00', place: '경주역 2번 출구', people: '5/6명', current: 5, max: 6, dday: 'D-1', hue: 'autumn', members: ['bear', 'deer', 'turtle'], more: 2 },
-    { title: '포항·영덕 동해 드라이브', date: '6월 15일 토요일 09:30', place: '포항역 광장', people: '6/6명', current: 6, max: 6, dday: 'D-1', hue: 'coast', members: ['bear', 'deer', 'turtle'], more: 3 },
-    { title: '문경 새재 단풍 트레킹', date: '10월 19일 토요일 08:40', place: '문경새재 제1관문', people: '2/5명', current: 2, max: 5, dday: 'D-7', hue: 'autumn', members: ['rabbit', 'bear'] },
-    { title: '영주 부석사 눈꽃 산책', date: '12월 14일 토요일 11:00', place: '부석사 주차장', people: '4/5명', current: 4, max: 5, dday: 'D-9', hue: 'coast', members: ['crane', 'deer', 'turtle'] },
+    { title: '주왕산 & 주산지 힐링 트레킹', date: '2026.05.25 (토)', place: '청송 시외버스터미널', people: '2/5명', current: 2, max: 5, dday: 'D-3', hue: 'forest', members: ['bear', 'deer'] },
+    { title: '안동 하회마을 하루여행', date: '2026.06.09 (화)', place: '안동터미널 대합실', people: '3/6명', current: 3, max: 6, dday: 'D-5', hue: 'hanok', members: ['bear', 'deer'] },
+    { title: '경주 단풍·야경 1박 2일', date: '2026.06.05 (금) 14:00', place: '경주역 2번 출구', people: '4/8명', current: 4, max: 8, dday: 'D-3', hue: 'autumn', members: ['bear', 'deer', 'turtle'], more: 1 },
+    { title: '포항·영덕 동해 드라이브', date: '2026.06.15 (월) 09:30', place: '포항역 광장', people: '6/6명', current: 6, max: 6, dday: 'D-1', hue: 'coast', members: ['bear', 'deer', 'turtle'], more: 3 },
+    { title: '문경 새재 단풍 트레킹', date: '2026.10.31 (토) 08:30', place: '문경새재 제1관문', people: '2/5명', current: 2, max: 5, dday: 'D-7', hue: 'autumn', members: ['rabbit', 'bear'] },
+    { title: '영주 부석사 눈꽃 산책', date: '2026.12.14 (월) 10:00', place: '부석사 주차장', people: '4/5명', current: 4, max: 5, dday: 'D-9', hue: 'coast', members: ['crane', 'deer', 'turtle'] },
   ];
   const pastTrips = [
     { title: '경주 역사 감성 여행', summary: '월정교 야경과 첨성대 단풍길을 함께 걸었어요.', meta: '2024.04.12 (금) · 여행 기록', badge: '경주', hue: 'hanok' },
@@ -1366,7 +1365,7 @@ function ScreenMyPage() {
           </button>
 
           <div data-testid="my-profile-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 10 }}>
-            {[['12', '여행'], ['4.7', '매너'], ['8', '피드']].map(([value, label]) => (
+            {[['12', '여행'], ['4.7', '매너'], ['21', '피드']].map(([value, label]) => (
               <div key={label} style={{ height: 54, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 3 }}>
                 <div style={{ fontSize: 16, lineHeight: '20px', fontWeight: 900 }}>{value}</div>
                 <div style={{ fontSize: 11.5, color: T.text500, fontWeight: 700 }}>{label}</div>
@@ -1435,9 +1434,9 @@ function ScreenPublicProfile() {
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
         <div style={{ height: 'calc(100% - 82px)', overflow: 'auto', paddingBottom: 100 }}>
-          <div style={{ height: 188, position: 'relative', background: 'linear-gradient(180deg, #C9E9C9 0%, #EAF4E5 100%)' }}>
+          <div style={{ height: 188, position: 'relative', background: `linear-gradient(180deg, ${T.coverTop} 0%, ${T.coverBottom} 100%)` }}>
             <svg width="393" height="188" viewBox="0 0 393 188" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0 }}>
-              <path d="M0 140 Q58 104 109 124 T215 122 T319 125 T393 104 L393 188 L0 188 Z" fill="#8FC482" opacity="0.55"/>
+              <path d="M0 140 Q58 104 109 124 T215 122 T319 125 T393 104 L393 188 L0 188 Z" fill={T.coverHill} opacity="0.55"/>
             </svg>
             <div style={{ position: 'absolute', right: 18, top: 14 }}><IconButton name="settings" onClick={() => nav.go('settings')}/></div>
             <div style={{ position: 'absolute', left: 0, right: 0, bottom: -44, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -1449,14 +1448,14 @@ function ScreenPublicProfile() {
             </div>
           </div>
           <div style={{ padding: '62px 18px 0' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', borderRadius: 14, border: `1px solid ${RF.softLine}`, overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', borderRadius: 14, border: `1px solid ${RF.softLine}`, overflow: 'hidden' }}>
+              {/* 팔로우 개념이 없는 서비스라 지표는 여행·호스트·피드 3개다 (앱과 동일) */}
               {[
                 ['여행', '12'],
-                ['피드', '8'],
-                ['팔로워', '24'],
-                ['팔로잉', '18'],
+                ['호스트', '3'],
+                ['피드', '21'],
               ].map((s, i) => (
-                <div key={s[0]} style={{ padding: '13px 0', textAlign: 'center', borderRight: i < 3 ? `1px solid ${RF.softLine}` : 'none' }}>
+                <div key={s[0]} style={{ padding: '13px 0', textAlign: 'center', borderRight: i < 2 ? `1px solid ${RF.softLine}` : 'none' }}>
                   <div style={{ fontSize: 11, color: T.text500 }}>{s[0]}</div>
                   <div style={{ fontSize: 15, fontWeight: 900, marginTop: 3 }}>{s[1]}</div>
                 </div>

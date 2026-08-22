@@ -15,7 +15,7 @@ function ScreenHome() {
           <div style={{ fontSize: 20, fontWeight: 700, color: T.text900, letterSpacing: '-0.5px' }}>홈</div>
           <Press onClick={() => nav.go('notif')} style={{ position: 'relative' }}>
             <Icon name="bell" size={22} color={T.text700}/>
-            <div style={{ position: 'absolute', top: -1, right: -1, width: 7, height: 7, borderRadius: 999, background: T.primary500, border: '1.5px solid #fff' }}/>
+            <div style={{ position: 'absolute', top: -1, right: -1, width: 7, height: 7, borderRadius: 999, background: T.primary500, border: `1.5px solid ${T.avatarRing}` }}/>
           </Press>
         </div>
         <div style={{ flex: 1, overflow: 'auto' }}>
@@ -166,19 +166,19 @@ function ScreenGroupDetail() {
           <div style={{ position: 'absolute', top: 54, left: 0, right: 0, padding: '0 20px', display: 'flex', justifyContent: 'space-between', zIndex: 5 }}>
             <div onClick={() => nav.back()} style={{
               width: 40, height: 40, borderRadius: 999,
-              background: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: T.overlayPanel, display: 'flex', alignItems: 'center', justifyContent: 'center',
               backdropFilter: 'blur(8px)', cursor: 'pointer',
             }}>
               <div onClick={() => nav.back()} style={{ cursor: 'pointer', display: 'inline-flex' }}><Icon name="back" size={20} color={T.text900}/></div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <div onClick={() => nav.toggleLike('group-1')} style={{ width: 40, height: 40, borderRadius: 999, background: 'rgba(255,255,255,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)', cursor: 'pointer', transition: 'transform 120ms' }}>
+              <div onClick={() => nav.toggleLike('group-1')} style={{ width: 40, height: 40, borderRadius: 999, background: T.overlayPanel, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)', cursor: 'pointer', transition: 'transform 120ms' }}>
                 {liked
                   ? <svg width="20" height="20" viewBox="0 0 24 24" fill={T.accent500}><path d="M12 21s-7.5-4.7-9.5-9.4C1 8 3.5 4 7.5 4c2 0 3.5 1.2 4.5 2.7C13 5.2 14.5 4 16.5 4 20.5 4 23 8 21.5 11.6 19.5 16.3 12 21 12 21z"/></svg>
                   : <Icon name="bookmark" size={20} color={T.text900}/>
                 }
               </div>
-              <div style={{ width: 40, height: 40, borderRadius: 999, background: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)' }}>
+              <div style={{ width: 40, height: 40, borderRadius: 999, background: T.overlayPanel, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)' }}>
                 <Icon name="more" size={20} color={T.text900}/>
               </div>
             </div>

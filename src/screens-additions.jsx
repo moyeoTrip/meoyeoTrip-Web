@@ -287,8 +287,9 @@ function ScreenCreateMeetPoint() {
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
-        <Header title="모집 만들기 (4/5)" left center onBack={nav.back}/>
-        <AddStepDots active={3}/>
+        {/* 집합 장소는 일정 단계(2/5)에서 열리는 화면이라 단계 뷰를 그대로 유지한다 */}
+        <Header title="모집 만들기 (2/5)" left center onBack={nav.back}/>
+        <AddStepDots active={1}/>
 
         <div style={{ position: 'absolute', top: 148, left: 0, right: 0, bottom: 96, overflow: 'auto' }}>
           <div style={{ padding: '0 20px 14px' }}>
@@ -303,7 +304,7 @@ function ScreenCreateMeetPoint() {
             }}>
               <div style={{
                 width: 40, height: 40, borderRadius: 999, background: T.primary500,
-                border: '3px solid #fff', boxShadow: T.l2,
+                border: `3px solid ${T.avatarRing}`, boxShadow: T.l2,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
                 <Icon name="pin" size={20} color="#fff"/>
@@ -313,7 +314,7 @@ function ScreenCreateMeetPoint() {
             </button>
             <div style={{
               position: 'absolute', left: 14, right: 14, top: 14, height: 42, borderRadius: 12,
-              background: 'rgba(255,255,255,0.96)', border: `1px solid ${T.line200}`, boxShadow: T.l1,
+              background: T.overlayPanel, border: `1px solid ${T.line200}`, boxShadow: T.l1,
               display: 'flex', alignItems: 'center', gap: 9, padding: '0 13px',
             }}>
               <Icon name="search" size={17} color={T.text500}/>
@@ -321,7 +322,7 @@ function ScreenCreateMeetPoint() {
             </div>
             <div style={{
               position: 'absolute', left: 14, bottom: 14,
-              padding: '7px 11px', borderRadius: 999, background: 'rgba(255,255,255,0.96)',
+              padding: '7px 11px', borderRadius: 999, background: T.overlayPanel,
               border: `1px solid ${T.line200}`, boxShadow: T.l1,
               fontSize: 11, fontWeight: 800, color: T.text700,
             }}>핀을 끌어 위치를 조정하세요</div>
@@ -360,13 +361,14 @@ function ScreenCreateMeetPoint() {
                 borderRadius: 12, border: `1px solid ${RF.softLine}`, background: T.bgSubtle,
                 padding: 13, display: 'grid', gap: 8,
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                  <span style={{ color: T.text500 }}>위도 (lat)</span>
-                  <span data-testid="meeting-latitude" style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{point.lat.toFixed(6)}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                  <span style={{ color: T.text500 }}>경도 (lng)</span>
-                  <span data-testid="meeting-longitude" style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{point.lng.toFixed(6)}</span>
+                {/* 위경도는 한 줄 — lat/lng를 따로 읽을 일이 없고 줄이 늘면 카드만 커진다 (화면기획·앱과 동일) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                  <Icon name="map" size={15} color={T.text500}/>
+                  <span style={{ flex: 1, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+                    <span data-testid="meeting-latitude">{point.lat.toFixed(6)}</span>
+                    {', '}
+                    <span data-testid="meeting-longitude">{point.lng.toFixed(6)}</span>
+                  </span>
                 </div>
                 <div style={{ height: 1, background: RF.softLine }}/>
                 <div style={{ fontSize: 11, color: T.text500, lineHeight: '16px' }}>
@@ -393,7 +395,7 @@ function ScreenCreateMeetPoint() {
 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}>
           <Btn variant="ghost" onClick={nav.back}>이전</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={() => nav.go((window.__moyeoCourseSource || 'custom') === 'linked' ? 'create-summary-linked' : 'create-summary')}>다음</Btn></div>
+          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={nav.back}>이 위치로 지정</Btn></div>
         </div>
       </div>
     </Phone>
@@ -445,10 +447,10 @@ function ScreenCustomCourse() {
             <MiniMap height={160} pins={stops.slice(0, 4).map((_, i) => i + 1)}/>
           </div>
 
-          <form onSubmit={(event) => { event.preventDefault(); addStop(); }} style={{ marginTop: 14, height: 42, borderRadius: 11, border: `1px solid ${T.line200}`, display: 'flex', alignItems: 'center', gap: 9, padding: '0 8px 0 13px' }}>
+          <form onSubmit={(event) => { event.preventDefault(); nav.go('place-search'); }} style={{ marginTop: 14, height: 42, borderRadius: 11, border: `1px solid ${T.line200}`, display: 'flex', alignItems: 'center', gap: 9, padding: '0 8px 0 13px' }}>
             <Icon name="search" size={17} color={T.text500}/>
             <input data-testid="tourapi-place-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="방문지 검색 (TourAPI · 경북 22개 시·군)" style={{ minWidth: 0, flex: 1, border: 0, outline: 0, background: 'transparent', color: T.text900, fontFamily: T.fontStack, fontSize: 13 }}/>
-            <button type="submit" disabled={!query.trim() || stops.length >= 20} style={{ height: 30, border: 0, borderRadius: 8, background: query.trim() ? T.primary50 : 'transparent', color: query.trim() ? T.primary700 : T.text400, fontFamily: T.fontStack, fontSize: 11, fontWeight: 800 }}>추가</button>
+            <button type="submit" style={{ height: 30, border: 0, borderRadius: 8, background: T.primary50, color: T.primary700, fontFamily: T.fontStack, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>검색</button>
           </form>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 }}>
@@ -591,7 +593,7 @@ function ScreenNoticeHistory() {
           <MiniMap height={92} withRoute={false}/>
           <div style={{
             position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -60%)',
-            width: 30, height: 30, borderRadius: 999, background: T.primary500, border: '2.5px solid #fff',
+            width: 30, height: 30, borderRadius: 999, background: T.primary500, border: `2.5px solid ${T.avatarRing}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: T.l2,
           }}>
             <Icon name="pin" size={16} color="#fff"/>
@@ -611,7 +613,8 @@ function ScreenNoticeHistory() {
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
-        <Header title="공지 이력" left center onBack={nav.back} right={<IconButton name="more"/>}/>
+        {/* 우측 상단 더보기(⋯)는 항목이 정의되지 않아 두지 않는다 (앱과 동일) */}
+        <Header title="공지 이력" left center onBack={nav.back}/>
 
         <div style={{ padding: '0 20px 12px', borderBottom: `1px solid ${RF.softLine}` }}>
           <div style={{ fontSize: 13, fontWeight: 900 }}>주왕산 &amp; 주산지 힐링 트레킹</div>
@@ -687,9 +690,11 @@ function ScreenCreateSummary({ source }) {
           <div style={{ fontSize: 12, color: T.text500, marginTop: 6 }}>등록 후에도 마감 전까지는 대부분 고칠 수 있어요.</div>
 
           <div style={{ marginTop: 14, borderRadius: 14, border: `1px solid ${RF.softLine}`, background: RF.card, overflow: 'hidden' }}>
-            <div style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 8, borderBottom: `1px solid ${RF.softLine}` }}>
-              <div style={{ flex: 1, fontSize: 13, fontWeight: 900 }}>주왕산 &amp; 주산지 힐링 트레킹</div>
-              <CourseSourceBadge source={resolvedSource}/>
+            <div style={{ padding: 14, borderBottom: `1px solid ${RF.softLine}` }}>
+              <div style={{ fontSize: 14, fontWeight: 900 }}>30대끼리 느긋하게 힐링 여행가요~</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 6 }}>
+                <Icon name="map" size={14} color={T.text500}/><span style={{ flex: 1, fontSize: 12, color: T.text700, fontWeight: 800 }}>주왕산 &amp; 주산지 힐링 트레킹</span><CourseSourceBadge source={resolvedSource}/>
+              </div>
             </div>
             <div style={{ padding: 14, display: 'grid', gap: 10 }}>
               {[
@@ -697,6 +702,8 @@ function ScreenCreateSummary({ source }) {
                 ['pin', '집합', '07:50 청송 시외버스터미널 정문 앞'],
                 ['map', '좌표', '36.435612, 129.057214'],
                 ['users', '인원', '최소 3명 · 최대 5명 · 성별 제한 없음'],
+                ['users', '조건', '25~35세 · 성별 무관'],
+                ['money', '비용', '1인 예상 45,000원'],
                 ['clock', '마감', '5/22(목) 23:59'],
               ].map((r) => (
                 <div key={r[1]} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>

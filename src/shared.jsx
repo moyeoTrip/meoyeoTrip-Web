@@ -325,9 +325,11 @@ function BearGroup({ size = 200 }) {
 
 // Mini map — illustrative tile
 function MiniMap({ height = 200, dark = false, withRoute = true, pins = [1,2,3,4] }) {
-  const bg = dark ? '#1A2320' : '#EEF4F0';
-  const land = dark ? '#222C28' : '#E0EAD8';
-  const water = dark ? '#1A2A36' : '#CDDDE8';
+  // 지도 색은 테마 토큰을 쓴다 — 다크 모드에서 지도만 밝게 남으면 앱과 어긋난다.
+  // dark 를 명시한 호출부(밝은 히어로 위 어두운 지도)는 그대로 고정 색을 쓴다.
+  const bg = dark ? '#1A2320' : T.mapBg;
+  const land = dark ? '#222C28' : T.mapLand;
+  const water = dark ? '#1A2A36' : T.mapWater;
   const route = dark ? T.primary300 : T.primary500;
   return (
     <div style={{ width: '100%', height, borderRadius: 16, overflow: 'hidden', position: 'relative', background: bg }}>
@@ -339,8 +341,8 @@ function MiniMap({ height = 200, dark = false, withRoute = true, pins = [1,2,3,4
         {/* water */}
         <path d="M-10 60 Q60 100 140 95 Q220 90 320 70 L320 130 Q260 145 200 140 Q120 135 60 150 Q20 160 -10 155 Z" fill={water} opacity="0.5"/>
         {/* roads */}
-        <path d="M30 30 Q90 50 150 60 Q210 70 290 50" stroke={dark ? '#323D38' : '#D9DDD9'} strokeWidth="1.5" fill="none"/>
-        <path d="M40 170 Q120 150 200 160 Q260 168 300 180" stroke={dark ? '#323D38' : '#D9DDD9'} strokeWidth="1.5" fill="none"/>
+        <path d="M30 30 Q90 50 150 60 Q210 70 290 50" stroke={dark ? '#323D38' : T.mapRoad} strokeWidth="1.5" fill="none"/>
+        <path d="M40 170 Q120 150 200 160 Q260 168 300 180" stroke={dark ? '#323D38' : T.mapRoad} strokeWidth="1.5" fill="none"/>
         {/* route line */}
         {withRoute && (
           <>
