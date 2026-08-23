@@ -76,6 +76,8 @@
   <script src="https://www.gstatic.com/firebasejs/12.16.0/firebase-messaging-compat.js"></script>
   <script src="https://t1.kakaocdn.net/kakao_js_sdk/2.8.1/kakao.min.js" crossorigin="anonymous"></script>
   <script src="src/observability.js"></script>
+  <!-- 카카오 지도 SDK 는 이 로더가 화면에서 필요할 때만 주입한다 (정적 <script> 금지 — 초기 로딩·캡처 영향 최소화) -->
+  <script src="src/kakao-map.js?v=20260823"></script>
 
   <script type="text/babel" src="src/tokens.jsx"></script>
   <script type="text/babel" src="src/shared.jsx"></script>

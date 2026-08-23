@@ -30,6 +30,18 @@ http://127.0.0.1:5174/?screen=home&theme=dark&scroll=bottom
 
 첫 로드에는 CDN의 React/Babel 리소스가 필요합니다. 본문과 스플래시는 저장소에 포함된 LINE Seed Sans KR Regular/Bold를 사용하며 시스템 한글 폰트를 fallback으로 둡니다.
 
+## 지도 (카카오 지도 JavaScript SDK)
+
+`src/kakao-map.js`가 `runtime-config(.local).js`의 `kakaoJavaScriptKey`로 `dapi.kakao.com/v2/maps/sdk.js`를 지도 화면에서만 동적 로드합니다(`autoload=false` → `kakao.maps.load()`). 공용 지도 컴포넌트는 `shared.jsx`의 `MiniMap` 하나이고, 좌표(`center` · `markers` · `polyline`)가 있고 SDK 로드가 성공할 때만 실지도를 그립니다. 키가 없거나 좌표가 없거나 로드·인증이 실패하면 기존 SVG 목업 지도로 폴백합니다.
+
+캡처·QA 회귀를 막기 위해 `?screen=`, `?route=`, `?capture=1`, `?uitest=1`에서는 네트워크 지도를 타지 않고 항상 목업을 그립니다. 개발 중에 특정 화면의 실지도를 확인하려면 `?liveMap=1`을 붙입니다(캡처 도구는 이 값을 붙이지 않습니다).
+
+```txt
+http://127.0.0.1:5174/?screen=create-meet&theme=light&mockAuth=1&liveMap=1
+```
+
+실지도가 보이려면 카카오 개발자 콘솔의 해당 앱에 **플랫폼 › Web › 사이트 도메인**으로 접속 도메인이 등록돼 있어야 합니다. 등록되지 않은 도메인에서는 SDK가 `401 domain mismatched`를 돌려주고 목업 지도로 폴백합니다. 로컬 개발에는 `http://127.0.0.1:5174`, `http://127.0.0.1:5173`, `http://localhost:5173`을 함께 등록하세요.
+
 ## 글꼴 라이선스
 
 LINE Seed Sans KR은 SIL Open Font License 1.1에 따라 개인 및 상업 프로젝트에서 사용할 수 있습니다. 웹에는 용량을 줄이기 위해 WOFF2 Regular/Bold만 번들했으며, 원문 라이선스는 `assets/licenses/LINESeedSansKR-OFL.txt`에 포함했습니다.

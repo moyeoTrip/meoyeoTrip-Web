@@ -235,13 +235,28 @@ function Photo({ hue = 'forest', height = 120, radius = 12, overlay = false, chi
   );
 }
 
-function RouteMap({ height = 150, compact = false }) {
+// stops 를 준 호출부만 실지도를 쓴다. 코스가 특정되지 않은 미리보기(피드 등)는 목업이 맞다.
+function RouteMap({ height = 150, compact = false, stops = null }) {
+  const [liveMap, setLiveMap] = React.useState(false);
+  // 방문지 순번 마커 + 초록 경로선. 좌표를 못 찾으면 route 가 null 이고 목업이 그대로 남는다.
+  const route = React.useMemo(() => {
+    if (!stops?.length) return null;
+    return window.MoyeoKakaoMap?.routeFromNames?.(stops) || null;
+  }, [stops]);
   return (
     <div style={{ height, borderRadius: 12, overflow: 'hidden', position: 'relative', background: RF.mapGreen }}>
-      <MiniMap height={height} pins={compact ? [1,2,3] : [1,2,3,4]}/>
+      <MiniMap
+        height={height}
+        pins={compact ? [1,2,3] : [1,2,3,4]}
+        markers={route?.markers}
+        polyline={route?.polyline}
+        onLiveMap={setLiveMap}
+      />
+      {!liveMap && (
       <svg width="100%" height="100%" viewBox="0 0 320 200" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.22 }}>
         <path d="M0 150 Q80 120 160 150 T320 138" fill="none" stroke="#fff" strokeWidth="10"/>
       </svg>
+      )}
     </div>
   );
 }
@@ -730,12 +745,40 @@ function ScreenExplore() {
   );
 }
 
+// 기획 11 의 컬러 마커 숫자(모집 인원)를 실좌표(관광 샘플)에 얹는다.
+const EXPLORE_MAP_MARKER_LABELS = ['1', '6', '2', '2', '2'];
+
 function ScreenExploreMap() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  const [liveMap, setLiveMap] = React.useState(false);
+  const [selected, setSelected] = React.useState(null);
+  // 좌표는 목데이터(관광 샘플)의 실제 위경도만 쓴다.
+  const mapPlaces = React.useMemo(() => (window.MoyeoTourism?.samplePlaces || [])
+    .map((place, index) => ({
+      lat: Number(place.latitude),
+      lng: Number(place.longitude),
+      label: EXPLORE_MAP_MARKER_LABELS[index] || String(index + 1),
+      place,
+    }))
+    .filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng) && item.lat !== 0), []);
+  const openSelected = () => {
+    if (!selected) { nav.go('detail'); return; }
+    try { window.sessionStorage?.setItem('moyeo.selectedTourismContentId', selected.contentId); } catch (_) { /* 저장 불가 환경 */ }
+    nav.go('place-detail');
+  };
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0, background: RF.mapGreen }}>
-        <MiniMap height={852} withRoute={false} pins={[]}/>
+        <MiniMap
+          height={852}
+          withRoute={false}
+          pins={[]}
+          level={9}
+          markers={mapPlaces}
+          onMarkerSelect={(item) => setSelected(item.place)}
+          onLiveMap={setLiveMap}
+        />
+        {!liveMap && (
         <svg width="393" height="852" viewBox="0 0 393 852" style={{ position: 'absolute', inset: 0 }}>
           <path d="M0 180 Q85 130 166 180 T393 150 L393 852 L0 852 Z" fill={T.mapLand} opacity="0.55"/>
           <path d="M265 0 Q336 154 393 216 L393 852 L316 852 Q324 601 292 450 T265 0 Z" fill={T.mapWater} opacity="0.8"/>
@@ -763,18 +806,19 @@ function ScreenExploreMap() {
             </g>
           ))}
         </svg>
+        )}
         <div style={{ position: 'absolute', top: 46, left: 0, right: 0 }}>
           <Header title="지도 탐색" left center onBack={nav.back} right={<IconButton name="menu"/>}/>
         </div>
         <div style={{ position: 'absolute', right: 20, top: 530, width: 42, height: 42, borderRadius: 999, background: RF.card, boxShadow: RF.softShadow, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="pin" size={20} color={T.text700}/>
         </div>
-        <div onClick={() => nav.go('detail')} style={{ position: 'absolute', left: 18, right: 18, bottom: 94, height: 96, borderRadius: 16, background: RF.card, boxShadow: RF.shadow, padding: 10, display: 'flex', gap: 12, cursor: 'pointer' }}>
-          <div style={{ width: 84, borderRadius: 10, overflow: 'hidden' }}><Photo hue="forest" height={76} radius={0}/></div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 900 }}>주왕산 & 주산지 힐링 트레킹</div>
-            <div style={{ fontSize: 11, color: T.text500, marginTop: 5 }}>청송 · 자연</div>
-            <div style={{ fontSize: 12, color: T.text700, fontWeight: 800, marginTop: 5 }}>2/5명</div>
+        <div onClick={openSelected} data-testid="explore-map-card" style={{ position: 'absolute', left: 18, right: 18, bottom: 94, height: 96, borderRadius: 16, background: RF.card, boxShadow: RF.shadow, padding: 10, display: 'flex', gap: 12, cursor: 'pointer' }}>
+          <div style={{ width: 84, borderRadius: 10, overflow: 'hidden' }}><Photo hue={selected?.hue || 'forest'} height={76} radius={0}/></div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected ? selected.title : '주왕산 & 주산지 힐링 트레킹'}</div>
+            <div style={{ fontSize: 11, color: T.text500, marginTop: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected ? selected.address : '청송 · 자연'}</div>
+            <div style={{ fontSize: 12, color: T.text700, fontWeight: 800, marginTop: 5 }}>{selected ? '장소 상세 보기 →' : '2/5명'}</div>
           </div>
           <Icon name="heart" size={20} color={T.text700}/>
         </div>
@@ -826,7 +870,7 @@ function ScreenCourseDetail() {
               ))}
             </div>
             <div style={{ fontSize: 15, fontWeight: 900, marginTop: 28, marginBottom: 10 }}>코스 미리보기</div>
-            <RouteMap height={146}/>
+            <RouteMap height={146} stops={window.MoyeoKakaoMap?.DEFAULT_COURSE_STOPS}/>
           </div>
         </div>
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 18px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>

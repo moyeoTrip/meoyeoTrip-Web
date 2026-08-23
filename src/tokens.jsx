@@ -195,6 +195,11 @@ html, body {
   opacity: 1;
 }
 
+/* 카카오 지도 타일은 다크 스타일이 없다. 다크 테마에서 지도만 튀지 않게 살짝 낮춘다. */
+:root[data-moyeo-theme="dark"] [data-moyeo-map="kakao"] {
+  filter: brightness(0.84) saturate(0.9);
+}
+
 @keyframes moyeo-confetti-burst {
   0% {
     opacity: 0;

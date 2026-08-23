@@ -118,6 +118,7 @@ function ScreenTripDay() {
   const [draft, setDraft] = React.useState('');
   const stops = ['청송터미널', '주왕산', '주산지', '달기약수탕'];
   const current = 2; // 1-indexed
+  const placeMarker = React.useMemo(() => window.MoyeoKakaoMap?.placeCoord?.('주산지') || null, []);
 
   return (
     <Phone>
@@ -184,7 +185,8 @@ function ScreenTripDay() {
           </div>
           {/* 장소 카드 — 첨부 메뉴의 '장소' */}
           <div style={{ maxWidth: 268, marginLeft: 38, borderRadius: 14, border: `1px solid ${RF.softLine}`, background: RF.card, overflow: 'hidden', marginBottom: 14 }}>
-            <MiniMap height={92} pins={[1]}/>
+            {/* 장소 카드 — 방문지 실좌표에 단일 마커. 좌표를 못 찾으면 목업 지도가 남는다 */}
+            <MiniMap height={92} pins={[1]} level={4} markers={placeMarker ? [{ ...placeMarker, label: '' }] : null}/>
             <div style={{ padding: 11 }}>
               <div style={{ fontSize: 12.5, fontWeight: 900 }}>주산지 주차장</div>
               <div style={{ fontSize: 11, color: T.text500, marginTop: 3 }}>14:00 도착 예정 · 차로 22분</div>

@@ -279,6 +279,9 @@ function ScreenCreateMeetPoint() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const [detail, setDetail] = React.useState('터미널 정문 앞');
   const [point, setPoint] = React.useState({ lat: 36.435612, lng: 129.057214 });
+  // 실지도가 붙으면 카카오 드래그 핀이 좌표를 갱신한다. 목업일 때만 아래 탭 핀을 쓴다.
+  const [liveMap, setLiveMap] = React.useState(false);
+  const initialPoint = React.useRef(point);
   const nudgePoint = () => setPoint((current) => ({
     lat: Number((current.lat + 0.000121).toFixed(6)),
     lng: Number((current.lng - 0.000094).toFixed(6)),
@@ -297,7 +300,16 @@ function ScreenCreateMeetPoint() {
             <div style={{ fontSize: 12, color: T.text500, marginTop: 6 }}>검색하거나 지도의 핀을 움직여 정확한 위치를 알려주세요.</div>
           </div>
           <div style={{ position: 'relative' }}>
-            <MiniMap height={244} withRoute={false}/>
+            <MiniMap
+              height={244}
+              withRoute={false}
+              level={4}
+              center={initialPoint.current}
+              draggablePin
+              onPinMove={setPoint}
+              onLiveMap={setLiveMap}
+            />
+            {!liveMap && (
             <button type="button" onClick={nudgePoint} aria-label="지도 핀 위치 조정" data-testid="meeting-map-pin" style={{
               position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -100%)',
               display: 'flex', flexDirection: 'column', alignItems: 'center', border: 0, background: 'transparent', padding: 0, cursor: 'pointer',
@@ -312,6 +324,7 @@ function ScreenCreateMeetPoint() {
               <div style={{ width: 2, height: 12, background: T.primary500 }}/>
               <div style={{ width: 12, height: 4, borderRadius: 999, background: 'rgba(15,23,20,0.25)' }}/>
             </button>
+            )}
             <div style={{
               position: 'absolute', left: 14, right: 14, top: 14, height: 42, borderRadius: 12,
               background: T.overlayPanel, border: `1px solid ${T.line200}`, boxShadow: T.l1,
@@ -432,6 +445,11 @@ function ScreenCustomCourse() {
       return next;
     });
   };
+  // 검색으로 추가한 방문지는 좌표를 못 찾을 수 있다 — 그때는 목업 지도로 남는다.
+  const courseRoute = React.useMemo(
+    () => window.MoyeoKakaoMap?.routeFromNames?.(stops.map((s) => s.name)) || null,
+    [stops],
+  );
 
   return (
     <Phone>
@@ -440,7 +458,7 @@ function ScreenCustomCourse() {
 
         <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 96, overflow: 'auto', padding: '0 20px 20px' }}>
           <div style={{ marginTop: 14, borderRadius: 12, overflow: 'hidden' }}>
-            <MiniMap height={160} pins={stops.slice(0, 4).map((_, i) => i + 1)}/>
+            <MiniMap height={160} pins={stops.slice(0, 4).map((_, i) => i + 1)} markers={courseRoute?.markers} polyline={courseRoute?.polyline}/>
           </div>
 
           <form onSubmit={(event) => { event.preventDefault(); nav.go('place-search'); }} style={{ marginTop: 14, height: 42, borderRadius: 11, border: `1px solid ${T.line200}`, display: 'flex', alignItems: 'center', gap: 9, padding: '0 8px 0 13px' }}>
@@ -586,7 +604,8 @@ function ScreenNoticeHistory() {
       <div style={{ fontSize: 13, lineHeight: '20px', color: T.text900, marginTop: 9, whiteSpace: 'pre-line' }}>{n.body}</div>
       {n.map && (
         <div style={{ marginTop: 10, borderRadius: 10, overflow: 'hidden', position: 'relative' }}>
-          <MiniMap height={92} withRoute={false}/>
+          {/* 집합 장소 미리보기 — 지도 중심이 집합 좌표이므로 중앙 핀이 그대로 그 지점을 가리킨다 */}
+          <MiniMap height={92} withRoute={false} level={4} center={window.MoyeoKakaoMap?.MEETING_POINT}/>
           <div style={{
             position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -60%)',
             width: 30, height: 30, borderRadius: 999, background: T.primary500, border: `2.5px solid ${T.avatarRing}`,
@@ -769,6 +788,11 @@ function ScreenCourseEdit({ mode = 'custom' }) {
     setSaved(true);
     window.setTimeout(() => nav.go('chat'), 450);
   };
+  // 방문지 이름으로 실좌표를 찾아 순번 마커 + 경로선을 그린다. 못 찾으면 목업 지도가 남는다.
+  const courseRoute = React.useMemo(
+    () => window.MoyeoKakaoMap?.routeFromNames?.(stops.map((s) => s.name)) || null,
+    [stops],
+  );
 
   const banner = {
     custom: {
@@ -817,7 +841,7 @@ function ScreenCourseEdit({ mode = 'custom' }) {
           </div>
 
           <div style={{ marginTop: 14, borderRadius: 12, overflow: 'hidden', opacity: editable ? 1 : 0.92 }}>
-            <MiniMap height={150} pins={stops.slice(0, 4).map((_, i) => i + 1)}/>
+            <MiniMap height={150} pins={stops.slice(0, 4).map((_, i) => i + 1)} markers={courseRoute?.markers} polyline={courseRoute?.polyline}/>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 }}>

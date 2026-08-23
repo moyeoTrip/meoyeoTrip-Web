@@ -323,16 +323,169 @@ function BearGroup({ size = 200 }) {
   );
 }
 
-// Mini map — illustrative tile
-function MiniMap({ height = 200, dark = false, withRoute = true, pins = [1,2,3,4] }) {
+// 지도 마커·경로선 시각 언어는 기획을 따른다 — 순번은 초록 원 + 흰 숫자, 경로선은 초록 실선.
+// CustomOverlay 에 문자열을 넘기면 getContent() 로 DOM 을 못 잡아 클릭을 붙일 수 없으니 노드로 만든다.
+function moyeoMarkerNode(label, route, onClick) {
+  const text = label === undefined || label === null ? '' : String(label);
+  const size = text.length > 2 ? 34 : 30;
+  const node = document.createElement('div');
+  node.style.cssText = `width:${size}px;height:${size}px;border-radius:999px;background:${route};`
+    + 'border:2.5px solid #fff;box-shadow:0 2px 6px rgba(15,23,20,0.28);display:flex;align-items:center;'
+    + `justify-content:center;color:#fff;font-weight:900;font-size:11px;font-family:${T.fontStack};`
+    + `cursor:${onClick ? 'pointer' : 'default'};`;
+  node.textContent = text;
+  if (onClick) node.addEventListener('click', onClick);
+  return node;
+}
+
+// 17-3 집합 장소용 드래그 핀. 기획의 초록 원 + 흰 핀 글리프 + 꼬리를 그대로 SVG 로 만든다.
+function moyeoPinDataUri(route) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="62" viewBox="0 0 48 62">`
+    + `<ellipse cx="24" cy="58" rx="7" ry="2.5" fill="rgba(15,23,20,0.25)"/>`
+    + `<rect x="23" y="42" width="2" height="14" fill="${route}"/>`
+    + `<circle cx="24" cy="22" r="19" fill="${route}" stroke="#fff" stroke-width="3"/>`
+    + `<path d="M24 13a6 6 0 0 0-6 6c0 4.2 6 10 6 10s6-5.8 6-10a6 6 0 0 0-6-6zm0 8.2a2.2 2.2 0 1 1 0-4.4 2.2 2.2 0 0 1 0 4.4z" fill="#fff"/>`
+    + `</svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+// Mini map — 좌표가 있고 SDK 로드가 되면 카카오 실지도, 아니면 아래 SVG 목업.
+// 이름·기존 props 를 그대로 유지해 호출부 8곳 이상을 건드리지 않는다.
+function MiniMap({
+  height = 200, dark = false, withRoute = true, pins = [1,2,3,4],
+  center = null, markers = null, polyline = null, level = 6,
+  draggablePin = false, onPinMove = null, onMarkerSelect = null, onLiveMap = null,
+}) {
   // 지도 색은 테마 토큰을 쓴다 — 다크 모드에서 지도만 밝게 남으면 앱과 어긋난다.
   // dark 를 명시한 호출부(밝은 히어로 위 어두운 지도)는 그대로 고정 색을 쓴다.
   const bg = dark ? '#1A2320' : T.mapBg;
   const land = dark ? '#222C28' : T.mapLand;
   const water = dark ? '#1A2A36' : T.mapWater;
   const route = dark ? T.primary300 : T.primary500;
+
+  const markerList = React.useMemo(() => (markers || []).filter((m) => m && Number.isFinite(m.lat) && Number.isFinite(m.lng)), [markers]);
+  const pathList = React.useMemo(() => (polyline || []).filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng)), [polyline]);
+  const focus = (center && Number.isFinite(center.lat) && Number.isFinite(center.lng)) ? center : (markerList[0] || pathList[0] || null);
+
+  // 키가 없거나 캡처 모드(?screen= 등)면 실지도를 시도하지 않는다 — 캡처 회귀 방지.
+  const mapApi = typeof window !== 'undefined' ? window.MoyeoKakaoMap : null;
+  const canTryLive = Boolean(focus) && Boolean(mapApi?.isAvailable?.());
+  const [live, setLive] = React.useState(false);
+  const holderRef = React.useRef(null);
+  // 드래그 핀 모드에서는 핀이 움직일 때마다 center prop 이 바뀐다.
+  // 그때 지도를 다시 만들면 드래그가 튀므로 최초 좌표만 의존성으로 쓴다.
+  const focusKey = (focus && !draggablePin) ? `${focus.lat},${focus.lng}` : 'pin';
+  const markerKey = JSON.stringify(markerList);
+  const pathKey = JSON.stringify(pathList);
+
+  React.useEffect(() => { if (onLiveMap) onLiveMap(live); }, [live, onLiveMap]);
+
+  // 지도 생성 — 실패·인증 오류·타일 미로딩은 모두 목업 폴백으로 떨어진다.
+  React.useEffect(() => {
+    if (!canTryLive) return undefined;
+    let cancelled = false;
+    let tileTimer = 0;
+    const overlays = [];
+
+    mapApi.loadKakaoMaps().then((maps) => {
+      if (cancelled || !holderRef.current) return;
+      const map = new maps.Map(holderRef.current, {
+        center: new maps.LatLng(focus.lat, focus.lng),
+        level,
+        draggable: true,
+        scrollwheel: false,
+      });
+
+      if (pathList.length >= 2) {
+        const line = new maps.Polyline({
+          path: pathList.map((p) => new maps.LatLng(p.lat, p.lng)),
+          strokeWeight: 5,
+          strokeColor: route,
+          strokeOpacity: 0.95,
+          strokeStyle: 'solid',
+        });
+        line.setMap(map);
+        overlays.push(line);
+      }
+
+      markerList.forEach((item, index) => {
+        const overlay = new maps.CustomOverlay({
+          position: new maps.LatLng(item.lat, item.lng),
+          content: moyeoMarkerNode(
+            item.label === undefined ? index + 1 : item.label,
+            route,
+            onMarkerSelect ? () => onMarkerSelect(item, index) : null,
+          ),
+          yAnchor: 0.5,
+          xAnchor: 0.5,
+          clickable: Boolean(onMarkerSelect),
+          // 방문지가 가까워 겹칠 때 앞 순번(집합 장소)이 위에 오게 한다.
+          zIndex: markerList.length - index,
+        });
+        overlay.setMap(map);
+        overlays.push(overlay);
+      });
+
+      if (draggablePin) {
+        const pin = new maps.Marker({
+          position: new maps.LatLng(focus.lat, focus.lng),
+          draggable: true,
+          image: new maps.MarkerImage(moyeoPinDataUri(route), new maps.Size(48, 62), { offset: new maps.Point(24, 58) }),
+        });
+        pin.setMap(map);
+        overlays.push(pin);
+        maps.event.addListener(pin, 'dragend', () => {
+          const at = pin.getPosition();
+          map.panTo(at);
+          if (onPinMove) onPinMove({ lat: Number(at.getLat().toFixed(6)), lng: Number(at.getLng().toFixed(6)) });
+        });
+        // 지도를 움직여도 핀은 중앙을 따라간다 — 기획의 "핀을 끌어 위치를 조정하세요"와 같은 결과.
+        maps.event.addListener(map, 'dragend', () => {
+          const at = map.getCenter();
+          pin.setPosition(at);
+          if (onPinMove) onPinMove({ lat: Number(at.getLat().toFixed(6)), lng: Number(at.getLng().toFixed(6)) });
+        });
+      }
+
+      if (markerList.length > 1 || pathList.length > 1) {
+        const bounds = new maps.LatLngBounds();
+        [...markerList, ...pathList].forEach((p) => bounds.extend(new maps.LatLng(p.lat, p.lng)));
+        // 낮은 지도(150px 경로 미리보기)에서 여백이 크면 과하게 축소된다 — 높이에 맞춘다.
+        const pad = Math.max(10, Math.min(40, Math.round(height / 6)));
+        map.setBounds(bounds, pad, pad, pad, pad);
+      }
+
+      setLive(true);
+      // 도메인 미등록 등 인증 실패는 스크립트 로드로는 잡히지 않는다.
+      // 타일 이미지가 하나도 안 붙으면 빈 사각형이 남으므로 목업으로 되돌린다.
+      tileTimer = window.setTimeout(() => {
+        if (cancelled) return;
+        if (!holderRef.current || !holderRef.current.querySelector('img')) setLive(false);
+      }, 2800);
+    }).catch(() => {
+      if (!cancelled) setLive(false);
+    });
+
+    return () => {
+      cancelled = true;
+      if (tileTimer) window.clearTimeout(tileTimer);
+      overlays.forEach((item) => { try { item.setMap(null); } catch (_) { /* 이미 정리됨 */ } });
+      if (holderRef.current) holderRef.current.innerHTML = '';
+    };
+  }, [canTryLive, focusKey, markerKey, pathKey, level, height, draggablePin, route]);
+
   return (
-    <div style={{ width: '100%', height, borderRadius: 16, overflow: 'hidden', position: 'relative', background: bg }}>
+    // isolation: 카카오 지도 내부 z-index 가 헤더·하단 카드 위로 올라오지 않게 스택 컨텍스트를 가둔다.
+    <div style={{ width: '100%', height, borderRadius: 16, overflow: 'hidden', position: 'relative', background: bg, isolation: 'isolate', zIndex: 0 }}>
+      {canTryLive && (
+        <div
+          ref={holderRef}
+          data-moyeo-map="kakao"
+          data-moyeo-map-live={live ? 'true' : 'false'}
+          style={{ position: 'absolute', inset: 0, opacity: live ? 1 : 0, pointerEvents: live ? 'auto' : 'none' }}
+        />
+      )}
+      {!live && (
       <svg width="100%" height="100%" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice">
         <rect width="320" height="200" fill={bg}/>
         {/* land masses */}
@@ -364,6 +517,7 @@ function MiniMap({ height = 200, dark = false, withRoute = true, pins = [1,2,3,4
           </g>
         ))}
       </svg>
+      )}
     </div>
   );
 }
