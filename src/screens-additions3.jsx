@@ -114,6 +114,8 @@ function ScreenTripConfirmed() {
 // ───────── 35 · 여행 날 채팅방 (진행 위젯) ─────────
 function ScreenTripDay() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 기획 20-5와 같이 입력이 비어 있으면 전송은 비활성이다.
+  const [draft, setDraft] = React.useState('');
   const stops = ['청송터미널', '주왕산', '주산지', '달기약수탕'];
   const current = 2; // 1-indexed
 
@@ -200,10 +202,7 @@ function ScreenTripDay() {
           <button type="button" onClick={() => nav.go('chat-attach')} aria-label="첨부 메뉴 열기" style={{ width: 38, height: 38, borderRadius: 999, border: `1px solid ${RF.softLine}`, background: RF.card, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
             <Icon name="plus" size={19} color={T.text700}/>
           </button>
-          <div style={{ flex: 1, height: 42, borderRadius: 999, border: `1px solid ${RF.softLine}`, display: 'flex', alignItems: 'center', padding: '0 14px', color: T.text400, fontSize: 13 }}>메시지 입력</div>
-          <button style={{ width: 38, height: 38, borderRadius: 999, border: 'none', background: T.primary500, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-            <Icon name="send" size={17} color="#fff"/>
-          </button>
+          <Composer value={draft} onChange={setDraft} onSend={() => setDraft('')} placeholder="메시지 입력" testId="trip-day-composer"/>
         </div>
       </div>
     </Phone>
@@ -539,6 +538,8 @@ function ScreenSystemError() { return <ScreenSystemNotice mode="error"/>; }
 // ───────── 39 · 피드 댓글 전체 보기 ─────────
 function ScreenFeedComments() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 기획 23-1과 같이 입력이 비어 있으면 전송은 비활성이다.
+  const [comment, setComment] = React.useState('');
   const comments = [
     { k: 'rabbit', n: '엉뚱한 토끼 1457', t: '2시간 전', c: '이날 진짜 좋았어요! 주산지 물안개 사진 저도 올릴게요 📷', likes: 4, mate: true, replies: [
       { k: 'bear', n: '숲속여행자', t: '1시간 전', c: '토끼님 사진이 훨씬 잘 나왔어요 ㅎㅎ', author: true },
@@ -602,10 +603,7 @@ function ScreenFeedComments() {
         {/* 댓글 입력 */}
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 14px 24px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8, alignItems: 'center' }}>
           <AnimalAvatar kind="deer" size={32} bg={T.primary50}/>
-          <div style={{ flex: 1, height: 40, borderRadius: 999, border: `1px solid ${RF.softLine}`, display: 'flex', alignItems: 'center', padding: '0 14px', color: T.text400, fontSize: 13 }}>댓글을 남겨주세요</div>
-          <button style={{ width: 36, height: 36, borderRadius: 999, border: 'none', background: T.primary500, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-            <Icon name="send" size={16} color="#fff"/>
-          </button>
+          <Composer value={comment} onChange={setComment} onSend={() => setComment('')} placeholder="댓글을 남겨주세요" height={40} buttonSize={36} iconSize={16} inputLabel="댓글 입력" testId="feed-comments-composer"/>
         </div>
       </div>
     </Phone>

@@ -495,4 +495,47 @@ function CategoryChip({ label, active = false, onClick }) {
   );
 }
 
-Object.assign(window, { Phone, AnimalAvatar, ProgressBar, ImgPlaceholder, MiniMap, BottomNav, Chip, Btn, BearChar, BearGroup, CategoryChip });
+
+// 메시지·댓글 입력줄 — 기획(20 · 20-5 · 23 · 23-1)과 같이 입력이 비어 있으면 전송이 비활성이다.
+// 비활성은 T.line200 배경 + T.text400 아이콘, 활성은 T.primary500 배경 + 흰 아이콘.
+function Composer({
+  value, onChange, onSend, placeholder,
+  height = 42, fontSize = 13, buttonSize = 38, iconSize = 17,
+  inputLabel = '메시지 입력', sendLabel = '전송', testId,
+}) {
+  const ready = String(value || '').trim().length > 0;
+  return (
+    <>
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        aria-label={inputLabel}
+        data-testid={testId ? `${testId}-input` : undefined}
+        style={{
+          flex: 1, minWidth: 0, height, borderRadius: 999,
+          border: `1px solid ${T.line200}`, background: 'transparent',
+          padding: '0 14px', fontSize, fontFamily: T.fontStack, color: T.text900, outline: 'none',
+        }}
+      />
+      <button
+        type="button"
+        disabled={!ready}
+        onClick={ready ? onSend : undefined}
+        aria-label={sendLabel}
+        data-testid={testId ? `${testId}-send` : undefined}
+        style={{
+          width: buttonSize, height: buttonSize, borderRadius: 999, border: 'none', padding: 0, flexShrink: 0,
+          background: ready ? T.primary500 : T.line200,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: ready ? 'pointer' : 'not-allowed', fontFamily: T.fontStack,
+        }}
+      >
+        <Icon name="send" size={iconSize} color={ready ? '#fff' : T.text400}/>
+      </button>
+    </>
+  );
+}
+
+Object.assign(window, { Phone, AnimalAvatar, ProgressBar, ImgPlaceholder, MiniMap, BottomNav, Chip, Btn, BearChar, BearGroup, CategoryChip, Composer });

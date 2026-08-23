@@ -89,7 +89,7 @@ function ScreenLogin() {
         </div>
         <div style={{ marginTop: 22, textAlign: 'left' }}>
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, lineHeight: 1.35, color: T.text900 }}>모여트립에 오신 걸 환영해요</h1>
-          <p style={{ margin: '8px 0 0', fontSize: 14, lineHeight: 1.5, color: T.text500 }}>30초 안에 시작할 수 있어요</p>
+          <p style={{ margin: '8px 0 0', fontSize: 14, lineHeight: 1.5, color: T.text500 }}>마음에 맞는 경북 여행 친구를 만나보세요</p>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 24 }}>
           <ProviderButton
@@ -321,8 +321,9 @@ function ScreenProfileBasic() {
         gender,
         birthDate,
       });
-      if (tokens.signupState === 'PROFILE_IMAGE_REQUIRED') nav.go('prof-2');
-      else nav.go('home', { replace: true });
+      // 여행 취향(7/8)을 거친 뒤 이동할 곳을 기억해 둔다 — 이미지 후보가 필요하면 prof-2, 아니면 home
+      window.__moyeoPostTasteRoute = tokens.signupState === 'PROFILE_IMAGE_REQUIRED' ? 'prof-2' : 'home';
+      nav.go('prof-4');
     } catch (requestError) {
       setError(requestError?.message || '회원 정보를 저장하지 못했어요. 다시 시도해주세요.');
     } finally {
@@ -362,7 +363,86 @@ function ScreenProfileBasic() {
         <div style={{ flex: 1 }}/>
         <div style={{ padding: '0 20px 32px', display: 'flex', gap: 8 }}>
           <Btn variant="secondary" onClick={() => nav.back()}>이전</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full networkAction disabled={!birthDate || !gender || submitting} onClick={submit} testId="auth-basic-submit">{submitting ? '회원 생성 중...' : '저장하고 프로필 만들기'}</Btn></div>
+          <div style={{ flex: 1 }}><Btn variant="primary" full networkAction disabled={!birthDate || !gender || submitting} onClick={submit} testId="auth-basic-submit">{submitting ? '회원 생성 중...' : '저장하고 다음'}</Btn></div>
+        </div>
+      </div>
+    </Phone>
+  );
+}
+
+// ───────── 06-1 · 여행 취향 (Step 7/8) ─────────
+// 여행 스타일과 관심 지역은 항상 한 화면에서 함께 조회·수정한다.
+// 가입에서 받은 값은 28 프로필 수정의 "여행 취향" 블록에서 같은 구조로 다시 편집한다.
+const TASTE_STYLES = ['자연', '힐링', '사진', '맛집', '역사', '야경', '트레킹', '카페'];
+const TASTE_REGIONS = ['경주', '안동', '포항', '문경', '청송', '영주', '울진', '울릉'];
+
+function TasteChip({ label, on, onClick, testId }) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={onClick}
+      aria-pressed={on}
+      style={{
+        height: 38, padding: '0 15px', borderRadius: 999, cursor: 'pointer', fontFamily: T.fontStack,
+        fontSize: 13, fontWeight: on ? 700 : 500,
+        background: on ? T.primary100 : T.bgRaised,
+        border: on ? `1.5px solid ${T.primary500}` : `1px solid ${T.line200}`,
+        color: on ? T.primary700 : T.text700,
+      }}
+    >{label}</button>
+  );
+}
+
+function ScreenProfileTaste() {
+  const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
+  const [styles, setStyles] = React.useState(['자연', '사진']);
+  const [regions, setRegions] = React.useState(['경주', '안동', '포항', '문경']);
+  const toggle = (list, setList, value) => setList(list.includes(value) ? list.filter(v => v !== value) : [...list, value]);
+  const canContinue = styles.length > 0 && regions.length > 0;
+  const submit = () => {
+    // 기본 정보(6/8)에서 기억해 둔 다음 목적지로 이동 — 이미지 후보가 필요하면 prof-2, 아니면 home
+    const next = window.__moyeoPostTasteRoute || 'prof-2';
+    if (next === 'home') nav.go('home', { replace: true });
+    else nav.go(next);
+  };
+  return (
+    <Phone>
+      <div style={{ position: 'absolute', inset: 0, paddingTop: 46, display: 'flex', flexDirection: 'column', background: T.bgBase }}>
+        <AuthProgressHeader label="프로필 설정" current={7} showBack onBack={() => nav.back()}/>
+        <div style={{ padding: '8px 20px 0', overflow: 'auto' }}>
+          <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.5px', lineHeight: '30px' }}>어떤 여행을 좋아하세요?</div>
+          <div style={{ fontSize: 13, color: T.text500, marginTop: 8, lineHeight: '19px' }}>여행 스타일과 관심 지역을 알려주시면<br/>딱 맞는 모집을 먼저 보여드려요.</div>
+
+          <div style={{ marginTop: 26 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, marginBottom: 10 }}>여행 스타일 <span style={{ color: T.danger }}>*</span> <span style={{ color: T.text500, fontWeight: 400 }}>· 1개 이상</span></div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {TASTE_STYLES.map(style => (
+                <TasteChip key={style} label={style} testId={"auth-taste-style-" + style} on={styles.includes(style)} onClick={() => toggle(styles, setStyles, style)}/>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 26 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, marginBottom: 10 }}>관심 지역 <span style={{ color: T.danger }}>*</span> <span style={{ color: T.text500, fontWeight: 400 }}>· 경북 안에서 1곳 이상</span></div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {TASTE_REGIONS.map(region => (
+                <TasteChip key={region} label={region} testId={"auth-taste-region-" + region} on={regions.includes(region)} onClick={() => toggle(regions, setRegions, region)}/>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 22, padding: 12, borderRadius: 12, background: T.bgSubtle, fontSize: 12, color: T.text500, lineHeight: '18px' }}>
+            여행 스타일과 관심 지역은 마이 &gt; 프로필 수정에서 언제든 함께 바꿀 수 있어요.
+          </div>
+        </div>
+        <div style={{ flex: 1 }}/>
+        <div style={{ padding: '0 20px 12px', fontSize: 12, color: T.text500, textAlign: 'center' }}>
+          여행 스타일 {styles.length}개 · 관심 지역 {regions.length}곳 선택
+        </div>
+        <div style={{ padding: '0 20px 32px', display: 'flex', gap: 8 }}>
+          <Btn variant="secondary" onClick={() => nav.back()}>이전</Btn>
+          <div style={{ flex: 1 }}><Btn variant="primary" full disabled={!canContinue} onClick={submit} testId="auth-taste-submit">저장하고 프로필 만들기</Btn></div>
         </div>
       </div>
     </Phone>
@@ -550,7 +630,7 @@ function ScreenHostManage() {
           <span aria-hidden="true" style={{ width: 24, height: 24 }}/>
         </div>
         <div style={{ padding: 20, background: T.bgBase, borderBottom: `1px solid ${T.line100}` }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>경주 단풍·야경 1박2일</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>경주 단풍·야경 1박 2일</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 13, color: T.text500, fontVariantNumeric: 'tabular-nums' }}>
             <span>4 / 8명</span>
             <span style={{ color: T.line300 }}>·</span>
@@ -722,24 +802,22 @@ function ScreenChatListApplied() { return <ScreenChatList initialTab="applied"/>
 // ───────── 20 · 알림 센터 ─────────
 function ScreenNotifications() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
+  // 목데이터는 13 화면기획 목록이 기준 — 이 목록에 없는 행을 추가로 두지 않는다 (changeLog14)
   const todayItems = [
-    { icon: 'users', color: T.primary600, bg: T.primary100, title: <><b>경주 단풍·야경</b> 모임이 만들어졌어요 ✨</>, time: '방금 전' },
-    { icon: 'chat', color: T.accent700, bg: T.accent100, title: <>우직한 곰 7821님이 <b>메시지</b>를 보냈어요</>, time: '1시간 전' },
+    { icon: 'sparkle', color: T.primary600, bg: T.primary100, title: <><b>주왕산 & 주산지</b> 여행이 확정됐어요 🎉</>, time: '방금 전', onClick: () => nav.go('trip-confirmed') },
+    { icon: 'users', color: T.primary600, bg: T.primary100, title: <><b>경주 단풍·야경</b> 모임이 만들어졌어요 ✨</>, time: '10분 전', onClick: () => nav.go('chat') },
+    { icon: 'chat', color: T.accent700, bg: T.accent100, title: <>우직한 곰 7821님이 <b>메시지</b>를 보냈어요</>, time: '1시간 전', onClick: () => nav.go('chat') },
+    { icon: 'note', color: T.primary600, bg: T.primary100, title: <>여행 잘 마치셨죠? 함께 걸은 친구에게 <b>한 줄</b> 남겨볼까요</>, time: '2시간 전', onClick: () => nav.go('trip-message') },
     { icon: 'clock', color: T.warningText, bg: T.warningBg, title: <>마감 <b>D-1</b> · 현재 4/8명이에요</>, time: '3시간 전' },
-    { icon: 'pin', color: T.primary600, bg: T.primary100, title: <><b>주왕산</b> 모임의 집결지가 업데이트됐어요</>, time: '5시간 전' },
   ];
   const yesterdayItems = [
     { icon: 'user', color: T.info, bg: T.bgSubtle, title: <>엉뚱한 토끼 1457님이 <b>친구 요청</b>을 보냈어요</>, time: '어제 오후 4시', action: true },
+    // 강퇴 알림 — 탭하면 13-1 내보내기 안내(사유 조회)로 간다 (changeLog14)
+    { icon: 'warning', color: T.dangerText, bg: T.dangerBg, title: <><b>감포 바다 일출 모임</b>에서 내보내졌어요 · 사유 확인</>, time: '어제 오후 6시', onClick: () => nav.go('removal-reason'), testId: 'notif-removal' },
     { icon: 'heart', color: T.accent500, bg: T.accent100, title: <><b>3명</b>이 내 피드에 좋아요를 눌렀어요</>, time: '어제 오전 11시' },
-    { icon: 'sparkle', color: T.primary600, bg: T.primary100, title: <>내 취향에 맞는 <b>울진 금강송 숲길 워크</b>가 열렸어요</>, time: '어제 오전 9시' },
   ];
-  const olderItems = [
-    { icon: 'bookmark', color: T.primary600, bg: T.primary100, title: <><b>영주 부석사 눈꽃 산책</b> 찜한 코스가 모집을 시작했어요</>, time: '2일 전' },
-    { icon: 'feed', color: T.info, bg: T.bgSubtle, title: <>지난 <b>포항·영덕 동해 드라이브</b> 기록을 남겨보세요</>, time: '3일 전' },
-    { icon: 'users', color: T.primary600, bg: T.primary100, title: <>새 친구 2명이 <b>친구 도감</b>에 추가됐어요</>, time: '4일 전' },
-  ];
-  const Item = ({ icon, color, bg, title, time, action, last }) => (
-    <div style={{ padding: '14px 20px', display: 'flex', gap: 12, borderBottom: last ? 'none' : `1px solid ${T.line100}` }}>
+  const Item = ({ icon, color, bg, title, time, action, last, onClick, testId }) => (
+    <div onClick={onClick} data-testid={testId} style={{ padding: '14px 20px', display: 'flex', gap: 12, borderBottom: last ? 'none' : `1px solid ${T.line100}`, cursor: onClick ? 'pointer' : 'default' }}>
       <div style={{ width: 36, height: 36, borderRadius: 999, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         <Icon name={icon} size={18} color={color}/>
       </div>
@@ -771,10 +849,61 @@ function ScreenNotifications() {
         <div style={{ padding: '8px 20px 4px', fontSize: 11, fontWeight: 600, color: T.text500, letterSpacing: 0.5 }}>오늘</div>
         {todayItems.map((item) => <Item key={`${item.time}-${String(item.title)}`} {...item}/>)}
         <div style={{ padding: '12px 20px 4px', fontSize: 11, fontWeight: 600, color: T.text500, letterSpacing: 0.5 }}>어제</div>
-        {yesterdayItems.map((item) => <Item key={`${item.time}-${String(item.title)}`} {...item}/>)}
-        <div style={{ padding: '12px 20px 4px', fontSize: 11, fontWeight: 600, color: T.text500, letterSpacing: 0.5 }}>지난 알림</div>
-        {olderItems.map((item, index) => <Item key={`${item.time}-${String(item.title)}`} {...item} last={index === olderItems.length - 1}/>)}
+        {yesterdayItems.map((item, index) => <Item key={`${item.time}-${String(item.title)}`} {...item} last={index === yesterdayItems.length - 1}/>)}
         <div style={{ height: 28 }}/>
+      </div>
+    </Phone>
+  );
+}
+
+// ───────── 13-1 · 내보내기 안내 (강퇴 사유 조회) ─────────
+// 13 알림 센터의 강퇴 알림을 탭하면 열린다. 호스트가 남긴 사유와 이후 정책을 한 화면에서 보여준다. (changeLog14)
+function ScreenRemovalReason() {
+  const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
+  return (
+    <Phone>
+      <div style={{ position: 'absolute', inset: 0, paddingTop: 60, display: 'flex', flexDirection: 'column', background: T.bgBase }}>
+        <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>내보내기 안내</div>
+          <div style={{ width: 24 }}/>
+        </div>
+        <div style={{ padding: '12px 20px 0', overflow: 'auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '18px 0 22px' }}>
+            <div style={{ width: 64, height: 64, borderRadius: 999, background: T.dangerBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="warning" size={30} color={T.dangerText}/>
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 14, textAlign: 'center', lineHeight: '26px' }}>감포 바다 일출 모임에서<br/>내보내졌어요</div>
+            <div style={{ fontSize: 12, color: T.text500, marginTop: 6 }}>2026.08.22 (토) 오후 6:02 · 호스트 결정</div>
+          </div>
+
+          {/* iOS 다크 표면 위계 기준: 페이지(bgBase) < 인용(bgSubtle) < 카드(bgRaised+softLine) */}
+          <div style={{ borderRadius: 14, background: T.bgRaised, border: `1px solid ${T.line100}`, padding: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>호스트가 남긴 사유</div>
+            <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: T.bgSubtle, fontSize: 13, color: T.text700, lineHeight: '20px' }}>
+              “모임 컨셉과 맞지 않는 대화가 반복되어, 남은 멤버들을 위해 함께하기 어렵다고 판단했어요.”
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12, borderRadius: 14, background: T.bgRaised, border: `1px solid ${T.line100}`, padding: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>내보내진 뒤에는</div>
+            {[
+              '이 모임에는 다시 신청할 수 없어요.',
+              '채팅방이 내 목록에서 사라져요. 이미 남긴 대화는 모임 채팅방에 그대로 남아요.',
+              '다른 모임을 찾고 신청하는 데에는 아무 영향이 없어요.',
+            ].map(line => (
+              <div key={line} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                <div style={{ width: 4, height: 4, borderRadius: 999, background: T.text500, marginTop: 7, flexShrink: 0 }}/>
+                <div style={{ fontSize: 12.5, color: T.text700, lineHeight: '18px' }}>{line}</div>
+              </div>
+            ))}
+          </div>
+
+        </div>
+        <div style={{ flex: 1 }}/>
+        <div style={{ padding: '0 20px 32px' }}>
+          <Btn variant="primary" full onClick={() => nav.back()} testId="removal-reason-confirm">확인</Btn>
+        </div>
       </div>
     </Phone>
   );
@@ -881,7 +1010,7 @@ function ScreenExploreMap() {
               <Chip variant="accent">D-3</Chip>
               <div style={{ fontSize: 11, color: T.text500 }}>4/8명</div>
             </div>
-            <div style={{ fontSize: 14, fontWeight: 600, marginTop: 8, lineHeight: 1.3 }}>경주 단풍·야경 1박2일</div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginTop: 8, lineHeight: 1.3 }}>경주 단풍·야경 1박 2일</div>
             <div style={{ fontSize: 11, color: T.text500, marginTop: 4 }}>고요한 두루미 1130</div>
             <div style={{ marginTop: 10 }}><ProgressBar current={4} max={8} min={3}/></div>
           </div>
@@ -1012,10 +1141,12 @@ function ScreenSpecialMessages() {
 // ───────── 25 · 모임 나가기 Alert ─────────
 function ScreenLeaveAlert() {
   return (
-    <div style={{ width: 393, height: 852, background: 'rgba(15,23,20,0.48)', borderRadius: 24, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.fontStack, overflow: 'hidden' }}>
-      {/* dimmed bg hint */}
-      <div style={{ position: 'absolute', inset: 0, background: T.bgSubtle, opacity: 0.4 }}/>
-      <div style={{ position: 'relative', width: 320, background: T.bgBase, borderRadius: 20, border: `1px solid ${T.line200}`, padding: 24, boxShadow: T.l3 }}>
+    <div style={{ width: 393, height: 852, borderRadius: 24, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.fontStack, overflow: 'hidden' }}>
+      {/* 이전 화면(20-1 모임 정보)이 딤 아래에 그대로 깔려 있어야 팝업이 "위에 떠 있다"고 읽힌다 (changeLog14) */}
+      <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}><ChatMenuBody/></div>
+      <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
+      {/* 중앙 팝업 표면도 시트와 같이 bgRaised — 다크 모드에서 bgBase는 화면 배경과 같은 값이다 */}
+      <div style={{ position: 'relative', width: 320, background: T.bgRaised, borderRadius: 20, border: `1px solid ${T.line200}`, padding: 24, boxShadow: T.l3 }}>
         <div style={{ width: 48, height: 48, borderRadius: 999, background: T.dangerBg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, fontSize: 22 }}>⚠</div>
         <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.4, letterSpacing: '-0.3px' }}>호스트가 나가면<br/>이 모임은 종료돼요</div>
         <div style={{ fontSize: 13, color: T.text500, marginTop: 10, lineHeight: 1.6 }}>승인된 4명에게 알림이 가고, 채팅방은 14일 동안 read-only로 유지된 후 사라져요.</div>
@@ -1033,10 +1164,10 @@ function ScreenLeaveAlert() {
 }
 
 Object.assign(window, {
-  ScreenLogin, ScreenEmailAuth, ScreenProfileBasic, ScreenTerms, ScreenCourseDetail,
+  ScreenLogin, ScreenEmailAuth, ScreenProfileBasic, ScreenProfileTaste, ScreenTerms, ScreenCourseDetail,
   ScreenCreateReview, ScreenHostManage, ScreenChatList, ScreenChatListApplied, ScreenNotifications,
-  ScreenSearch, ScreenExploreMap, ScreenStates, ScreenSpecialMessages, ScreenLeaveAlert,
+  ScreenRemovalReason, ScreenSearch, ScreenExploreMap, ScreenStates, ScreenSpecialMessages, ScreenLeaveAlert,
 });
 
 // ─── window export ───
-Object.assign(window, { ScreenLogin, ScreenEmailAuth, ScreenProfileBasic, ScreenTerms, ScreenCourseDetail, ScreenCreateReview, ScreenHostManage, ScreenChatList, ScreenChatListApplied, ScreenNotifications, ScreenSearch, ScreenExploreMap, ScreenStates, ScreenSpecialMessages, ScreenLeaveAlert });
+Object.assign(window, { ScreenLogin, ScreenEmailAuth, ScreenProfileBasic, ScreenProfileTaste, ScreenTerms, ScreenCourseDetail, ScreenCreateReview, ScreenHostManage, ScreenChatList, ScreenChatListApplied, ScreenNotifications, ScreenRemovalReason, ScreenSearch, ScreenExploreMap, ScreenStates, ScreenSpecialMessages, ScreenLeaveAlert });

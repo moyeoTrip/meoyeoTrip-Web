@@ -27,7 +27,7 @@ function TopBar({ title, leftIcon = 'back', rightIcons = [], step, transparent =
   );
 }
 
-function AuthProgressHeader({ label, current, total = 7, showBack = false, onBack, onSkip }) {
+function AuthProgressHeader({ label, current, total = 8, showBack = false, onBack, onSkip }) {
   const progress = Math.max(0, Math.min(1, current / total));
   return (
     <div data-testid="auth-progress-header" style={{ padding: '6px 18px 12px', background: T.bgBase }}>
@@ -483,7 +483,7 @@ function ProfileGenerationWaiting({ nickname }) {
 // Step 2 - character generated
 function ScreenProfileCharacter() {
   const nav = (window.useNav ? window.useNav() : { go: () => {} });
-  const nickname = window.__moyeoSelectedNickname || '선택한 닉네임';
+  const nickname = window.__moyeoSelectedNickname || '따스한 사슴 3492';
   const [candidates, setCandidates] = React.useState([]);
   const [selectedId, setSelectedId] = React.useState(null);
   const [remaining, setRemaining] = React.useState(3);
@@ -550,7 +550,7 @@ function ScreenProfileCharacter() {
   return (
     <Phone>
       <div style={{ height: '100%', background: T.bgBase, paddingTop: 54, display: 'flex', flexDirection: 'column' }}>
-        <AuthProgressHeader label="프로필 설정" current={7}/>
+        <AuthProgressHeader label="프로필 설정" current={8}/>
         <div style={{ padding: '20px', flex: 1, display: 'flex', flexDirection: 'column' }}>
           <div style={{ fontSize: 24, fontWeight: 700, lineHeight: '32px', color: T.text900, letterSpacing: '-0.5px' }}>
             여행에서 만날<br/>내 친구를 골라주세요

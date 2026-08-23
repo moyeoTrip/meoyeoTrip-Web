@@ -223,8 +223,18 @@ function ScreenCreateDetail() {
   );
 }
 
-// ───────── 20-3 · 채팅방 사이드 메뉴 ─────────
+// ───────── 20-1 · 채팅방 사이드 메뉴 ─────────
 function ScreenChatMenu() {
+  return (
+    <Phone>
+      <ChatMenuBody/>
+    </Phone>
+  );
+}
+
+// 20-1 본문 — 20-1a/20-1b 시트와 31 모임 종료 경고가 "이전 화면 위에 떠 있다"고
+// 읽히도록 배경으로도 재사용한다 (changeLog14)
+function ChatMenuBody() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const members = [
     { k: 'bear', n: '숲속여행자', role: '호스트' },
@@ -251,7 +261,6 @@ function ScreenChatMenu() {
   );
 
   return (
-    <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
         <Header title="모임 정보" left center onBack={nav.back}/>
 
@@ -286,11 +295,11 @@ function ScreenChatMenu() {
                 </div>
                 {m.role
                   ? <Chip variant={m.role === '호스트' ? 'soft' : 'neutral'}>{m.role}</Chip>
-                  : <IconButton name="more" size={18}/>}
+                  : <IconButton name="more" size={18} onClick={() => nav.go('member-actions')}/>}
               </div>
             ))}
             <div style={{ fontSize: 11, color: T.text400, marginTop: 6, lineHeight: '17px' }}>
-              호스트는 멤버 우측 ⋯ 에서 <b>내보내기</b>를 할 수 있어요 (사유 선택 필수). 내보낸 자리는 대기 큐에서 자동으로 채워져요.
+              호스트는 멤버 우측 ⋯ 에서 <b>내보내기</b>를 할 수 있어요 (사유 입력 필수). 내보낸 자리는 대기 큐에서 자동으로 채워져요.
             </div>
           </div>
 
@@ -304,6 +313,108 @@ function ScreenChatMenu() {
           <div style={{ height: 8, background: T.bgSubtle, margin: '8px 0' }}/>
 
           <Row icon="close" label="채팅방 나가기" sub="나가면 대기 중인 다음 신청자가 자동으로 합류해요" danger onClick={() => nav.go('leave-alert')}/>
+        </div>
+      </div>
+  );
+}
+
+// ───────── 20-1a · 멤버 액션 (친구 요청 · 내보내기) ─────────
+// 20-1 사이드 메뉴의 멤버 ⋯ 를 탭하면 열린다. 누구나 친구 요청을 보낼 수 있고,
+// 내보내기는 호스트에게만 보인다. 내보내기를 고르면 20-1b 사유 입력 시트로 이어진다. (changeLog14)
+function ScreenMemberActions() {
+  const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  return (
+    <Phone>
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+        {/* 이전 화면(20-1)이 딤 아래에 그대로 깔려 있어야 시트가 "위에 떠 있다"고 읽힌다 (changeLog14) */}
+        <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}><ChatMenuBody/></div>
+        <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
+        <div data-testid="member-actions-sheet" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3 }}>
+          <div style={{ width: 36, height: 4, borderRadius: 999, background: T.line300, margin: '0 auto 14px' }}/>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '4px 0 12px' }}>
+            <AnimalAvatar kind="raccoon" size={44} bg={T.primary50}/>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14.5, fontWeight: 700 }}>호기심 많은 너구리 9027</div>
+              <div style={{ fontSize: 11.5, color: T.text500, marginTop: 2 }}>매너 4.8 · 여행 8회 · 어제 합류</div>
+            </div>
+          </div>
+          <div style={{ height: 1, background: T.line100 }}/>
+          <button type="button" data-testid="member-actions-friend" style={{ width: '100%', height: 54, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 11, fontFamily: T.fontStack, cursor: 'pointer', padding: 0 }}>
+            <Icon name="user" size={19} color={T.text700}/>
+            <span style={{ flex: 1, textAlign: 'left', fontSize: 14, fontWeight: 600, color: T.text900 }}>친구 요청하기</span>
+            <Icon name="arrow" size={15} color={T.text400}/>
+          </button>
+          <div style={{ height: 1, background: T.line100 }}/>
+          {/* 호스트에게만 보이는 행 — 멤버 시점 시안에서는 이 행이 없다 */}
+          <button type="button" data-testid="member-actions-remove" onClick={() => nav.go('member-remove')} style={{ width: '100%', height: 54, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 11, fontFamily: T.fontStack, cursor: 'pointer', padding: 0 }}>
+            <Icon name="warning" size={19} color={T.danger}/>
+            <span style={{ flex: 1, textAlign: 'left', fontSize: 14, fontWeight: 600, color: T.danger }}>내보내기</span>
+            <Icon name="arrow" size={15} color={T.text400}/>
+          </button>
+          <div style={{ fontSize: 11, color: T.text400, margin: '6px 0 14px' }}>내보내기는 호스트에게만 보여요.</div>
+          <Btn variant="secondary" full onClick={() => nav.back()}>닫기</Btn>
+        </div>
+      </div>
+    </Phone>
+  );
+}
+
+// ───────── 20-1b · 멤버 내보내기 (호스트 · 사유 입력) ─────────
+// 20-1a 멤버 액션 시트의 "내보내기"에서 이어진다. 사유는 자유 서술 하나만 받고(카테고리 없음),
+// 입력 전에는 내보내기가 비활성이다. 사유는 상대에게 알림(13)으로 그대로 전달되고,
+// 상대는 13-1 내보내기 안내에서 이 사유를 본다. (changeLog14)
+function ScreenMemberRemove() {
+  const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  const [reason, setReason] = React.useState('');
+  const canSubmit = reason.trim().length >= 10;
+  return (
+    <Phone>
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+        {/* 이전 화면(20-1)이 딤 아래에 그대로 깔려 있어야 시트가 "위에 떠 있다"고 읽힌다 (changeLog14) */}
+        <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}><ChatMenuBody/></div>
+        <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
+        <div data-testid="member-remove-sheet" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3 }}>
+          <div style={{ width: 36, height: 4, borderRadius: 999, background: T.line300, margin: '0 auto 14px' }}/>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>멤버 내보내기</div>
+          <div style={{ fontSize: 12, color: T.text500, marginTop: 4 }}>내보낸 자리는 대기 큐에서 자동으로 채워져요.</div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginTop: 16, padding: 12, borderRadius: 12, background: T.bgSubtle }}>
+            <AnimalAvatar kind="raccoon" size={40} bg={T.primary50}/>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>호기심 많은 너구리 9027</div>
+              <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>매너 4.8 · 여행 8회 · 어제 합류</div>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 13, fontWeight: 600, margin: '18px 0 8px' }}>내보내는 사유 <span style={{ color: T.danger }}>*</span></div>
+          <textarea
+            data-testid="member-remove-reason"
+            value={reason}
+            maxLength={200}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="사유를 남겨주세요. 상대에게 알림으로 그대로 전달돼요. (10자 이상)"
+            style={{ width: '100%', height: 84, resize: 'none', borderRadius: 12, border: `1px solid ${T.line200}`, background: 'transparent', padding: 12, fontSize: 13, color: T.text900, lineHeight: '20px', fontFamily: T.fontStack, boxSizing: 'border-box' }}
+          />
+          <div style={{ textAlign: 'right', fontSize: 11, color: T.text400, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{reason.length}/200</div>
+
+          <div style={{ marginTop: 10, borderRadius: 12, background: T.bgSubtle, padding: 14 }}>
+            {[
+              '내보내면 이 모임에 다시 신청할 수 없어요.',
+              '내보내는 즉시 채팅방에서 제외돼요. 이미 남긴 대화는 채팅방에 그대로 남아요.',
+              '사유는 상대에게 알림으로 전달돼요.',
+            ].map(line => (
+              <div key={line} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                <div style={{ width: 4, height: 4, borderRadius: 999, background: T.text500, marginTop: 7, flexShrink: 0 }}/>
+                <div style={{ fontSize: 12, color: T.text700, lineHeight: '17px' }}>{line}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 18 }}>
+            <button type="button" data-testid="member-remove-cancel" onClick={() => nav.back()} style={{ width: 72, height: 52, border: 0, background: 'transparent', fontSize: 14, fontWeight: 600, color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>취소</button>
+            {/* 진입 상태는 사유가 비어 있으므로 비활성이다 (changeLog12 진입 상태 원칙) */}
+            <div style={{ flex: 1 }}><Btn variant="danger" full disabled={!canSubmit} testId="member-remove-submit" onClick={() => nav.back()}>내보내기</Btn></div>
+          </div>
         </div>
       </div>
     </Phone>
@@ -323,20 +434,14 @@ function ScreenChatAttach() {
   ];
   return (
     <Phone>
-      <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+      <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative', overflow: 'hidden' }}>
+        {/* 이전 화면(20 채팅방)이 딤 아래에 그대로 깔려 있어야 시트가 "위에 떠 있다"고 읽힌다 (changeLog14) */}
+        <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}><ChatRoomBody/></div>
         <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
-        {/* 딤 뒤로 비치는 채팅 버블 실루엣 */}
-        <div style={{ position: 'absolute', top: 92, left: 0, right: 0, bottom: 300, opacity: 0.22, pointerEvents: 'none', padding: '0 18px', display: 'grid', gap: 12, alignContent: 'start' }}>
-          {[{ w: 168, me: false }, { w: 132, me: true }, { w: 196, me: false }, { w: 108, me: true }].map((b, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: b.me ? 'flex-end' : 'flex-start' }}>
-              <div style={{ width: b.w, height: 38, borderRadius: 16, background: b.me ? T.primary500 : T.line300 }}/>
-            </div>
-          ))}
-        </div>
 
         <div style={{
           position: 'absolute', left: 0, right: 0, bottom: 0,
-          background: RF.card, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px',
+          background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px',
           boxShadow: T.l3,
         }}>
           <div style={{ width: 36, height: 4, borderRadius: 999, background: T.line300, margin: '0 auto 18px' }}/>
@@ -568,12 +673,14 @@ function ScreenReportSheet() {
 
   return (
     <Phone>
-      <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+      <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative', overflow: 'hidden' }}>
+        {/* 이전 화면(20 채팅방)이 딤 아래에 그대로 깔려 있어야 시트가 "위에 떠 있다"고 읽힌다 (changeLog14) */}
+        <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}><ChatRoomBody/></div>
         <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
 
         <div style={{
           position: 'absolute', left: 0, right: 0, bottom: 0,
-          background: RF.card, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3,
+          background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3,
         }}>
           <div style={{ width: 36, height: 4, borderRadius: 999, background: T.line300, margin: '0 auto 16px' }}/>
           <div style={{ fontSize: 15, fontWeight: 900 }}>신고 사유를 알려주세요</div>
@@ -803,6 +910,9 @@ Object.assign(window, {
   ScreenCreatePeople,
   ScreenCreateDetail,
   ScreenChatMenu,
+  ChatMenuBody,
+  ScreenMemberActions,
+  ScreenMemberRemove,
   ScreenChatAttach,
   ScreenFriends,
   ScreenTripMessage,

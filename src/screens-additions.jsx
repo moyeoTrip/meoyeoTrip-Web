@@ -336,23 +336,19 @@ function ScreenCreateMeetPoint() {
 
             <div>
               <AddFieldLabel>상세 안내</AddFieldLabel>
-              <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 8 }}>
-                {['터미널 정문 앞', '2번 출구', '주차장 입구'].map((p) => (
-                  <button
-                    key={p}
-                    data-testid={`meeting-detail-${p}`}
-                    type="button"
-                    onClick={() => setDetail(p)}
-                    style={{
-                      height: 30, padding: '0 11px', borderRadius: 999, cursor: 'pointer', fontFamily: T.fontStack,
-                      fontSize: 12, fontWeight: 700,
-                      border: `1px solid ${detail === p ? T.primary500 : T.line200}`,
-                      background: detail === p ? T.primary50 : RF.card,
-                      color: detail === p ? T.primary700 : T.text700,
-                    }}>{p}</button>
-                ))}
-              </div>
-              <AddFieldBox icon="note" value={detail} chevron={false}/>
+              {/* 추천 칩 선택이 아니라 유저가 자유롭게 입력하는 텍스트 필드다 (changeLog15) */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 9, height: 48, padding: '0 13px', borderRadius: 12, border: `1px solid ${T.line200}`, background: RF.card }}>
+                <Icon name="note" size={17} color={T.text500}/>
+                <input
+                  type="text"
+                  value={detail}
+                  onChange={(event) => setDetail(event.target.value)}
+                  placeholder="만나는 위치를 자세히 남겨주세요 (예: 터미널 정문 앞)"
+                  aria-label="집합 장소 상세 안내"
+                  data-testid="meeting-detail-input"
+                  style={{ flex: 1, border: 0, outline: 'none', background: 'transparent', fontFamily: T.fontStack, fontSize: 13.5, fontWeight: 700, color: T.text900 }}
+                />
+              </label>
             </div>
 
             <div>
@@ -701,10 +697,10 @@ function ScreenCreateSummary({ source }) {
                 ['calendar', '일정', '5/25(토) 당일치기 · 08:00 – 18:00'],
                 ['pin', '집합', '07:50 청송 시외버스터미널 정문 앞'],
                 ['map', '좌표', '36.435612, 129.057214'],
-                ['users', '인원', '최소 3명 · 최대 5명 · 성별 제한 없음'],
-                ['users', '조건', '25~35세 · 성별 무관'],
-                ['money', '비용', '1인 예상 45,000원'],
-                ['clock', '마감', '5/22(목) 23:59'],
+                ['users', '인원', '최소 3명 · 최대 5명'],
+                ['user', '조건', '25~35세 · 성별 제한 없음'],
+                ['money', '비용', '1인 45,000원 (예상)'],
+                ['clock', '마감', '5/22(목) 23:59 · D-3'],
               ].map((r) => (
                 <div key={r[1]} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
                   <Icon name={r[0]} size={16} color={T.text500}/>

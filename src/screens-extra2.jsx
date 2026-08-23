@@ -273,6 +273,15 @@ function ScreenDex() {
 
 // ───────── 28 · 프로필 수정 ─────────
 function ScreenProfileEdit() {
+  return (
+    <Phone>
+      <ProfileEditBody/>
+    </Phone>
+  );
+}
+
+// 28 본문 — 28-1 여행 취향 편집 시트가 "이전 화면 위에 떠 있다"고 읽히도록 배경으로도 재사용한다 (changeLog14)
+function ProfileEditBody() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
   const Row = ({ label, value, locked, danger }) => (
     <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${T.line100}` }}>
@@ -284,7 +293,6 @@ function ScreenProfileEdit() {
     </div>
   );
   return (
-    <Phone>
       <div style={{ position: 'absolute', inset: 0, paddingTop: 60, background: T.bgSubtle }}>
         <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: T.bgBase }}>
           <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
@@ -306,9 +314,27 @@ function ScreenProfileEdit() {
         <div style={{ fontSize: 11, fontWeight: 600, color: T.text500, padding: '20px 20px 8px', letterSpacing: 0.5 }}>공개 프로필</div>
         <div style={{ background: T.bgBase }}>
           <Row label="자기소개" value="느긋한 여행 좋아해요"/>
-          <Row label="여행 스타일" value="자연 · 사진"/>
-          <div style={{ padding: '16px 20px', borderBottom: `1px solid ${T.line100}` }}>
-            <div style={{ fontSize: 14, color: T.text700, marginBottom: 8 }}>관심 지역</div>
+          {/* 여행 스타일과 관심 지역은 가입(06-1)과 동일하게 한 블록에서 함께 조회·수정한다.
+              블록(칩·+추가 포함)을 탭하면 여행 취향 편집 Bottom Sheet(28-1)가 열린다. */}
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="여행 취향 편집 열기"
+            data-testid="profile-taste-block"
+            onClick={() => nav.go('profile-taste-edit')}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nav.go('profile-taste-edit'); } }}
+            style={{ padding: '16px 20px', borderBottom: `1px solid ${T.line100}`, cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ flex: 1, fontSize: 14, color: T.text700 }}>여행 취향</div>
+              <div style={{ fontSize: 11, color: T.text500 }}>탭해서 바로 수정</div>
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: T.text500, marginBottom: 6 }}>여행 스타일</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+              {['자연', '사진'].map(styleTag => <Chip key={styleTag} variant="primary" size="sm">{styleTag}</Chip>)}
+              <Chip variant="neutral" size="sm">+ 추가</Chip>
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: T.text500, marginBottom: 6 }}>관심 지역</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {['경주', '안동', '포항', '문경'].map(r => <Chip key={r} variant="primary" size="sm">{r}</Chip>)}
               <Chip variant="neutral" size="sm">+ 추가</Chip>
@@ -322,6 +348,64 @@ function ScreenProfileEdit() {
           <Row label="캐릭터" value="고정됨" locked/>
           <Row label="생년월일" value="1998.04.12"/>
           <Row label="성별" value="여성"/>
+        </div>
+      </div>
+  );
+}
+
+// ───────── 28-1 · 여행 취향 편집 Bottom Sheet ─────────
+// 28의 여행 취향 블록(칩·+ 추가)을 탭하면 열린다. 후보·기본값·선택 규칙은 가입 06-1과 동일하며,
+// 스타일과 관심 지역을 언제나 한 시트에서 함께 편집한다. 각 1개 이상일 때만 저장이 활성화된다.
+// 바텀시트 프레임(딤 배경 + 상단 라운드 24 + 핸들 바)은 신고 시트(30-2)와 같은 관례를 따른다.
+function ScreenProfileTasteEdit() {
+  const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
+  const STYLES = ['자연', '힐링', '사진', '맛집', '역사', '야경', '트레킹', '카페'];
+  const REGIONS = ['경주', '안동', '포항', '문경', '청송', '영주', '울진', '울릉'];
+  const [styles, setStyles] = React.useState(['자연', '사진']);
+  const [regions, setRegions] = React.useState(['경주', '안동', '포항', '문경']);
+  const toggle = (list, setList, value) => setList(list.includes(value) ? list.filter(v => v !== value) : [...list, value]);
+  const canSave = styles.length > 0 && regions.length > 0;
+  const chip = (label, on, onClick, testId) => (
+    <button key={label} type="button" data-testid={testId} onClick={onClick} aria-pressed={on} style={{
+      height: 36, padding: '0 14px', borderRadius: 999, cursor: 'pointer', fontFamily: T.fontStack,
+      fontSize: 13, fontWeight: on ? 700 : 500,
+      background: on ? T.primary100 : T.bgRaised,
+      border: on ? `1.5px solid ${T.primary500}` : `1px solid ${T.line200}`,
+      color: on ? T.primary700 : T.text700,
+    }}>{label}</button>
+  );
+  return (
+    <Phone>
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+        {/* 이전 화면(28)이 딤 아래에 그대로 깔려 있어야 시트가 "위에 떠 있다"고 읽힌다 (changeLog14) */}
+        <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}><ProfileEditBody/></div>
+        <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
+
+        <div style={{
+          position: 'absolute', left: 0, right: 0, bottom: 0,
+          background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3,
+        }}>
+          <div style={{ width: 36, height: 4, borderRadius: 999, background: T.line300, margin: '0 auto 14px' }}/>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>여행 취향 편집</div>
+          <div style={{ fontSize: 12, color: T.text500, marginTop: 4 }}>여행 스타일과 관심 지역은 함께 저장돼요.</div>
+
+          <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, margin: '18px 0 10px' }}>여행 스타일 <span style={{ color: T.danger }}>*</span> <span style={{ color: T.text500, fontWeight: 400 }}>· 1개 이상</span></div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {STYLES.map(style => chip(style, styles.includes(style), () => toggle(styles, setStyles, style), "taste-edit-style-" + style))}
+          </div>
+
+          <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, margin: '18px 0 10px' }}>관심 지역 <span style={{ color: T.danger }}>*</span> <span style={{ color: T.text500, fontWeight: 400 }}>· 경북 안에서 1곳 이상</span></div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {REGIONS.map(region => chip(region, regions.includes(region), () => toggle(regions, setRegions, region), "taste-edit-region-" + region))}
+          </div>
+
+          <div style={{ fontSize: 12, color: T.text500, textAlign: 'center', margin: '18px 0 12px' }}>
+            여행 스타일 {styles.length}개 · 관심 지역 {regions.length}곳 선택
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button type="button" data-testid="taste-edit-cancel" onClick={() => nav.back()} style={{ width: 72, height: 52, border: 0, background: 'transparent', fontSize: 14, fontWeight: 600, color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>취소</button>
+            <div style={{ flex: 1 }}><Btn variant="primary" full disabled={!canSave} onClick={() => nav.back()} testId="taste-edit-save">저장</Btn></div>
+          </div>
         </div>
       </div>
     </Phone>
@@ -362,16 +446,16 @@ function ScreenSettings() {
     typeof Notification !== 'undefined' && Notification.permission === 'granted'
   );
   const [pushStatus, setPushStatus] = React.useState('checking');
-  const pushStatusCopy = {
-    checking: '알림 사용 가능 여부를 확인하고 있어요',
-    ready: '이 기기에서 알림을 받을 수 있어요',
-    prompt: '눌러서 알림 권한을 허용해주세요',
+  // 기획(29)의 '채팅 메시지'는 부제 없이 ON이다. 웹은 실제 브라우저 푸시 권한을 쓰므로
+  // 사용자가 손쓸 수 있는 차단 상태에서만 부제로 안내하고, 그 외에는 기획과 동일하게 ON·부제 없음으로 둔다.
+  const pushBlockedCopy = {
     denied: '브라우저 설정에서 알림 권한을 허용해주세요',
     unsupported: '이 브라우저는 웹 알림을 지원하지 않아요',
     insecure: 'HTTPS 환경에서만 웹 알림을 쓸 수 있어요',
     unconfigured: 'Firebase Messaging 설정이 필요해요',
     error: '알림 연결을 확인하지 못했어요. 다시 시도해주세요',
   };
+  const pushBlocked = Object.prototype.hasOwnProperty.call(pushBlockedCopy, pushStatus);
   React.useEffect(() => {
     let active = true;
     const updateState = (event) => {
@@ -420,7 +504,7 @@ function ScreenSettings() {
 
         <div style={{ paddingTop: 14, paddingBottom: 34 }}>
         <Section title="알림">
-          <ToggleRow label="채팅 메시지" on={notificationsEnabled} sub={pushStatusCopy[pushStatus]} onClick={enableNotifications}/>
+          <ToggleRow label="채팅 메시지" on={notificationsEnabled || !pushBlocked} sub={pushBlocked ? pushBlockedCopy[pushStatus] : undefined} onClick={enableNotifications}/>
           <ToggleRow label="모집 마감 임박" on={true} sub="D-3부터 알려드려요"/>
           <ToggleRow label="친구 신청·피드 반응" on={true}/>
           <ToggleRow label="마케팅 알림" on={false} sub="이벤트·새 코스 소개"/>
@@ -619,8 +703,8 @@ function ScreenPublicProfile() {
 
 Object.assign(window, {
   ScreenFeedWrite, ScreenFeedWriteStep1, ScreenFeedWriteStep2, ScreenFeedWriteStep3, ScreenFeedWriteStep4, ScreenFeedWriteStep5,
-  ScreenDex, ScreenProfileEdit, ScreenSettings, ScreenAuthMethods, ScreenPublicProfile,
+  ScreenDex, ScreenProfileEdit, ProfileEditBody, ScreenProfileTasteEdit, ScreenSettings, ScreenAuthMethods, ScreenPublicProfile,
 });
 
 // ─── window export ───
-Object.assign(window, { ScreenFeedWrite, ScreenFeedWriteStep1, ScreenFeedWriteStep2, ScreenFeedWriteStep3, ScreenFeedWriteStep4, ScreenFeedWriteStep5, ScreenDex, ScreenProfileEdit, ScreenSettings, ScreenAuthMethods, ScreenPublicProfile });
+Object.assign(window, { ScreenFeedWrite, ScreenFeedWriteStep1, ScreenFeedWriteStep2, ScreenFeedWriteStep3, ScreenFeedWriteStep4, ScreenFeedWriteStep5, ScreenDex, ScreenProfileEdit, ScreenProfileTasteEdit, ScreenSettings, ScreenAuthMethods, ScreenPublicProfile });

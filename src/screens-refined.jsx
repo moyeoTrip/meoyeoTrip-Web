@@ -846,10 +846,10 @@ function ScreenGroupDetail() {
       <div style={{ position: 'absolute', inset: 0, background: RF.bg }}>
         <Photo hue="forest" height={284} radius={0} overlay>
           <div style={{ position: 'absolute', top: 58, left: 18 }}>
-            <IconButton name="back" onClick={nav.back} bg="rgba(255,255,255,0.92)"/>
+            <IconButton name="back" onClick={nav.back} bg={T.overlayPanel}/>
           </div>
           <div style={{ position: 'absolute', top: 58, right: 18 }}>
-            <IconButton name="refresh" bg="rgba(255,255,255,0.92)"/>
+            <IconButton name="flag" ariaLabel="신고" onClick={() => nav.go('report')} bg={T.overlayPanel}/>
           </div>
           <span style={{ position: 'absolute', left: 20, bottom: 20, color: '#fff', fontSize: 12, fontWeight: 800 }}>진행중</span>
         </Photo>
@@ -905,7 +905,7 @@ function ScreenGroupDetail() {
             </div>
           </div>
           <div style={{ marginTop: 10, border: `1px solid ${RF.softLine}`, borderRadius: 12, padding: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            {[['money', '예상 비용', '1인 45,000원'], ['clock', '모집 마감', 'D-3 · 5/22(금)'], ['users', '나이대', '25~35세'], ['user', '성별', '성별 무관']].map((item) => <div key={item[1]} style={{ display: 'flex', gap: 8 }}><Icon name={item[0]} size={15} color={T.text500}/><span><span style={{ display: 'block', fontSize: 10.5, color: T.text500 }}>{item[1]}</span><b style={{ display: 'block', marginTop: 3, fontSize: 12 }}>{item[2]}</b></span></div>)}
+            {[['money', '예상 비용', '1인 45,000원'], ['clock', '모집 마감', 'D-3 · 5/22(금)'], ['users', '나이대', '25 ~ 35세'], ['user', '성별', '제한 없음']].map((item) => <div key={item[1]} style={{ display: 'flex', gap: 8 }}><Icon name={item[0]} size={15} color={T.text500}/><span><span style={{ display: 'block', fontSize: 10.5, color: T.text500 }}>{item[1]}</span><b style={{ display: 'block', marginTop: 3, fontSize: 12 }}>{item[2]}</b></span></div>)}
           </div>
           <div style={{ marginTop: 10, display: 'flex', gap: 9, alignItems: 'flex-start', padding: 12, borderRadius: 12, background: T.primary50, border: `1px solid ${T.primary100}` }}>
             <Icon name="refresh" size={15} color={T.primary700}/>
@@ -945,7 +945,8 @@ function ScreenApplySheet() {
           </div>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.44)' }}/>
         </Photo>
-        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: RF.card, borderRadius: '24px 24px 0 0', padding: '20px 20px 32px' }}>
+        {/* 16 신청 시트는 이미 코스 히어로 사진 위에 떠 있다 — 표면만 bgRaised + l3로 다른 시트와 통일한다 (changeLog14) */}
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '20px 20px 32px', boxShadow: T.l3 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ fontSize: 18, fontWeight: 900 }}>함께 가기 신청</div>
             <IconButton name="close" onClick={nav.back}/>
@@ -1079,7 +1080,18 @@ function ScreenCreateReview() {
 }
 
 function ScreenChatRoom() {
+  return (
+    <Phone>
+      <ChatRoomBody/>
+    </Phone>
+  );
+}
+
+// 20 본문 — 20-2 첨부 메뉴·32 신고 시트가 "이전 화면 위에 떠 있다"고 읽히도록 배경으로도 재사용한다 (changeLog14)
+function ChatRoomBody() {
   const nav = window.useNav ? window.useNav() : { back: () => {} };
+  // 기획 20과 같이 진입 시 입력이 비어 있으면 전송은 비활성이다.
+  const [draft, setDraft] = React.useState('');
   const Bubble = ({ me, children, time }) => (
     <div style={{ display: 'flex', justifyContent: me ? 'flex-end' : 'flex-start', gap: 8, alignItems: 'flex-end' }}>
       {!me && <AnimalAvatar kind="bear" size={30} bg={T.primary50}/>}
@@ -1095,7 +1107,6 @@ function ScreenChatRoom() {
     </div>
   );
   return (
-    <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
         <Header title="30대끼리 느긋하게 힐링 여행가요~" left center onBack={nav.back} right={<><IconButton name="phone"/><IconButton name="more" onClick={() => nav.go('chat-menu')}/></>}/>
         <div style={{ textAlign: 'center', fontSize: 12, color: T.text500, lineHeight: '18px', paddingBottom: 10, borderBottom: `1px solid ${RF.softLine}`, fontVariantNumeric: 'tabular-nums' }}>
@@ -1118,8 +1129,8 @@ function ScreenChatRoom() {
           <button type="button" data-testid="chat-course-edit" onClick={() => nav.go('course-edit')} style={{ border: `1px solid ${T.primary200}`, background: T.primary50, color: T.primary700, borderRadius: 999, height: 26, padding: '0 10px', fontSize: 11, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>경로 수정</button>
         </div>
         <div style={{ height: 'calc(100% - 268px)', overflow: 'auto', padding: '18px 18px 86px', background: RF.bg }}>
-          <div style={{ width: 'fit-content', margin: '0 auto 14px', background: '#E7F3E7', color: T.primary700, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 800 }}>모여트립이님이 모임에 참여했어요.</div>
-          <div style={{ width: 'fit-content', margin: '0 auto 20px', background: '#E7F3E7', color: T.primary700, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 800 }}>숲속여행자님이 모임을 개설했어요.</div>
+          <div style={{ width: 'fit-content', margin: '0 auto 14px', background: T.systemMsg, color: T.primary700, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 800 }}>모여트립이님이 모임에 참여했어요.</div>
+          <div style={{ width: 'fit-content', margin: '0 auto 20px', background: T.systemMsg, color: T.primary700, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 800 }}>숲속여행자님이 모임을 개설했어요.</div>
           <Bubble time="09:30">안녕하세요! 좋은 하루 보내세요 😊</Bubble>
           <div style={{ height: 14 }}/>
           <Bubble me time="09:31">안녕하세요! 잘 부탁드려요!</Bubble>
@@ -1137,13 +1148,9 @@ function ScreenChatRoom() {
           <button type="button" data-testid="chat-attach" onClick={() => nav.go('chat-attach')} style={{ width: 38, height: 38, borderRadius: 999, border: `1px solid ${RF.softLine}`, background: RF.card, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }} aria-label="첨부">
             <Icon name="plus" size={18} color={T.text700}/>
           </button>
-          <div style={{ flex: 1, height: 42, borderRadius: 999, border: `1px solid ${RF.softLine}`, display: 'flex', alignItems: 'center', padding: '0 14px', color: T.text400, fontSize: 13 }}>메시지 입력</div>
-          <button style={{ width: 38, height: 38, borderRadius: 999, border: 'none', background: T.primary500, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-            <Icon name="send" size={17} color="#fff"/>
-          </button>
+          <Composer value={draft} onChange={setDraft} onSend={() => setDraft('')} placeholder="메시지 입력" testId="chat-composer"/>
         </div>
       </div>
-    </Phone>
   );
 }
 
@@ -1200,6 +1207,8 @@ function ScreenFeed() {
 
 function ScreenFeedDetail() {
   const nav = window.useNav ? window.useNav() : { back: () => {} };
+  // 댓글 입력이 비어 있으면 전송은 비활성이다.
+  const [comment, setComment] = React.useState('');
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
@@ -1246,10 +1255,7 @@ function ScreenFeedDetail() {
           </div>
         </div>
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 16px 28px', borderTop: `1px solid ${RF.softLine}`, background: RF.card, display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1, height: 42, borderRadius: 999, border: `1px solid ${RF.softLine}`, display: 'flex', alignItems: 'center', padding: '0 14px', fontSize: 12, color: T.text400 }}>댓글을 입력하세요...</div>
-          <button style={{ width: 38, height: 38, borderRadius: 999, border: 'none', background: '#2F91C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="send" size={17} color="#fff"/>
-          </button>
+          <Composer value={comment} onChange={setComment} onSend={() => setComment('')} placeholder="댓글을 입력하세요..." fontSize={12} inputLabel="댓글 입력" testId="feed-detail-composer"/>
         </div>
       </div>
     </Phone>
@@ -1270,8 +1276,6 @@ function ScreenMyPage() {
     { title: '안동 하회마을 하루여행', date: '2026.06.09 (화)', place: '안동터미널 대합실', people: '3/6명', current: 3, max: 6, dday: 'D-5', hue: 'hanok', members: ['bear', 'deer'] },
     { title: '경주 단풍·야경 1박 2일', date: '2026.06.05 (금) 14:00', place: '경주역 2번 출구', people: '4/8명', current: 4, max: 8, dday: 'D-3', hue: 'autumn', members: ['bear', 'deer', 'turtle'], more: 1 },
     { title: '포항·영덕 동해 드라이브', date: '2026.06.15 (월) 09:30', place: '포항역 광장', people: '6/6명', current: 6, max: 6, dday: 'D-1', hue: 'coast', members: ['bear', 'deer', 'turtle'], more: 3 },
-    { title: '문경 새재 단풍 트레킹', date: '2026.10.31 (토) 08:30', place: '문경새재 제1관문', people: '2/5명', current: 2, max: 5, dday: 'D-7', hue: 'autumn', members: ['rabbit', 'bear'] },
-    { title: '영주 부석사 눈꽃 산책', date: '2026.12.14 (월) 10:00', place: '부석사 주차장', people: '4/5명', current: 4, max: 5, dday: 'D-9', hue: 'coast', members: ['crane', 'deer', 'turtle'] },
   ];
   const pastTrips = [
     { title: '경주 역사 감성 여행', summary: '월정교 야경과 첨성대 단풍길을 함께 걸었어요.', meta: '2024.04.12 (금) · 여행 기록', badge: '경주', hue: 'hanok' },
@@ -1335,7 +1339,7 @@ function ScreenMyPage() {
       </div>
     </div>
   );
-  const visibleCards = selectedSegment === '진행중' ? activeTrips.slice(0, 5) : selectedSegment === '지난여행' ? pastTrips : savedCourses;
+  const visibleCards = selectedSegment === '진행중' ? activeTrips : selectedSegment === '지난여행' ? pastTrips : savedCourses;
   const menuRows = [
     { icon: 'feed', title: '내 피드', subtitle: '내가 기록한 경북 여행', route: 'feed' },
     { icon: 'users', title: '친구 도감', subtitle: '12마리 · 최근 동행 순', route: 'dex' },
@@ -1354,8 +1358,8 @@ function ScreenMyPage() {
           >
             <AnimalAvatar kind="bear" size={58} bg={T.primary50}/>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 16, lineHeight: '21px', fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>다정한 곰 1001</span>
-              <span style={{ display: 'block', marginTop: 4, fontSize: 12.5, lineHeight: '18px', color: T.text500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>혼자 떠나도 같이 웃을 수 있는 여행을 좋아해요.</span>
+              <span style={{ display: 'block', fontSize: 16, lineHeight: '21px', fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>모여트립이</span>
+              <span style={{ display: 'block', marginTop: 4, fontSize: 12.5, lineHeight: '18px', color: T.text500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>자연 속에서 힐링하는 걸 좋아해요!</span>
               <span style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                 <Chip variant="primary">여행 12</Chip>
                 <Chip variant="danger">매너 4.7</Chip>
@@ -1375,7 +1379,7 @@ function ScreenMyPage() {
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, marginBottom: 10 }}>
             <div style={{ fontSize: 18, lineHeight: '24px', fontWeight: 900 }}>내 여행</div>
-            <div style={{ fontSize: 12, color: T.primary600, fontWeight: 900 }}>{activeTrips.slice(0, 5).length}개</div>
+            <div style={{ fontSize: 12, color: T.primary600, fontWeight: 900 }}>{visibleCards.length}개</div>
           </div>
           <div style={{ display: 'flex', gap: 6, padding: 4, borderRadius: 999, background: RF.subtle, marginBottom: 10 }}>
             {mySegments.map((t) => (
@@ -1420,16 +1424,6 @@ function ScreenMyPage() {
 
 function ScreenPublicProfile() {
   const nav = window.useNav ? window.useNav() : { go: () => {} };
-  const recentTrips = [
-    { hue: 'hanok', title: '경주 역사 감성 여행', meta: '2026.04 · 첨성대 · 월정교' },
-    { hue: 'coast', title: '포항·영덕 동해 드라이브', meta: '2026.02 · 호미곶 · 영일대' },
-    { hue: 'forest', title: '주왕산 단풍 트레킹', meta: '2025.10 · 주왕산 · 주산지' },
-    { hue: 'autumn', title: '안동 하회마을 산책', meta: '2025.09 · 하회마을 · 부용대' },
-    { hue: 'coast', title: '울릉도 섬 여행', meta: '2025.07 · 도동항 · 해안 산책로' },
-    { hue: 'forest', title: '울진 금강송 숲길', meta: '2025.05 · 금강송 · 왕피천' },
-    { hue: 'autumn', title: '문경 새재 고갯길', meta: '2024.11 · 제1관문 · 단풍길' },
-    { hue: 'coast', title: '영주 부석사 눈꽃', meta: '2024.12 · 부석사 · 소백산' },
-  ];
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
@@ -1478,24 +1472,6 @@ function ScreenPublicProfile() {
                 </button>
               ))}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 10 }}>
-              <div style={{ fontSize: 15, fontWeight: 900 }}>최근 여행 ({recentTrips.length})</div>
-              <span style={{ fontSize: 12, color: T.primary600, fontWeight: 900 }}>전체 보기</span>
-            </div>
-            <div style={{ display: 'grid', gap: 10 }}>
-              {recentTrips.map((trip) => (
-                <div key={trip.title} style={{ height: 68, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: 54, height: 52, borderRadius: 9, overflow: 'hidden', flexShrink: 0 }}>
-                    <Photo hue={trip.hue} height={52} radius={0}/>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{trip.title}</div>
-                    <div style={{ marginTop: 3, fontSize: 11, color: T.text500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{trip.meta}</div>
-                  </div>
-                  <Icon name="arrow" size={15} color={T.text400}/>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
         <BottomNav active="my"/>
@@ -1527,6 +1503,7 @@ Object.assign(window, {
   ScreenApplySheet,
   ScreenCreateReview,
   ScreenChatRoom,
+  ChatRoomBody,
   ScreenFeed,
   ScreenFeedDetail,
   ScreenMyPage,
