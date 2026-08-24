@@ -399,12 +399,53 @@ function ScreenProfileTaste() {
   const [styles, setStyles] = React.useState(['자연', '사진']);
   const [regions, setRegions] = React.useState(['경주', '안동', '포항', '문경']);
   const toggle = (list, setList, value) => setList(list.includes(value) ? list.filter(v => v !== value) : [...list, value]);
-  const canContinue = styles.length > 0 && regions.length > 0;
-  const submit = () => {
+  // 로그인(가입 진행) 상태에서는 후보를 GET users/me/profile/options 로 받고,
+  // 저장은 PUT users/me/profile 로 보낸다 (birthDate·gender 는 GET 프로필 값을 그대로 실어 보낸다).
+  const liveMode = window.MoyeoApi?.live();
+  const [serverOptions, setServerOptions] = React.useState(null);
+  const [serverProfile, setServerProfile] = React.useState(null);
+  const [styleIds, setStyleIds] = React.useState([]);
+  const [regionIds, setRegionIds] = React.useState([]);
+  const [saving, setSaving] = React.useState(false);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    Promise.all([window.MoyeoApi.profileOptions(), window.MoyeoApi.myProfile()])
+      .then(([optionsResult, profileResult]) => {
+        if (!active || !Array.isArray(optionsResult?.travelStyles)) return;
+        setServerOptions(optionsResult);
+        setServerProfile(profileResult);
+        setStyleIds((profileResult?.travelStyles || []).map((style) => style.id));
+        setRegionIds((profileResult?.interestedRegions || []).map((region) => region.id));
+      })
+      .catch(() => { /* 실패 시 목데이터 후보 유지 */ });
+    return () => { active = false; };
+  }, [liveMode]);
+  const serverMode = Boolean(serverOptions && serverProfile);
+  const toggleId = (list, setList, id) => setList(list.includes(id) ? list.filter((v) => v !== id) : [...list, id]);
+  const canContinue = serverMode
+    ? (styleIds.length > 0 && regionIds.length > 0 && !saving)
+    : (styles.length > 0 && regions.length > 0);
+  const goNext = () => {
     // 기본 정보(6/8)에서 기억해 둔 다음 목적지로 이동 — 이미지 후보가 필요하면 prof-2, 아니면 home
     const next = window.__moyeoPostTasteRoute || 'prof-2';
     if (next === 'home') nav.go('home', { replace: true });
     else nav.go(next);
+  };
+  const submit = async () => {
+    if (!serverMode) { goNext(); return; }
+    setSaving(true);
+    try {
+      await window.MoyeoApi.updateProfile({
+        introduction: serverProfile.introduction ?? null,
+        travelStyleIds: styleIds,
+        interestedRegionIds: regionIds,
+        birthDate: serverProfile.birthDate,
+        gender: serverProfile.gender,
+      });
+    } catch (_) { /* 저장 실패해도 가입 흐름은 막지 않는다 */ }
+    setSaving(false);
+    goNext();
   };
   return (
     <Phone>
@@ -417,18 +458,26 @@ function ScreenProfileTaste() {
           <div style={{ marginTop: 26 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, marginBottom: 10 }}>여행 스타일 <span style={{ color: T.danger }}>*</span> <span style={{ color: T.text500, fontWeight: 400 }}>· 1개 이상</span></div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {TASTE_STYLES.map(style => (
-                <TasteChip key={style} label={style} testId={"auth-taste-style-" + style} on={styles.includes(style)} onClick={() => toggle(styles, setStyles, style)}/>
-              ))}
+              {serverMode
+                ? serverOptions.travelStyles.map((style) => (
+                  <TasteChip key={style.id} label={style.label} testId={"auth-taste-style-" + style.label} on={styleIds.includes(style.id)} onClick={() => toggleId(styleIds, setStyleIds, style.id)}/>
+                ))
+                : TASTE_STYLES.map(style => (
+                  <TasteChip key={style} label={style} testId={"auth-taste-style-" + style} on={styles.includes(style)} onClick={() => toggle(styles, setStyles, style)}/>
+                ))}
             </div>
           </div>
 
           <div style={{ marginTop: 26 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, marginBottom: 10 }}>관심 지역 <span style={{ color: T.danger }}>*</span> <span style={{ color: T.text500, fontWeight: 400 }}>· 경북 안에서 1곳 이상</span></div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {TASTE_REGIONS.map(region => (
-                <TasteChip key={region} label={region} testId={"auth-taste-region-" + region} on={regions.includes(region)} onClick={() => toggle(regions, setRegions, region)}/>
-              ))}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, maxHeight: serverMode ? 160 : undefined, overflow: serverMode ? 'auto' : undefined }}>
+              {serverMode
+                ? serverOptions.interestedRegions.map((region) => (
+                  <TasteChip key={region.id} label={region.signguName} testId={"auth-taste-region-" + region.signguName} on={regionIds.includes(region.id)} onClick={() => toggleId(regionIds, setRegionIds, region.id)}/>
+                ))
+                : TASTE_REGIONS.map(region => (
+                  <TasteChip key={region} label={region} testId={"auth-taste-region-" + region} on={regions.includes(region)} onClick={() => toggle(regions, setRegions, region)}/>
+                ))}
             </div>
           </div>
 
@@ -438,11 +487,11 @@ function ScreenProfileTaste() {
         </div>
         <div style={{ flex: 1 }}/>
         <div style={{ padding: '0 20px 12px', fontSize: 12, color: T.text500, textAlign: 'center' }}>
-          여행 스타일 {styles.length}개 · 관심 지역 {regions.length}곳 선택
+          여행 스타일 {serverMode ? styleIds.length : styles.length}개 · 관심 지역 {serverMode ? regionIds.length : regions.length}곳 선택
         </div>
         <div style={{ padding: '0 20px 32px', display: 'flex', gap: 8 }}>
           <Btn variant="secondary" onClick={() => nav.back()}>이전</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full disabled={!canContinue} onClick={submit} testId="auth-taste-submit">저장하고 프로필 만들기</Btn></div>
+          <div style={{ flex: 1 }}><Btn variant="primary" full disabled={!canContinue} onClick={submit} testId="auth-taste-submit">{saving ? '저장 중...' : '저장하고 프로필 만들기'}</Btn></div>
         </div>
       </div>
     </Phone>
@@ -705,6 +754,59 @@ function ScreenChatList({ initialTab = 'live' }) {
   const nav = (window.useNav ? window.useNav() : { go: () => {} });
   const [tab, setTab] = React.useState(initialTab);
   const [cancelled, setCancelled] = React.useState([]);
+  // 로그인 상태: GET chat-rooms/my(진행중·확정·종료) + chat-rooms/my-waiting(신청중)으로 대체한다.
+  const liveMode = window.MoyeoApi?.live();
+  const [serverRooms, setServerRooms] = React.useState(null);
+  const [serverWaiting, setServerWaiting] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.myRooms()
+      .then((result) => { if (active && Array.isArray(result)) setServerRooms(result); })
+      .catch(() => {});
+    window.MoyeoApi.myWaitingRooms()
+      .then((result) => { if (active && Array.isArray(result)) setServerWaiting(result); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode]);
+  const serverMode = Boolean(serverRooms || serverWaiting);
+  const serverTabRooms = serverRooms ? {
+    live: serverRooms.filter((room) => !room.ended && room.status !== 'CONFIRMED'),
+    fixed: serverRooms.filter((room) => !room.ended && room.status === 'CONFIRMED'),
+    done: serverRooms.filter((room) => room.ended),
+  } : { live: [], fixed: [], done: [] };
+  // 채팅이 열린 방이면 채팅방(20)으로, 아직 아니면 모집 상세(15)로 보낸다.
+  const openServerRoom = (room) => {
+    window.MoyeoApi.selectRoom(room.roomId);
+    nav.go(room.chatAvailable ? 'chat' : 'detail');
+  };
+  const cancelServerApplication = async (roomId) => {
+    try {
+      await window.MoyeoApi.cancelMyApplication(roomId);
+      setServerWaiting((current) => (current || []).filter((item) => item.roomId !== roomId));
+    } catch (_) { /* 실패 시 목록 유지 */ }
+  };
+  const ServerRow = ({ room }) => (
+    <button type="button" onClick={() => openServerRoom(room)} style={{ width: '100%', minHeight: 84, padding: '14px 20px', display: 'flex', gap: 12, alignItems: 'center', border: 0, borderBottom: `1px solid ${T.line100}`, background: RF.card, cursor: 'pointer', fontFamily: T.fontStack, textAlign: 'left' }}>
+      <div style={{ width: 56, height: 56, borderRadius: 16, overflow: 'hidden', flexShrink: 0, background: T.primary50 }}>
+        {room.thumbnail
+          ? <img src={room.thumbnail} alt="" loading="lazy" style={{ display: 'block', width: 56, height: 56, objectFit: 'cover' }}/>
+          : <ImgPlaceholder height={56} hue="forest" radius={16}/>}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <b style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{room.title}</b>
+          {room.unreadMessageCount ? <span style={{ minWidth: 20, height: 20, borderRadius: 999, background: T.accent500, color: '#fff', fontSize: 11, display: 'grid', placeItems: 'center' }}>{room.unreadMessageCount}</span> : null}
+        </div>
+        <div style={{ fontSize: 12, color: T.text500, marginTop: 3 }}>
+          {window.MoyeoApi.formatDate(room.startDate)}{room.endDate ? ` - ${window.MoyeoApi.formatDate(room.endDate)}` : ''}
+          {room.participantCount != null && room.maxParticipants != null ? ` · ${room.participantCount}/${room.maxParticipants}명` : ''}
+          {room.recruitmentDDay != null ? ` · 마감 D-${room.recruitmentDDay}` : room.ended ? ' · 종료' : ''}
+        </div>
+        {room.latestMessage?.content && <div style={{ fontSize: 13, color: T.text700, marginTop: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{room.latestMessage.content}</div>}
+      </div>
+    </button>
+  );
   // 목데이터는 4개 플랫폼 공통 값이다 (docs/alignment/MOCKDATA-CANON.md)
   const rows = {
     live: [
@@ -760,14 +862,58 @@ function ScreenChatList({ initialTab = 'live' }) {
           <Icon name="arrow" size={18} color={T.text500}/>
         </button>
         <div role="tablist" aria-label="모임 상태" style={{ padding: '0 20px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderBottom: `1px solid ${T.line100}`, flexShrink: 0 }}>
-          {[['live','진행중',8],['applied','신청중',applications.length],['fixed','확정',3],['done','종료',2]].map(([id,label,count]) => {
+          {(serverMode
+            ? [['live','진행중',serverTabRooms.live.length],['applied','신청중',(serverWaiting || []).length],['fixed','확정',serverTabRooms.fixed.length],['done','종료',serverTabRooms.done.length]]
+            : [['live','진행중',8],['applied','신청중',applications.length],['fixed','확정',3],['done','종료',2]]
+          ).map(([id,label,count]) => {
             const active = tab === id;
             return <button key={id} type="button" role="tab" aria-selected={active} data-testid={`meeting-tab-${id}`} onClick={() => setTab(id)} style={{ minHeight: 48, padding: '10px 0', border: 0, borderBottom: active ? `2px solid ${T.primary500}` : '2px solid transparent', background: 'transparent', color: active ? T.primary600 : T.text500, fontFamily: T.fontStack, cursor: 'pointer' }}><span style={{ fontSize: 13, fontWeight: 700 }}>{label}</span><span style={{ fontSize: 11, marginLeft: 3 }}>{count}</span></button>;
           })}
         </div>
         {/* 탭 바로 아래에서 목록이 시작한다 — 절대 위치 매직넘버는 탭 높이가 바뀌면 유격이 생긴다 */}
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingBottom: 96 }}>
-          {tab === 'applied' ? <div>
+          {serverMode && tab !== 'applied' && (
+            serverTabRooms[tab].length === 0
+              ? <div style={{ padding: 40, textAlign: 'center', color: T.text500, fontSize: 13 }}>{tab === 'live' ? '진행 중인 모임이 없어요.' : tab === 'fixed' ? '확정된 모임이 없어요.' : '종료된 모임이 없어요.'}</div>
+              : serverTabRooms[tab].map((room) => <ServerRow key={room.roomId} room={room}/>)
+          )}
+          {serverMode && tab === 'applied' && (
+            <div>
+              {(serverWaiting || []).length === 0 && <div style={{ padding: 40, textAlign: 'center', color: T.text500, fontSize: 13 }}>신청 중인 모임이 없어요.</div>}
+              {(serverWaiting || []).map((item) => {
+                const waiting = item.applicationStatus === 'PENDING';
+                const badgeBg = waiting ? T.warningBg : T.primary50;
+                const badgeFg = waiting ? T.warningText : T.primary700;
+                const stateLabel = waiting ? '승인 대기' : item.applicationStatus === 'WAITLISTED' ? (item.waitlistPosition != null ? `대기열 ${item.waitlistPosition}번` : '대기열') : '거절됨';
+                return (
+                  <div key={item.roomId} data-testid={`application-room-${item.roomId}`} style={{ padding: '16px 20px', display: 'flex', gap: 12, borderBottom: `1px solid ${T.line100}` }}>
+                    <div style={{ width: 56, height: 56, borderRadius: 16, overflow: 'hidden', flexShrink: 0, background: T.primary50 }}>
+                      {item.thumbnail
+                        ? <img src={item.thumbnail} alt="" loading="lazy" style={{ display: 'block', width: 56, height: 56, objectFit: 'cover' }}/>
+                        : <ImgPlaceholder height={56} hue="coast" radius={16}/>}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <b style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</b>
+                        <span style={{ height: 22, padding: '0 9px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', background: badgeBg, color: badgeFg, fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{stateLabel}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: T.text500, marginTop: 4 }}>
+                        {window.MoyeoApi.formatDate(item.startDate)}{item.endDate ? ` - ${window.MoyeoApi.formatDate(item.endDate)}` : ''} · {window.MoyeoApi.tripTypeLabel(item)}
+                        {item.tripType === 'DAY_TRIP' && item.dayTripStartTime ? ` · ${window.MoyeoApi.formatTime(item.dayTripStartTime)}-${window.MoyeoApi.formatTime(item.dayTripEndTime)}` : ''}
+                      </div>
+                      {item.meetingDetails && <div style={{ fontSize: 12, color: T.text500, marginTop: 2 }}>{item.meetingDetails}</div>}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                        <button type="button" data-testid={`cancel-application-room-${item.roomId}`} onClick={() => cancelServerApplication(item.roomId)} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>신청 취소</button>
+                        <button type="button" onClick={() => openServerRoom({ roomId: item.roomId })} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>모집 상세</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div style={{ padding: '14px 20px 24px', fontSize: 11, color: T.text400, lineHeight: 1.6 }}>신청 상태에서는 아직 채팅방에 들어갈 수 없어요. 승인되거나 자리가 나면 알림으로 알려드릴게요.</div>
+            </div>
+          )}
+          {!serverMode && (tab === 'applied' ? <div>
             {applications.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: T.text500, fontSize: 13 }}>신청 중인 모임이 없어요.</div>}
             {applications.some((item) => item.id === 'waiting') && <div style={{ padding: '14px 20px 0', fontSize: 12, fontWeight: 800, color: T.text500 }}>호스트 승인을 기다리는 중</div>}
             {applications.map((item) => {
@@ -789,7 +935,7 @@ function ScreenChatList({ initialTab = 'live' }) {
             </div>;
             })}
             <div style={{ padding: '14px 20px 24px', fontSize: 11, color: T.text400, lineHeight: 1.6 }}>신청 상태에서는 아직 채팅방에 들어갈 수 없어요. 승인되거나 자리가 나면 알림으로 알려드릴게요.</div>
-          </div> : rows[tab].map((item) => <Row key={item[1]} item={item}/>) }
+          </div> : rows[tab].map((item) => <Row key={item[1]} item={item}/>))}
         </div>
         <BottomNav active="group"/>
       </div>
@@ -800,8 +946,72 @@ function ScreenChatList({ initialTab = 'live' }) {
 function ScreenChatListApplied() { return <ScreenChatList initialTab="applied"/>; }
 
 // ───────── 20 · 알림 센터 ─────────
+// 알림 유형 → 아이콘/색 매핑 (로그인 상태 서버 알림용)
+const NOTIFICATION_TYPE_STYLES = {
+  CHAT_ROOM_CREATED: { icon: 'users', tone: 'primary' },
+  CHAT_ROOM_KICKED: { icon: 'warning', tone: 'danger' },
+  CHAT_MESSAGE_RECEIVED: { icon: 'chat', tone: 'accent' },
+  TRAVEL_COURSE_UPDATED: { icon: 'refresh', tone: 'primary' },
+  MEETING_INFO_UPDATED: { icon: 'pin', tone: 'primary' },
+  RECRUITMENT_DEADLINE: { icon: 'clock', tone: 'warning' },
+  FRIEND_REQUEST: { icon: 'user', tone: 'info' },
+  FRIEND_ACCEPTED: { icon: 'user', tone: 'primary' },
+  FEED_LIKE: { icon: 'heart', tone: 'accent' },
+  MARKETING: { icon: 'sparkle', tone: 'primary' },
+};
+
 function ScreenNotifications() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
+  // 로그인 상태에서는 GET /api/v1/notifications 로 목록을 대체한다.
+  const liveMode = window.MoyeoApi?.live();
+  const [serverPage, setServerPage] = React.useState(null);
+  const loadNotifications = React.useCallback(() => {
+    if (!liveMode) return;
+    window.MoyeoApi.notifications({ size: 50 })
+      .then((result) => { if (Array.isArray(result?.notifications)) setServerPage(result); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+  }, [liveMode]);
+  React.useEffect(() => { loadNotifications(); }, [loadNotifications]);
+  const markAllRead = async () => {
+    if (!serverPage) return;
+    try {
+      await window.MoyeoApi.readAllNotifications();
+      setServerPage((current) => (current ? {
+        ...current,
+        unreadCount: 0,
+        notifications: current.notifications.map((item) => ({ ...item, read: true })),
+      } : current));
+    } catch (_) { /* 실패는 조용히 무시 */ }
+  };
+  const openServerNotification = async (item) => {
+    try {
+      if (!item.read) {
+        await window.MoyeoApi.readNotification(item.notificationId);
+        setServerPage((current) => (current ? {
+          ...current,
+          unreadCount: Math.max(0, (current.unreadCount || 1) - 1),
+          notifications: current.notifications.map((n) => (n.notificationId === item.notificationId ? { ...n, read: true } : n)),
+        } : current));
+      }
+      if (item.type === 'CHAT_ROOM_KICKED') {
+        const history = await window.MoyeoApi.kickHistory(item.notificationId).catch(() => null);
+        if (history) window.MoyeoApi.rememberKickHistory(history);
+        nav.go('removal-reason');
+        return;
+      }
+      if (item.chatRoomId != null) {
+        window.MoyeoApi.selectRoom(item.chatRoomId);
+        nav.go('detail');
+      }
+    } catch (_) { /* 이동 실패는 조용히 무시 */ }
+  };
+  const toneColors = {
+    primary: { color: T.primary600, bg: T.primary100 },
+    accent: { color: T.accent700, bg: T.accent100 },
+    warning: { color: T.warningText, bg: T.warningBg },
+    danger: { color: T.dangerText, bg: T.dangerBg },
+    info: { color: T.info, bg: T.bgSubtle },
+  };
   // 목데이터는 13 화면기획 목록이 기준 — 이 목록에 없는 행을 추가로 두지 않는다 (changeLog14)
   const todayItems = [
     { icon: 'sparkle', color: T.primary600, bg: T.primary100, title: <><b>주왕산 & 주산지</b> 여행이 확정됐어요 🎉</>, time: '방금 전', onClick: () => nav.go('trip-confirmed') },
@@ -840,16 +1050,43 @@ function ScreenNotifications() {
         <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
           <div style={{ fontSize: 15, fontWeight: 600 }}>알림</div>
-          <div style={{ fontSize: 12, color: T.primary600, fontWeight: 500 }}>모두 읽음</div>
+          <div onClick={serverPage ? markAllRead : undefined} data-testid="notif-read-all" style={{ fontSize: 12, color: T.primary600, fontWeight: 500, cursor: serverPage ? 'pointer' : 'default' }}>모두 읽음</div>
         </div>
         <div style={{ padding: '8px 20px 12px', display: 'flex', gap: 8 }}>
           <Chip variant="primary" size="md">전체</Chip>
-          <Chip variant="neutral" size="md">안읽음 4</Chip>
+          <Chip variant="neutral" size="md">안읽음 {serverPage ? serverPage.unreadCount : 4}</Chip>
         </div>
-        <div style={{ padding: '8px 20px 4px', fontSize: 11, fontWeight: 600, color: T.text500, letterSpacing: 0.5 }}>오늘</div>
-        {todayItems.map((item) => <Item key={`${item.time}-${String(item.title)}`} {...item}/>)}
-        <div style={{ padding: '12px 20px 4px', fontSize: 11, fontWeight: 600, color: T.text500, letterSpacing: 0.5 }}>어제</div>
-        {yesterdayItems.map((item, index) => <Item key={`${item.time}-${String(item.title)}`} {...item} last={index === yesterdayItems.length - 1}/>)}
+        {serverPage ? (
+          <>
+            {serverPage.notifications.length === 0 && (
+              <div style={{ padding: '72px 20px', textAlign: 'center', color: T.text500, fontSize: 13 }}>새로운 알림이 없어요.</div>
+            )}
+            {serverPage.notifications.map((item, index) => {
+              const style = NOTIFICATION_TYPE_STYLES[item.type] || { icon: 'bell', tone: 'primary' };
+              const tone = toneColors[style.tone] || toneColors.primary;
+              return (
+                <Item
+                  key={item.notificationId}
+                  icon={style.icon}
+                  color={tone.color}
+                  bg={tone.bg}
+                  title={<span style={{ fontWeight: item.read ? 400 : 700 }}>{item.content}</span>}
+                  time={window.MoyeoApi.formatRelative(item.createdAt)}
+                  onClick={() => openServerNotification(item)}
+                  testId={`notif-${item.notificationId}`}
+                  last={index === serverPage.notifications.length - 1}
+                />
+              );
+            })}
+          </>
+        ) : (
+          <>
+            <div style={{ padding: '8px 20px 4px', fontSize: 11, fontWeight: 600, color: T.text500, letterSpacing: 0.5 }}>오늘</div>
+            {todayItems.map((item) => <Item key={`${item.time}-${String(item.title)}`} {...item}/>)}
+            <div style={{ padding: '12px 20px 4px', fontSize: 11, fontWeight: 600, color: T.text500, letterSpacing: 0.5 }}>어제</div>
+            {yesterdayItems.map((item, index) => <Item key={`${item.time}-${String(item.title)}`} {...item} last={index === yesterdayItems.length - 1}/>)}
+          </>
+        )}
         <div style={{ height: 28 }}/>
       </div>
     </Phone>
@@ -860,6 +1097,56 @@ function ScreenNotifications() {
 // 13 알림 센터의 강퇴 알림을 탭하면 열린다. 호스트가 남긴 사유와 이후 정책을 한 화면에서 보여준다. (changeLog14)
 function ScreenRemovalReason() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
+  // 로그인 상태: 알림 센터에서 조회한 강퇴 이력(GET notifications/{id}/kick-history)을 보여준다.
+  const liveMode = window.MoyeoApi?.live();
+  const kick = liveMode ? window.MoyeoApi.recalledKickHistory() : null;
+  const kickedAtLabel = kick?.kickedAt ? `${window.MoyeoApi.formatRelative(kick.kickedAt)} · 호스트 결정` : '호스트 결정';
+
+  if (kick) {
+    return (
+      <Phone>
+        <div style={{ position: 'absolute', inset: 0, paddingTop: 60, display: 'flex', flexDirection: 'column', background: T.bgBase }}>
+          <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>내보내기 안내</div>
+            <div style={{ width: 24 }}/>
+          </div>
+          <div style={{ padding: '12px 20px 0', overflow: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '18px 0 22px' }}>
+              <div style={{ width: 64, height: 64, borderRadius: 999, background: T.dangerBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="warning" size={30} color={T.dangerText}/>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, marginTop: 14, textAlign: 'center', lineHeight: '26px' }}>{kick.roomTitle}에서<br/>내보내졌어요</div>
+              <div style={{ fontSize: 12, color: T.text500, marginTop: 6 }}>{kickedAtLabel}</div>
+            </div>
+            <div style={{ borderRadius: 14, background: T.bgRaised, border: `1px solid ${T.line100}`, padding: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>호스트가 남긴 사유</div>
+              <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: T.bgSubtle, fontSize: 13, color: T.text700, lineHeight: '20px' }}>
+                “{kick.reason}”
+              </div>
+            </div>
+            <div style={{ marginTop: 12, borderRadius: 14, background: T.bgRaised, border: `1px solid ${T.line100}`, padding: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>내보내진 뒤에는</div>
+              {[
+                '이 모임에는 다시 신청할 수 없어요.',
+                '채팅방이 내 목록에서 사라져요. 이미 남긴 대화는 모임 채팅방에 그대로 남아요.',
+                '다른 모임을 찾고 신청하는 데에는 아무 영향이 없어요.',
+              ].map(line => (
+                <div key={line} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                  <div style={{ width: 4, height: 4, borderRadius: 999, background: T.text500, marginTop: 7, flexShrink: 0 }}/>
+                  <div style={{ fontSize: 12.5, color: T.text700, lineHeight: '18px' }}>{line}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ flex: 1 }}/>
+          <div style={{ padding: '0 20px 32px' }}>
+            <Btn variant="primary" full onClick={() => nav.back()} testId="removal-reason-confirm">확인</Btn>
+          </div>
+        </div>
+      </Phone>
+    );
+  }
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0, paddingTop: 60, display: 'flex', flexDirection: 'column', background: T.bgBase }}>
@@ -910,49 +1197,159 @@ function ScreenRemovalReason() {
 }
 
 // ───────── 21 · 검색 ─────────
+// 최근 검색어는 서버 API가 없어 100% 클라이언트 구현이다 — localStorage 에 영구 저장한다.
+// 캡처·QA 라우트(?screen= / ?route= / capture=1 / uitest=1 / mockAuth=1)에서는 화면기획의
+// 목데이터를 그대로 보여주고 저장소를 건드리지 않는다. (개발 중 실제 동작을 보려면 ?liveData=1)
+// 인기 검색어는 서버 데이터가 없어 목데이터가 유일한 근거다 — 값은 그대로 두고 탭 동작만 붙인다.
+const SEARCH_CAPTURE_RECENT = ['경주', '단풍', '황리단길', '안동 한옥', '주왕산'];
+const SEARCH_CAPTURE_KEYWORD = '경주 단풍';
+const SEARCH_POPULAR = [
+  { n: 1, w: '주왕산', up: true },
+  { n: 2, w: '안동 한옥마을', up: true },
+  { n: 3, w: '경주 야경', up: false },
+  { n: 4, w: '포항 호미곶', up: true },
+  { n: 5, w: '문경 새재', up: false },
+];
+
 function ScreenSearch() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
-  const recent = ['경주', '단풍', '황리단길', '안동 한옥', '주왕산'];
-  const popular = [
-    { n: 1, w: '주왕산', up: true },
-    { n: 2, w: '안동 한옥마을', up: true },
-    { n: 3, w: '경주 야경', up: false },
-    { n: 4, w: '포항 호미곶', up: true },
-    { n: 5, w: '문경 새재', up: false },
-  ];
+  const store = window.MoyeoRecentSearches;
+  const captureMode = Boolean(window.MoyeoApi?.deterministicParams?.());
+  const liveMode = Boolean(window.MoyeoApi?.live());
+  const inputRef = React.useRef(null);
+
+  const [recent, setRecent] = React.useState(
+    () => (captureMode ? SEARCH_CAPTURE_RECENT : (store?.read() || []))
+  );
+  const [draft, setDraft] = React.useState(captureMode ? SEARCH_CAPTURE_KEYWORD : '');
+  const [keyword, setKeyword] = React.useState('');
+  const [serverRooms, setServerRooms] = React.useState(null);
+  const [searching, setSearching] = React.useState(false);
+
+  // 캡처 모드에서는 저장소를 쓰지 않고 화면 안에서만 목록을 다룬다 (규칙은 store 와 동일).
+  const commitRecent = (next) => setRecent(store ? store.normalize(next) : next);
+  const rememberSearch = (text) => {
+    if (captureMode) commitRecent([text, ...recent]);
+    else setRecent(store ? store.add(text) : []);
+  };
+  const forgetSearch = (text) => {
+    if (captureMode) commitRecent(recent.filter((item) => item !== text));
+    else setRecent(store ? store.remove(text) : []);
+  };
+  const forgetAllSearches = () => {
+    if (captureMode) setRecent([]);
+    else setRecent(store ? store.clear() : []);
+  };
+
+  const runSearch = (raw) => {
+    const text = (raw || '').trim();
+    if (!text) return;
+    setDraft(text);
+    setKeyword(text);
+    rememberSearch(text);
+  };
+
+  const clearDraft = () => {
+    setDraft('');
+    setKeyword('');
+    inputRef.current?.focus();
+  };
+
+  // 로그인 상태에서는 GET /api/v1/chat-rooms/search 결과를 쓴다. 비로그인·실패는 목데이터 유지.
+  React.useEffect(() => {
+    if (!keyword || !liveMode) {
+      setServerRooms(null);
+      return undefined;
+    }
+    let active = true;
+    setSearching(true);
+    window.MoyeoApi.searchRooms({ keyword })
+      .then((rooms) => { if (active && Array.isArray(rooms)) setServerRooms(rooms); })
+      .catch(() => { if (active) setServerRooms(null); })
+      .finally(() => { if (active) setSearching(false); });
+    return () => { active = false; };
+  }, [keyword, liveMode]);
+
+  // 비로그인 결과는 10 탐색의 목데이터 모집 목록을 검색어로 거른다 (카드도 같은 컴포넌트).
+  const mockResults = keyword
+    ? (window.MOYEO_EXPLORE_ROOMS || []).filter((room) => `${room.title} ${room.area}`.includes(keyword))
+    : [];
+  const RoomCard = window.ExploreRoomCard;
+  const ServerRoomCard = window.ExploreServerRoomCard;
+
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0, paddingTop: 60 }}>
         <div style={{ padding: '8px 20px 12px', display: 'flex', alignItems: 'center', gap: 12 }}>
           <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
-          <div style={{ flex: 1, height: 44, borderRadius: 12, background: T.bgSubtle, display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px' }}>
-            <Icon name="search" size={18} color={T.text500}/>
-            <div style={{ fontSize: 14, color: T.text900 }}>경주 단풍</div>
-            <div style={{ flex: 1 }}/>
-            <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="close" size={16} color={T.text500}/></div>
-          </div>
-          <div style={{ fontSize: 14, color: T.text500 }}>취소</div>
+          <form
+            onSubmit={(event) => { event.preventDefault(); runSearch(draft); }}
+            style={{ flex: 1, height: 44, borderRadius: 12, background: T.bgSubtle, display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px' }}
+          >
+            <button type="submit" aria-label="검색" data-testid="search-submit" data-network-action="true" style={{ padding: 0, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+              <Icon name="search" size={18} color={T.text500}/>
+            </button>
+            <input
+              ref={inputRef}
+              data-testid="search-input"
+              type="search"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="어디로 떠나고 싶나요?"
+              aria-label="검색어"
+              style={{ flex: 1, minWidth: 0, height: 40, border: 0, outline: 'none', background: 'transparent', fontSize: 14, color: T.text900, fontFamily: T.fontStack, padding: 0 }}
+            />
+            {draft && (
+              <button type="button" aria-label="검색어 지우기" data-testid="search-clear" onClick={clearDraft} style={{ padding: 0, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                <Icon name="close" size={16} color={T.text500}/>
+              </button>
+            )}
+          </form>
+          <div onClick={() => nav.back()} style={{ fontSize: 14, color: T.text500, cursor: 'pointer' }}>취소</div>
         </div>
         <div style={{ height: 'calc(100% - 116px)', overflow: 'auto', padding: '12px 20px 44px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>최근 검색어</div>
-            <div style={{ fontSize: 11, color: T.text500 }}>전체 삭제</div>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {recent.map(s => (
-              <div key={s} style={{ height: 32, padding: '0 12px', borderRadius: 999, border: `1px solid ${T.line200}`, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: T.text700 }}>
-                {s} <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="close" size={12} color={T.text400}/></div>
-              </div>
-            ))}
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 600, marginTop: 28, marginBottom: 12 }}>인기 검색어</div>
-          {popular.map(r => (
-            <div key={r.n} style={{ height: 44, display: 'flex', alignItems: 'center', gap: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: r.n <= 3 ? T.primary600 : T.text500, width: 16, fontVariantNumeric: 'tabular-nums' }}>{r.n}</div>
-              <div style={{ flex: 1, fontSize: 14 }}>{r.w}</div>
-              <div style={{ fontSize: 11, color: r.up ? T.accent500 : T.text400 }}>{r.up ? '▲' : '—'}</div>
+          {keyword ? (
+            <div data-testid="search-results">
+              {searching && <div style={{ padding: '14px 0', fontSize: 12, color: T.text500 }}>검색 중이에요…</div>}
+              {serverRooms
+                ? serverRooms.map((room) => (
+                  <ServerRoomCard key={room.roomId} room={room} testId={`search-result-${room.roomId}`} onClick={() => { window.MoyeoApi.selectRoom(room.roomId); nav.go('detail'); }}/>
+                ))
+                : mockResults.map((room) => (
+                  <RoomCard key={room.title} room={room} testId={`search-result-${room.title}`} onClick={() => nav.go('detail')}/>
+                ))}
+              {!searching && (serverRooms ? serverRooms.length === 0 : mockResults.length === 0) && (
+                <div style={{ padding: '48px 0', textAlign: 'center', color: T.text500, fontSize: 13 }}>검색 결과가 없어요</div>
+              )}
             </div>
-          ))}
+          ) : (
+            <React.Fragment>
+              {/* 비어 있으면 제목·전체 삭제·칩 영역을 통째로 숨긴다 (기획에 빈 상태 문구가 없다) */}
+              {recent.length > 0 && (
+                <div data-testid="search-recent">
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>최근 검색어</div>
+                    <div onClick={forgetAllSearches} data-testid="search-recent-clear" style={{ fontSize: 11, color: T.text500, cursor: 'pointer' }}>전체 삭제</div>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {recent.map(s => (
+                      <div key={s} onClick={() => runSearch(s)} data-testid={`search-recent-${s}`} style={{ height: 32, padding: '0 12px', borderRadius: 999, border: `1px solid ${T.line200}`, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: T.text700, cursor: 'pointer' }}>
+                        {s} <div onClick={(event) => { event.stopPropagation(); forgetSearch(s); }} data-testid={`search-recent-remove-${s}`} style={{ cursor: 'pointer' }}><Icon name="close" size={12} color={T.text400}/></div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div style={{ fontSize: 13, fontWeight: 600, marginTop: recent.length > 0 ? 28 : 0, marginBottom: 12 }}>인기 검색어</div>
+              {SEARCH_POPULAR.map(r => (
+                <div key={r.n} onClick={() => runSearch(r.w)} data-testid={`search-popular-${r.n}`} style={{ height: 44, display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: r.n <= 3 ? T.primary600 : T.text500, width: 16, fontVariantNumeric: 'tabular-nums' }}>{r.n}</div>
+                  <div style={{ flex: 1, fontSize: 14 }}>{r.w}</div>
+                  <div style={{ fontSize: 11, color: r.up ? T.accent500 : T.text400 }}>{r.up ? '▲' : '—'}</div>
+                </div>
+              ))}
+            </React.Fragment>
+          )}
         </div>
       </div>
     </Phone>

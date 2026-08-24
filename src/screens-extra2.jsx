@@ -211,6 +211,63 @@ function ScreenFeedWriteStep5() { return <ScreenFeedWrite step={5}/>; }
 // ───────── 27 · 도감 (Friends Dex) ─────────
 function ScreenDex() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, openModal: () => {} });
+  // 로그인 상태에서는 GET users/me/travel-dex 로 대체한다.
+  const liveMode = window.MoyeoApi?.live();
+  const [dex, setDex] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.travelDex()
+      .then((result) => { if (active && Array.isArray(result?.companions)) setDex(result); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    return () => { active = false; };
+  }, [liveMode]);
+
+  if (dex) {
+    const companions = dex.companions;
+    return (
+      <Phone>
+        <div style={{ position: 'absolute', inset: 0, paddingTop: 60, background: T.bgSubtle }}>
+          <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: T.bgBase }}>
+            <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>친구 도감</div>
+            <Icon name="search" size={22}/>
+          </div>
+          <div style={{ padding: '20px 20px 16px', background: T.bgBase, borderBottom: `1px solid ${T.line100}` }}>
+            <div style={{ fontSize: 13, color: T.text500 }}>지금까지 만난 친구</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+              <div style={{ fontSize: 36, fontWeight: 700, color: T.primary700, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{dex.totalCount}</div>
+              <div style={{ fontSize: 15, color: T.text500, fontWeight: 500 }}>마리</div>
+              <div style={{ marginLeft: 'auto', fontSize: 11, color: T.text400 }}>최근 동행 순</div>
+            </div>
+          </div>
+          <div style={{ padding: 16, overflow: 'auto', maxHeight: 560 }}>
+            {companions.length === 0 ? (
+              <div style={{ padding: '56px 20px', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '20px' }}>
+                아직 도감에 기록된 친구가 없어요.<br/>여행을 다녀오면 함께한 친구가 여기에 남아요.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                {companions.map((companion) => (
+                  <div key={companion.userId} style={{ background: T.bgBase, borderRadius: 14, padding: 10, border: `1px solid ${T.line100}`, position: 'relative' }}>
+                    {companion.tripCount >= 2 && <div style={{ position: 'absolute', top: 6, right: 6, padding: '1px 5px', borderRadius: 4, background: T.primary100, color: T.primary700, fontSize: 9, fontWeight: 700 }}>{companion.tripCount}×</div>}
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0' }}>
+                      {companion.profileImageUrl
+                        ? <img src={companion.profileImageUrl} alt="" style={{ width: 56, height: 56, borderRadius: 999, objectFit: 'cover', background: T.primary50 }}/>
+                        : <span style={{ width: 56, height: 56, borderRadius: 999, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={26} color={T.primary600}/></span>}
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 600, textAlign: 'center', lineHeight: 1.3, marginTop: 4, height: 28, overflow: 'hidden' }}>{companion.nickname}</div>
+                    <div style={{ fontSize: 10, color: T.text400, textAlign: 'center', marginTop: 2 }}>{window.MoyeoApi.formatRelative(companion.latestTripDate)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ textAlign: 'center', padding: '20px 0 8px', fontSize: 11, color: T.text400 }}>다음 모임에서 새 친구를 만나보세요 ✨</div>
+          </div>
+        </div>
+      </Phone>
+    );
+  }
   const friends = [
     { k: 'deer', n: '따스한 사슴 3492', trips: 3, me: true, last: '2일 전 · 경주' },
     { k: 'bear', n: '우직한 곰 7821', trips: 2, last: '2일 전 · 경주' },
@@ -283,6 +340,19 @@ function ScreenProfileEdit() {
 // 28 본문 — 28-1 여행 취향 편집 시트가 "이전 화면 위에 떠 있다"고 읽히도록 배경으로도 재사용한다 (changeLog14)
 function ProfileEditBody() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
+  // 로그인 상태에서는 GET users/me/profile 로 대체한다.
+  const liveMode = window.MoyeoApi?.live();
+  const [profile, setProfile] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.myProfile()
+      .then((result) => { if (active && result?.nickname) setProfile(result); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    return () => { active = false; };
+  }, [liveMode]);
+  const genderLabel = profile ? ({ M: '남성', F: '여성', N: '선택 안 함' }[profile.gender] || profile.gender) : '여성';
+  const birthLabel = profile?.birthDate ? profile.birthDate.replaceAll('-', '.') : null;
   const Row = ({ label, value, locked, danger }) => (
     <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${T.line100}` }}>
       <div style={{ fontSize: 14, color: T.text700 }}>{label}</div>
@@ -302,18 +372,22 @@ function ProfileEditBody() {
         
         <div style={{ background: T.bgBase, padding: '24px 20px 28px', display: 'flex', flexDirection: 'column', alignItems: 'center', borderBottom: `1px solid ${T.line100}` }}>
           <div style={{ position: 'relative' }}>
-            <AnimalAvatar kind="deer" size={96} bg={T.primary100}/>
+            {profile
+              ? (profile.profileImageUrl
+                ? <img src={profile.profileImageUrl} alt="" style={{ width: 96, height: 96, borderRadius: 999, objectFit: 'cover', background: T.primary100 }}/>
+                : <span style={{ width: 96, height: 96, borderRadius: 999, background: T.primary100, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={44} color={T.primary600}/></span>)
+              : <AnimalAvatar kind="deer" size={96} bg={T.primary100}/>}
             <div style={{ position: 'absolute', bottom: 0, right: 0, width: 28, height: 28, borderRadius: 999, background: T.line200, border: `2px solid ${T.bgBase}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Icon name="lock" size={12} color={T.text500}/>
             </div>
           </div>
-          <div style={{ fontSize: 17, fontWeight: 700, marginTop: 12 }}>따스한 사슴 3492</div>
+          <div style={{ fontSize: 17, fontWeight: 700, marginTop: 12 }}>{profile ? profile.nickname : '따스한 사슴 3492'}</div>
           <div style={{ fontSize: 11, color: T.text500, marginTop: 4 }}>한 번 정한 친구는 바꿀 수 없어요</div>
         </div>
 
         <div style={{ fontSize: 11, fontWeight: 600, color: T.text500, padding: '20px 20px 8px', letterSpacing: 0.5 }}>공개 프로필</div>
         <div style={{ background: T.bgBase }}>
-          <Row label="자기소개" value="느긋한 여행 좋아해요"/>
+          <Row label="자기소개" value={profile ? (profile.introduction || '아직 없음') : '느긋한 여행 좋아해요'}/>
           {/* 여행 스타일과 관심 지역은 가입(06-1)과 동일하게 한 블록에서 함께 조회·수정한다.
               블록(칩·+추가 포함)을 탭하면 여행 취향 편집 Bottom Sheet(28-1)가 열린다. */}
           <div
@@ -331,12 +405,12 @@ function ProfileEditBody() {
             </div>
             <div style={{ fontSize: 11, fontWeight: 600, color: T.text500, marginBottom: 6 }}>여행 스타일</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-              {['자연', '사진'].map(styleTag => <Chip key={styleTag} variant="primary" size="sm">{styleTag}</Chip>)}
+              {(profile ? profile.travelStyles.map((style) => style.label) : ['자연', '사진']).map(styleTag => <Chip key={styleTag} variant="primary" size="sm">{styleTag}</Chip>)}
               <Chip variant="neutral" size="sm">+ 추가</Chip>
             </div>
             <div style={{ fontSize: 11, fontWeight: 600, color: T.text500, marginBottom: 6 }}>관심 지역</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {['경주', '안동', '포항', '문경'].map(r => <Chip key={r} variant="primary" size="sm">{r}</Chip>)}
+              {(profile ? profile.interestedRegions.map((region) => region.signguName) : ['경주', '안동', '포항', '문경']).map(r => <Chip key={r} variant="primary" size="sm">{r}</Chip>)}
               <Chip variant="neutral" size="sm">+ 추가</Chip>
             </div>
           </div>
@@ -344,10 +418,10 @@ function ProfileEditBody() {
 
         <div style={{ fontSize: 11, fontWeight: 600, color: T.text500, padding: '20px 20px 8px', letterSpacing: 0.5 }}>비공개 정보</div>
         <div style={{ background: T.bgBase }}>
-          <Row label="닉네임" value="따스한 사슴 3492" locked/>
+          <Row label="닉네임" value={profile ? profile.nickname : '따스한 사슴 3492'} locked/>
           <Row label="캐릭터" value="고정됨" locked/>
-          <Row label="생년월일" value="1998.04.12"/>
-          <Row label="성별" value="여성"/>
+          {(!profile || birthLabel) && <Row label="생년월일" value={profile ? birthLabel : '1998.04.12'}/>}
+          <Row label="성별" value={genderLabel}/>
         </div>
       </div>
   );
@@ -364,7 +438,53 @@ function ScreenProfileTasteEdit() {
   const [styles, setStyles] = React.useState(['자연', '사진']);
   const [regions, setRegions] = React.useState(['경주', '안동', '포항', '문경']);
   const toggle = (list, setList, value) => setList(list.includes(value) ? list.filter(v => v !== value) : [...list, value]);
-  const canSave = styles.length > 0 && regions.length > 0;
+  // 로그인 상태: 후보는 GET users/me/profile/options(스타일 12종·시군구 24곳, 서버 기준),
+  // 현재 선택은 GET users/me/profile, 저장은 PUT users/me/profile 로 연동한다.
+  const liveMode = window.MoyeoApi?.live();
+  const [serverOptions, setServerOptions] = React.useState(null);
+  const [serverProfile, setServerProfile] = React.useState(null);
+  const [styleIds, setStyleIds] = React.useState([]);
+  const [regionIds, setRegionIds] = React.useState([]);
+  const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState('');
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    Promise.all([window.MoyeoApi.profileOptions(), window.MoyeoApi.myProfile()])
+      .then(([optionsResult, profileResult]) => {
+        if (!active || !Array.isArray(optionsResult?.travelStyles)) return;
+        setServerOptions(optionsResult);
+        setServerProfile(profileResult);
+        setStyleIds((profileResult?.travelStyles || []).map((style) => style.id));
+        setRegionIds((profileResult?.interestedRegions || []).map((region) => region.id));
+      })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    return () => { active = false; };
+  }, [liveMode]);
+  const serverMode = Boolean(serverOptions && serverProfile);
+  const toggleId = (list, setList, id) => setList(list.includes(id) ? list.filter((v) => v !== id) : [...list, id]);
+  const saveServer = async () => {
+    if (saving) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      await window.MoyeoApi.updateProfile({
+        introduction: serverProfile.introduction ?? null,
+        travelStyleIds: styleIds,
+        interestedRegionIds: regionIds,
+        birthDate: serverProfile.birthDate,
+        gender: serverProfile.gender,
+      });
+      setSaving(false);
+      nav.back();
+    } catch (requestError) {
+      setSaving(false);
+      setSaveError(requestError?.message || '저장하지 못했어요. 잠시 후 다시 시도해주세요.');
+    }
+  };
+  const canSave = serverMode
+    ? (styleIds.length > 0 && regionIds.length > 0 && !saving)
+    : (styles.length > 0 && regions.length > 0);
   const chip = (label, on, onClick, testId) => (
     <button key={label} type="button" data-testid={testId} onClick={onClick} aria-pressed={on} style={{
       height: 36, padding: '0 14px', borderRadius: 999, cursor: 'pointer', fontFamily: T.fontStack,
@@ -391,20 +511,25 @@ function ScreenProfileTasteEdit() {
 
           <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, margin: '18px 0 10px' }}>여행 스타일 <span style={{ color: T.danger }}>*</span> <span style={{ color: T.text500, fontWeight: 400 }}>· 1개 이상</span></div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {STYLES.map(style => chip(style, styles.includes(style), () => toggle(styles, setStyles, style), "taste-edit-style-" + style))}
+            {serverMode
+              ? serverOptions.travelStyles.map((style) => chip(style.label, styleIds.includes(style.id), () => toggleId(styleIds, setStyleIds, style.id), "taste-edit-style-" + style.label))
+              : STYLES.map(style => chip(style, styles.includes(style), () => toggle(styles, setStyles, style), "taste-edit-style-" + style))}
           </div>
 
           <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, margin: '18px 0 10px' }}>관심 지역 <span style={{ color: T.danger }}>*</span> <span style={{ color: T.text500, fontWeight: 400 }}>· 경북 안에서 1곳 이상</span></div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {REGIONS.map(region => chip(region, regions.includes(region), () => toggle(regions, setRegions, region), "taste-edit-region-" + region))}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, maxHeight: serverMode ? 132 : undefined, overflow: serverMode ? 'auto' : undefined }}>
+            {serverMode
+              ? serverOptions.interestedRegions.map((region) => chip(region.signguName, regionIds.includes(region.id), () => toggleId(regionIds, setRegionIds, region.id), "taste-edit-region-" + region.signguName))
+              : REGIONS.map(region => chip(region, regions.includes(region), () => toggle(regions, setRegions, region), "taste-edit-region-" + region))}
           </div>
 
           <div style={{ fontSize: 12, color: T.text500, textAlign: 'center', margin: '18px 0 12px' }}>
-            여행 스타일 {styles.length}개 · 관심 지역 {regions.length}곳 선택
+            여행 스타일 {serverMode ? styleIds.length : styles.length}개 · 관심 지역 {serverMode ? regionIds.length : regions.length}곳 선택
           </div>
+          {saveError && <div role="alert" style={{ fontSize: 12, color: T.danger, textAlign: 'center', marginBottom: 10 }}>{saveError}</div>}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button type="button" data-testid="taste-edit-cancel" onClick={() => nav.back()} style={{ width: 72, height: 52, border: 0, background: 'transparent', fontSize: 14, fontWeight: 600, color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>취소</button>
-            <div style={{ flex: 1 }}><Btn variant="primary" full disabled={!canSave} onClick={() => nav.back()} testId="taste-edit-save">저장</Btn></div>
+            <div style={{ flex: 1 }}><Btn variant="primary" full disabled={!canSave} onClick={serverMode ? saveServer : () => nav.back()} testId="taste-edit-save">{saving ? '저장 중...' : '저장'}</Btn></div>
           </div>
         </div>
       </div>
@@ -442,6 +567,47 @@ function ScreenSettings() {
       <Toggle on={on}/>
     </button>
   );
+  // 로그인 상태: GET users/me/profile(알림 수신 플래그) + notifications/settings(방해금지)로 대체하고,
+  // 토글 변경은 PUT notifications/settings 로 저장한다.
+  const liveMode = window.MoyeoApi?.live();
+  const [serverProfile, setServerProfile] = React.useState(null);
+  const [serverDnd, setServerDnd] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.myProfile()
+      .then((result) => { if (active && result?.nickname) setServerProfile(result); })
+      .catch(() => {});
+    window.MoyeoApi.notificationSettings()
+      .then((result) => { if (active && result && typeof result.doNotDisturbEnabled === 'boolean') setServerDnd(result); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode]);
+  const DAY_ENUMS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+  const saveNotificationFlags = async (patch) => {
+    if (!serverProfile) return;
+    const next = { ...serverProfile, ...patch };
+    setServerProfile(next);
+    try {
+      await window.MoyeoApi.updateNotificationSettings({
+        chatNotificationMode: next.chatNotificationMode,
+        recruitmentDeadlineEnabled: next.recruitmentDeadlineEnabled,
+        socialActivityEnabled: next.socialActivityEnabled,
+        marketingEnabled: next.marketingEnabled,
+        doNotDisturbEnabled: serverDnd?.doNotDisturbEnabled ?? false,
+        doNotDisturbStartTime: serverDnd?.doNotDisturbStartTime ?? null,
+        doNotDisturbEndTime: serverDnd?.doNotDisturbEndTime ?? null,
+        doNotDisturbDays: (serverDnd?.doNotDisturbDays || []).filter((day) => DAY_ENUMS.includes(day)),
+      });
+    } catch (_) {
+      setServerProfile(serverProfile); // 실패 시 원복
+    }
+  };
+  const dndSummary = serverDnd
+    ? (serverDnd.doNotDisturbEnabled && serverDnd.doNotDisturbStartTime
+      ? `방해금지 ${serverDnd.doNotDisturbStartTime}~${serverDnd.doNotDisturbEndTime}`
+      : '방해금지 꺼짐')
+    : null;
   const [notificationsEnabled, setNotificationsEnabled] = React.useState(
     typeof Notification !== 'undefined' && Notification.permission === 'granted'
   );
@@ -485,6 +651,30 @@ function ScreenSettings() {
       setNotificationsEnabled(false);
     }
   };
+  // ── 테마 (29 › 화면 › 테마) ──
+  // 저장값은 3상태다: system(기본) · light · dark. 'system' 이면 OS 변경을 즉시 따라간다.
+  const captureMode = Boolean(window.MoyeoApi?.deterministicParams?.());
+  const [themePreference, setThemePreference] = React.useState(() => window.getMoyeoThemePreference?.() || 'system');
+  React.useEffect(() => {
+    const sync = (event) => setThemePreference(event.detail?.preference || window.getMoyeoThemePreference?.() || 'system');
+    window.addEventListener('moyeo:theme-mode', sync);
+    return () => window.removeEventListener('moyeo:theme-mode', sync);
+  }, []);
+  const themeLabels = window.MOYEO_THEME_PREFERENCE_LABELS || { system: '시스템 기본', light: '라이트', dark: '다크' };
+  const themeValue = captureMode ? '시스템 기본' : (themeLabels[themePreference] || '시스템 기본');
+  const cycleTheme = () => setThemePreference(window.cycleMoyeoThemeMode?.(themePreference) || 'system');
+
+  // ── 정보 섹션 안내 다이얼로그 ──
+  // 문구는 Android(MyMenuScreens.kt)·iOS(MyView.swift)와 같은 값을 쓴다. 새 문구를 만들지 않는다.
+  // 버전 본문만 근거 없는 '최신 상태' 주장을 빼고 설치된 버전을 알려준다(캡처 모드는 기획 문구 유지).
+  const [infoDialog, setInfoDialog] = React.useState(null);
+  const infoDialogs = {
+    version: { title: '앱 버전', body: window.MoyeoAppVersion?.dialogBody() },
+    contact: { title: '문의하기', body: '채팅, 모집, 결제 문의를 남기는 고객센터로 이어져요.' },
+    rate: { title: '앱 평가하기', body: '스토어 평가로 이동하기 전, 모여트립 사용 경험을 한 번 더 확인해요.' },
+  };
+  const infoDialogSpec = infoDialog ? infoDialogs[infoDialog] : null;
+
   const Section = ({ title, children }) => (
     <section style={{ marginBottom: 16 }}>
       <div style={{ fontSize: 12, fontWeight: 800, color: T.text500, padding: '0 20px' }}>{title}</div>
@@ -505,32 +695,49 @@ function ScreenSettings() {
         <div style={{ paddingTop: 14, paddingBottom: 34 }}>
         <Section title="알림">
           <ToggleRow label="채팅 메시지" on={notificationsEnabled || !pushBlocked} sub={pushBlocked ? pushBlockedCopy[pushStatus] : undefined} onClick={enableNotifications}/>
-          <ToggleRow label="모집 마감 임박" on={true} sub="D-3부터 알려드려요"/>
-          <ToggleRow label="친구 신청·피드 반응" on={true}/>
-          <ToggleRow label="마케팅 알림" on={false} sub="이벤트·새 코스 소개"/>
-          <Row label="알림 세부 설정" value="방해금지 22:30~07:00" onClick={() => nav.go('notif-detail')} testId="settings-notif-detail"/>
+          <ToggleRow label="모집 마감 임박" on={serverProfile ? serverProfile.recruitmentDeadlineEnabled : true} sub="D-3부터 알려드려요" onClick={serverProfile ? () => saveNotificationFlags({ recruitmentDeadlineEnabled: !serverProfile.recruitmentDeadlineEnabled }) : undefined}/>
+          <ToggleRow label="친구 신청·피드 반응" on={serverProfile ? serverProfile.socialActivityEnabled : true} onClick={serverProfile ? () => saveNotificationFlags({ socialActivityEnabled: !serverProfile.socialActivityEnabled }) : undefined}/>
+          <ToggleRow label="마케팅 알림" on={serverProfile ? serverProfile.marketingEnabled : false} sub="이벤트·새 코스 소개" onClick={serverProfile ? () => saveNotificationFlags({ marketingEnabled: !serverProfile.marketingEnabled }) : undefined}/>
+          <Row label="알림 세부 설정" value={dndSummary || '방해금지 22:30~07:00'} onClick={() => nav.go('notif-detail')} testId="settings-notif-detail"/>
         </Section>
 
         <Section title="화면">
-          <Row label="테마" value="시스템 기본"/>
+          {/* 탭하면 시스템 기본 → 라이트 → 다크 순환. 기획에 선택 시트가 없어 순환으로 간다.
+              캡처 모드에서는 강제 테마가 사용자 설정보다 우선하므로 값은 기획대로 '시스템 기본' 고정. */}
+          <Row label="테마" value={themeValue} onClick={captureMode ? undefined : cycleTheme} testId="settings-theme"/>
           <Row label="언어" value="한국어"/>
         </Section>
 
         <Section title="계정">
           <Row label="로그인 방식" value="관리" onClick={() => nav.go('auth-methods')} testId="settings-auth-methods"/>
-          <Row label="차단한 사용자" value="2명"/>
+          <Row label="차단한 사용자" value={liveMode ? '관리' : '2명'} onClick={() => nav.go('blocked')} testId="settings-blocked"/>
           <Row label="개인정보 처리방침" onClick={() => nav.go('privacy-settings')} testId="settings-privacy"/>
           <Row label="이용약관" onClick={() => nav.go('terms-settings')} testId="settings-terms"/>
         </Section>
 
         <Section title="정보">
-          <Row label="버전" value="1.0.4 (최신)"/>
-          <Row label="문의하기"/>
-          <Row label="앱 평가하기"/>
+          {/* 실제 빌드 버전을 보여준다. 최신 버전을 알려주는 서버 API가 없어 '(최신)' 은 붙이지 않는다.
+              캡처 모드에서는 기획값 '1.0.4 (최신)' 을 그대로 유지한다. */}
+          <Row label="버전" value={window.MoyeoAppVersion?.label()} onClick={() => setInfoDialog('version')} testId="settings-version"/>
+          <Row label="문의하기" onClick={() => setInfoDialog('contact')} testId="settings-contact"/>
+          <Row label="앱 평가하기" onClick={() => setInfoDialog('rate')} testId="settings-rate"/>
+          <Row label="오픈소스 라이선스" onClick={() => nav.go('oss-licenses')} testId="settings-oss-licenses"/>
           <Row label="로그아웃" danger testId="settings-sign-out" onClick={async () => { await window.MoyeoAuth.signOut(); nav.go('login', { replace: true }); }}/>
           <Row label="계정 탈퇴" danger sub="30일 안에는 되살릴 수 있어요" testId="settings-withdraw" onClick={async () => { if (!window.confirm('계정을 즉시 영구 삭제할까요?')) return; await window.MoyeoAuth.withdraw(); nav.go('login', { replace: true }); }}/>
         </Section>
         </div>
+
+        {infoDialogSpec && (
+          <div data-testid="settings-info-dialog" role="dialog" aria-modal="true" aria-label={infoDialogSpec.title} style={{ position: 'absolute', inset: 0, background: T.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 20 }}>
+            <div style={{ width: '100%', maxWidth: 320, background: T.bgRaised, borderRadius: 20, padding: 22, boxShadow: T.l3 }}>
+              <div style={{ fontSize: 17, fontWeight: 900, lineHeight: '24px' }}>{infoDialogSpec.title}</div>
+              <div style={{ fontSize: 12.5, color: T.text500, marginTop: 10, lineHeight: '19px' }}>{infoDialogSpec.body}</div>
+              <div style={{ marginTop: 18 }}>
+                <Btn variant="primary" full testId="settings-info-dialog-confirm" onClick={() => setInfoDialog(null)}>확인</Btn>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Phone>
   );

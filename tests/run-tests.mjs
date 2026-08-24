@@ -82,6 +82,8 @@ const routes = [
   "profile-edit",
   "settings",
   "auth-methods",
+  "oss-licenses",
+  "oss-license-detail",
   "friends",
   "trip-message",
   "report",
@@ -227,6 +229,11 @@ async function fileExists(relativePath) {
 
 async function read(relativePath) {
   return readFile(path.join(root, relativePath), "utf8");
+}
+
+// vm 컨텍스트가 만든 배열/객체는 realm 이 달라 deepStrictEqual 이 실패한다 — 값만 비교한다.
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
 function assertIncludes(source, snippets, label) {
@@ -511,6 +518,84 @@ async function staticTests() {
   ], "auth screens");
   assertIncludes(html, ["scrollbar-width: none", "::-webkit-scrollbar", "box-sizing: border-box"], "index CSS");
 
+  // 클라이언트 전용 기능 — 최근 검색어(12) · 테마 3상태(29) · 앱 버전(29) · 오픈소스 라이선스(29-4)
+  const [clientPrefs, ossLicenses, additions5, tokens] = await Promise.all([
+    read("src/client-prefs.js"),
+    read("src/oss-licenses.js"),
+    read("src/screens-additions5.jsx"),
+    read("src/tokens.jsx"),
+  ]);
+  assertIncludes(html, [
+    "src/client-prefs.js",
+    "src/oss-licenses.js",
+    "src/screens-additions5.jsx",
+  ], "client-only modules are loaded");
+  // client-prefs 는 tokens.jsx 보다 먼저 실행돼야 첫 페인트 전에 테마가 적용된다
+  assert.ok(
+    html.indexOf("src/client-prefs.js") < html.indexOf("src/tokens.jsx"),
+    "client-prefs.js should load before tokens.jsx",
+  );
+  assertIncludes(clientPrefs, [
+    "moyeo-trip-recent-searches",
+    "RECENT_SEARCHES_LIMIT = 10",
+    "moyeo-trip-theme",
+    "['system', 'light', 'dark']",
+    "moyeo:theme-mode",
+    "function cycleMoyeoThemeMode",
+    "function watchMoyeoThemeMode",
+    "1.0.4 (최신)",
+  ], "client-only preferences");
+  assert.ok(
+    !tokens.includes("localStorage?.setItem(MOYEO_THEME_STORAGE_KEY"),
+    "tokens.jsx must not persist the resolved system theme (that bug locked the app out of OS changes)",
+  );
+  assertIncludes(tokens, ["window.applyMoyeoTheme(window.getInitialMoyeoThemeMode())"], "theme applied before first paint");
+  assertIncludes(extra, [
+    "SEARCH_CAPTURE_RECENT",
+    "MoyeoRecentSearches",
+    "data-testid=\"search-input\"",
+    "data-testid=\"search-submit\"",
+    "data-testid=\"search-clear\"",
+    "data-testid=\"search-recent-clear\"",
+    "window.MoyeoApi.searchRooms({ keyword })",
+    "window.MOYEO_EXPLORE_ROOMS",
+    "window.ExploreRoomCard",
+  ], "12 search is interactive");
+  assert.ok(!extra.includes("<div style={{ fontSize: 14, color: T.text900 }}>경주 단풍</div>"), "12 search must not keep the static search field");
+  assertIncludes(refined, ["MOYEO_EXPLORE_ROOMS", "function ExploreRoomCard", "function ExploreServerRoomCard"], "explore cards are reusable");
+  assertIncludes(extra2, [
+    "testId=\"settings-theme\"",
+    "testId=\"settings-version\"",
+    "testId=\"settings-contact\"",
+    "testId=\"settings-rate\"",
+    "testId=\"settings-oss-licenses\"",
+    "채팅, 모집, 결제 문의를 남기는 고객센터로 이어져요.",
+    "스토어 평가로 이동하기 전, 모여트립 사용 경험을 한 번 더 확인해요.",
+    "window.cycleMoyeoThemeMode",
+  ], "29 settings client-only rows");
+  assert.ok(!extra2.includes('<Row label="버전" value="1.0.4 (최신)"/>'), "version row must read the real build version outside capture mode");
+  // 29 정보 섹션 순서: 앱 평가하기 → 오픈소스 라이선스 → 로그아웃 (changeLog17 §2)
+  assert.ok(
+    extra2.indexOf('label="앱 평가하기"') < extra2.indexOf('label="오픈소스 라이선스"')
+      && extra2.indexOf('label="오픈소스 라이선스"') < extra2.indexOf('label="로그아웃"'),
+    "오픈소스 라이선스 row must sit between 앱 평가하기 and 로그아웃",
+  );
+  assertIncludes(additions5, [
+    "function ScreenOssLicenses",
+    "function ScreenOssLicenseDetail",
+    "모여트립은 아래 오픈소스 소프트웨어의 도움을 받아 만들었어요.",
+    "사용 중인 오픈소스",
+    "오픈소스 라이선스가 아닌 자체 배포 SDK는 해당 사업자의 약관을 따라요.",
+    "원문 확인 · ",
+    "window.MoyeoOssLicenses",
+  ], "29-4 · 29-4a screens");
+  assertIncludes(ossLicenses, ["카카오 지도 SDK 이용약관", "Apache License", "moyeo.selectedOssLicense"], "embedded OSS data");
+  assertIncludes(prototype, [
+    "'oss-licenses': window.ScreenOssLicenses",
+    "'oss-license-detail': window.ScreenOssLicenseDetail",
+  ], "changeLog17 routes");
+  assertIncludes(mobileApp, ["'oss-licenses': 'oss-licenses'", "'oss-license-detail': 'oss-license-detail'"], "changeLog17 route aliases");
+
   for (const route of routes) {
     assert.ok(mobileApp.includes(route), `mobile-app route map should include ${route}`);
   }
@@ -531,7 +616,9 @@ async function staticTests() {
   assertIncludes(additions2, ["nav.go('leave-alert')"], "leave alert entry point");
   assert.ok(!additions2.includes("nav.go('leave')"), "leave action must not target a missing route");
   assertIncludes(mobileApp, [
-    "getInitialTheme",
+    "getForcedTheme",
+    "window.applyMoyeoTheme?.(forcedTheme)",
+    "window.watchMoyeoThemeMode?.()",
     "getInitialScroll",
     "scrollLargestScrollable",
     "mw-letterbox",
@@ -1123,6 +1210,63 @@ async function browserTests() {
     const gatedDom = await dumpDom(chrome, server.baseUrl, { theme: "dark", mockAuth: "1" });
     assertIncludes(gatedDom, ["고민 없이 고르는", "경북 코스", "다음"], "unauthenticated onboarding gate");
 
+    // 캡처 회귀 — 클라이언트 전용 기능이 켜져도 화면기획의 목데이터가 그대로 나와야 한다.
+    // NOTE: --dump-dom 은 Babel standalone 이 <head> 에 심는 컴파일 결과까지 담아서 전체 문서 대상
+    // 문자열 검사는 렌더 결과를 증명하지 못한다. 그래서 #root 서브트리로 범위를 좁혀서 본다.
+    const rootOf = (dom) => {
+      const start = dom.indexOf('<div id="root">');
+      assert.ok(start !== -1, "rendered root should exist");
+      // Babel standalone 이 컴파일 결과를 #root 뒤 <script> 로도 심으므로 첫 script 앞에서 끊는다.
+      const end = dom.indexOf("<script", start);
+      return end === -1 ? dom.slice(start) : dom.slice(start, end);
+    };
+    for (const theme of ["light", "dark"]) {
+      assertIncludes(rootOf(await getDom("search", theme)), [
+        "최근 검색어",
+        "전체 삭제",
+        "경주",
+        "단풍",
+        "황리단길",
+        "안동 한옥",
+        "주왕산",
+        "인기 검색어",
+        'value="경주 단풍"',
+      ], `12 search capture mock data (${theme})`);
+      assertIncludes(rootOf(await getDom("settings", theme)), [
+        "테마",
+        "시스템 기본",
+        "1.0.4 (최신)",
+        "문의하기",
+        "앱 평가하기",
+        "오픈소스 라이선스",
+      ], `29 settings capture mock data (${theme})`);
+      assertIncludes(rootOf(await getDom("oss-licenses", theme)), [
+        "오픈소스 라이선스",
+        "모여트립은 아래 오픈소스 소프트웨어의 도움을 받아 만들었어요.",
+        "사용 중인 오픈소스",
+        "7개",
+        "Firebase JavaScript SDK",
+        "Apache-2.0",
+        "Kakao Maps JavaScript SDK",
+        "카카오 지도 SDK 이용약관",
+        "오픈소스 라이선스가 아닌 자체 배포 SDK는 해당 사업자의 약관을 따라요.",
+      ], `29-4 oss licenses (${theme})`);
+      assertIncludes(rootOf(await getDom("oss-license-detail", theme)), [
+        "라이선스 전문",
+        "React",
+        "18.3.1",
+        "MIT",
+        "원문 확인 · https://github.com/facebook/react",
+        "Permission is hereby granted",
+      ], `29-4a license text (${theme})`);
+    }
+    // 최근 검색어 섹션이 비면 제목·전체 삭제·칩 영역을 통째로 숨긴다 (기획에 빈 상태 문구가 없다).
+    // ?liveData=1 은 캡처 판정을 끄는 기존 개발자 예외라 실제 저장소 기반 동작을 볼 수 있다.
+    const emptyRecent = rootOf(await dumpDom(chrome, server.baseUrl, { screen: "search", theme: "light", liveData: "1" }));
+    assert.ok(!emptyRecent.includes("최근 검색어"), "empty recent searches must hide the whole section");
+    assert.ok(emptyRecent.includes("인기 검색어"), "popular searches stay visible when recent searches are empty");
+    assert.ok(emptyRecent.includes('placeholder="어디로 떠나고 싶나요?"'), "12 search must render a real input");
+
     const offlineDom = await getDom("login", "dark", { offline: "1" });
     assertIncludes(offlineDom, [
       "mw-offline-banner",
@@ -1135,8 +1279,225 @@ async function browserTests() {
   }
 }
 
+// 최근 검색어 · 테마 3상태 · 앱 버전 — 서버가 없는 클라이언트 전용 로직
+async function clientPrefsTests() {
+  const source = await read("src/client-prefs.js");
+
+  const createWindow = ({ search = "", stored = {}, systemDark = false } = {}) => {
+    const values = new Map(Object.entries(stored));
+    const themeListeners = [];
+    const events = [];
+    const documentElement = { dataset: {} };
+    const window = {
+      location: { search },
+      document: { documentElement },
+      localStorage: {
+        getItem: (key) => (values.has(key) ? values.get(key) : null),
+        setItem: (key, value) => values.set(key, String(value)),
+        removeItem: (key) => values.delete(key),
+      },
+      matchMedia: (query) => ({
+        matches: query.includes("dark") ? systemDark : false,
+        addEventListener: (_type, handler) => themeListeners.push(handler),
+        removeEventListener: () => {},
+      }),
+      dispatchEvent: (event) => events.push(event),
+    };
+    class CustomEvent {
+      constructor(type, init = {}) { this.type = type; this.detail = init.detail; }
+    }
+    window.CustomEvent = CustomEvent;
+    vm.runInNewContext(source, { window, URLSearchParams, JSON, Set, Array, Object, String, Boolean, Number });
+    return {
+      window,
+      root: documentElement,
+      values,
+      events,
+      setSystemDark(next) { systemDark = next; },
+      fireSystemChange() { themeListeners.forEach((handler) => handler()); },
+    };
+  };
+
+  // ── 최근 검색어: add · dedupe · limit 10 · remove · clear ──
+  const search = createWindow();
+  const store = search.window.MoyeoRecentSearches;
+  assert.equal(store.KEY, "moyeo-trip-recent-searches");
+  assert.equal(store.LIMIT, 10);
+  assert.deepEqual(plain(store.read()), []);
+
+  assert.deepEqual(plain(store.add("  경주  ")), ["경주"], "저장 전에 공백을 트림한다");
+  assert.deepEqual(plain(store.add("   ")), ["경주"], "빈 문자열은 무시한다");
+  assert.deepEqual(plain(store.add("")), ["경주"], "빈 문자열은 무시한다");
+  assert.deepEqual(plain(store.add("단풍")), ["단풍", "경주"], "최신 검색어가 앞에 온다");
+  assert.deepEqual(plain(store.add("경주")), ["경주", "단풍"], "중복은 최신순으로 끌어올린다");
+  assert.deepEqual(
+    JSON.parse(search.values.get("moyeo-trip-recent-searches")),
+    ["경주", "단풍"],
+    "localStorage 에 즉시 반영된다",
+  );
+
+  for (let index = 1; index <= 10; index += 1) store.add(`키워드${index}`);
+  const filled = plain(store.read());
+  assert.equal(filled.length, 10, "최대 10개까지만 남는다");
+  assert.deepEqual(filled, ["키워드10", "키워드9", "키워드8", "키워드7", "키워드6", "키워드5", "키워드4", "키워드3", "키워드2", "키워드1"]);
+  assert.ok(!filled.includes("경주"), "초과분은 오래된 것부터 버린다");
+
+  assert.deepEqual(store.remove("키워드5").includes("키워드5"), false, "개별 삭제가 저장소에 반영된다");
+  assert.equal(store.read().length, 9);
+  assert.deepEqual(store.remove("없는 검색어").length, 9, "없는 값을 지우면 목록이 그대로다");
+  assert.deepEqual(plain(store.clear()), [], "전체 삭제");
+  assert.deepEqual(plain(store.read()), []);
+  assert.equal(search.values.has("moyeo-trip-recent-searches"), false, "전체 삭제는 저장소 키를 지운다");
+
+  // 손상된 저장값에도 화면이 죽지 않는다
+  const broken = createWindow({ stored: { "moyeo-trip-recent-searches": "{ not json" } });
+  assert.deepEqual(plain(broken.window.MoyeoRecentSearches.read()), []);
+  const dirty = createWindow({ stored: { "moyeo-trip-recent-searches": JSON.stringify(["경주", 7, "", "경주", " 단풍 "]) } });
+  assert.deepEqual(plain(dirty.window.MoyeoRecentSearches.read()), ["경주", "단풍"]);
+
+  // ── 테마 3상태 해석 ──
+  const fresh = createWindow({ systemDark: true });
+  assert.equal(fresh.window.getMoyeoThemePreference(), "system", "저장값이 없으면 system");
+  assert.equal(fresh.window.resolveMoyeoThemeMode("system"), "dark", "system 은 OS 값을 따른다");
+  assert.equal(fresh.window.resolveMoyeoThemeMode("light"), "light");
+  assert.equal(fresh.window.resolveMoyeoThemeMode("dark"), "dark");
+  assert.equal(fresh.window.resolveMoyeoThemeMode("nonsense"), "dark", "알 수 없는 값은 system 취급");
+  assert.equal(fresh.root.dataset.moyeoTheme, undefined, "모듈 로드만으로 DOM 을 건드리지 않는다");
+  assert.equal(
+    fresh.values.has("moyeo-trip-theme"),
+    false,
+    "최초 로드에서 시스템 값을 light/dark 로 저장해버리지 않는다",
+  );
+
+  // 기존에 저장된 light/dark 는 사용자의 명시적 선택으로 존중한다
+  const explicitLight = createWindow({ stored: { "moyeo-trip-theme": "light" }, systemDark: true });
+  assert.equal(explicitLight.window.getMoyeoThemePreference(), "light");
+  assert.equal(explicitLight.window.getInitialMoyeoThemeMode(), "light");
+
+  // 캡처의 강제 테마는 사용자 설정보다 우선하고 저장하지 않는다
+  const forced = createWindow({ search: "?screen=settings&theme=dark", stored: { "moyeo-trip-theme": "light" } });
+  assert.equal(forced.window.getForcedMoyeoTheme(), "dark");
+  assert.equal(forced.window.getInitialMoyeoThemeMode(), "dark");
+  assert.equal(forced.values.get("moyeo-trip-theme"), "light", "강제 테마는 사용자 설정을 덮어쓰지 않는다");
+
+  // 시스템 기본 → 라이트 → 다크 → 시스템 기본 순환
+  const cycling = createWindow({ systemDark: true });
+  assert.equal(cycling.window.cycleMoyeoThemeMode("system"), "light");
+  assert.equal(cycling.values.get("moyeo-trip-theme"), "light");
+  assert.equal(cycling.root.dataset.moyeoTheme, "light");
+  assert.equal(cycling.window.cycleMoyeoThemeMode("light"), "dark");
+  assert.equal(cycling.root.dataset.moyeoTheme, "dark");
+  assert.equal(cycling.window.cycleMoyeoThemeMode("dark"), "system");
+  assert.equal(cycling.values.get("moyeo-trip-theme"), "system", "system 도 3상태로 저장된다");
+  assert.equal(cycling.root.dataset.moyeoTheme, "dark", "system 이면 OS 값을 적용한다");
+  assert.deepEqual(
+    cycling.events.map((event) => event.type),
+    ["moyeo:theme-mode", "moyeo:theme-mode", "moyeo:theme-mode"],
+    "변경은 이벤트로 알려 화면이 즉시 반영한다",
+  );
+
+  // system 일 때 OS 설정이 런타임에 바뀌면 즉시 따라간다
+  const watching = createWindow({ systemDark: false });
+  const stop = watching.window.watchMoyeoThemeMode();
+  assert.equal(watching.root.dataset.moyeoTheme, "light");
+  watching.setSystemDark(true);
+  watching.fireSystemChange();
+  assert.equal(watching.root.dataset.moyeoTheme, "dark", "system 이면 OS 변경을 즉시 반영한다");
+  watching.window.setMoyeoThemeMode("light");
+  watching.setSystemDark(false);
+  watching.fireSystemChange();
+  assert.equal(watching.root.dataset.moyeoTheme, "light");
+  watching.setSystemDark(true);
+  watching.fireSystemChange();
+  assert.equal(watching.root.dataset.moyeoTheme, "light", "명시적 선택은 OS 변경에 흔들리지 않는다");
+  assert.equal(typeof stop, "function");
+  stop();
+
+  // ── 앱 버전 ──
+  const packageJson = JSON.parse(await read("package.json"));
+  assert.equal(
+    fresh.window.MOYEO_APP_VERSION,
+    packageJson.version,
+    "client-prefs 의 앱 버전은 package.json 의 version 과 같아야 한다",
+  );
+  assert.equal(fresh.window.MoyeoAppVersion.label(), packageJson.version, "실행 중에는 '(최신)' 을 붙이지 않는다");
+  assert.equal(fresh.window.MoyeoAppVersion.dialogBody(), `현재 설치된 버전은 ${packageJson.version}이에요.`);
+
+  const captureVersion = createWindow();
+  captureVersion.window.MoyeoApi = { deterministicParams: () => true };
+  assert.equal(captureVersion.window.MoyeoAppVersion.label(), "1.0.4 (최신)", "캡처 모드는 기획값을 유지한다");
+  assert.equal(captureVersion.window.MoyeoAppVersion.dialogBody(), "현재 설치된 버전은 1.0.4이며 최신 상태예요.");
+}
+
+// 29-4 · 29-4a 데이터는 워크스페이스 정본(docs/oss/oss-licenses.json)의 web 항목과 같아야 한다
+async function ossLicenseTests() {
+  const source = await read("src/oss-licenses.js");
+  const window = {
+    location: { search: "" },
+    sessionStorage: {
+      values: new Map(),
+      getItem(key) { return this.values.has(key) ? this.values.get(key) : null; },
+      setItem(key, value) { this.values.set(key, String(value)); },
+      removeItem(key) { this.values.delete(key); },
+    },
+  };
+  vm.runInNewContext(source, { window, URLSearchParams, Object, String, Array });
+  const oss = window.MoyeoOssLicenses;
+
+  assert.equal(oss.items.length, 7, "웹 플랫폼 항목은 7건이다 (changeLog17)");
+  assert.deepEqual(plain(oss.items.map((item) => item.name)), [
+    "React",
+    "React DOM",
+    "Babel Standalone",
+    "Firebase JavaScript SDK",
+    "Sentry JavaScript SDK",
+    "Kakao JavaScript SDK",
+    "Kakao Maps JavaScript SDK",
+  ]);
+  // 라이선스 식별자는 추정하지 않는다 — 카카오 SDK 는 오픈소스가 아니고 전문도 없다
+  const kakaoMaps = oss.findItem("Kakao Maps JavaScript SDK");
+  assert.equal(kakaoMaps.license, "카카오 지도 SDK 이용약관");
+  assert.equal(oss.licenseText(kakaoMaps), null, "전문이 없는 자체 배포 SDK는 전문을 지어내지 않는다");
+  assert.ok(kakaoMaps.note.includes("카카오 자체 배포 약관"));
+
+  const firebase = oss.findItem("Firebase JavaScript SDK");
+  assert.equal(firebase.license, "Apache-2.0");
+  assert.ok(oss.licenseText(firebase).includes("Apache License"));
+  assert.ok(oss.licenseText(firebase).includes("Version 2.0, January 2004"));
+  assert.ok(oss.licenseText(oss.findItem("React")).startsWith("Permission is hereby granted"));
+  // MIT 전문은 저작권 줄이 빠진 본문 템플릿이다 (저작권 표기를 지어내지 않는다)
+  assert.ok(!oss.licenseText(oss.findItem("React")).includes("Copyright (c)"));
+
+  assert.equal(oss.selected().name, "React", "선택이 없으면 목록의 첫 항목 (결정적)");
+  oss.select("Sentry JavaScript SDK");
+  assert.equal(oss.selected().name, "Sentry JavaScript SDK");
+  window.location.search = "?screen=oss-license-detail&ossLicense=Alamofire";
+  assert.equal(oss.selected().name, "React", "다른 플랫폼 항목을 요구하면 첫 항목으로 폴백한다");
+  window.location.search = "?ossLicense=Babel%20Standalone";
+  assert.equal(oss.selected().name, "Babel Standalone", "딥링크 쿼리가 sessionStorage 보다 우선");
+
+  // 정본과 다르면 실패한다 — 화면 데이터가 조용히 낡는 것을 막는다
+  const canonPath = path.resolve(root, "..", "docs", "oss", "oss-licenses.json");
+  let canon = null;
+  try {
+    canon = JSON.parse(await readFile(canonPath, "utf8"));
+  } catch {
+    console.warn("[skip] docs/oss/oss-licenses.json 을 찾지 못해 정본 대조를 건너뜁니다.");
+  }
+  if (canon) {
+    assert.deepEqual(
+      plain(oss.items.map(({ name, version, license, licenseTextId, url }) => ({ name, version, license, licenseTextId: licenseTextId || null, url }))),
+      canon.platforms.web.map(({ name, version, license, licenseTextId, url }) => ({ name, version, license, licenseTextId: licenseTextId || null, url })),
+      "src/oss-licenses.js 는 docs/oss/oss-licenses.json 의 web 항목과 같아야 한다",
+    );
+    assert.equal(oss.updatedAt, canon.updatedAt);
+  }
+}
+
 async function main() {
   await staticTests();
+  await clientPrefsTests();
+  await ossLicenseTests();
   await authContractTests();
   await pushContractTests();
   await tourismContractTests();

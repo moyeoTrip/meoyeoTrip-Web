@@ -165,10 +165,28 @@
     };
   }
 
+  // 서버 코스 방문지(latitude/longitude 를 그대로 가진 객체) → { markers, polyline }.
+  // 이름 매칭이 필요한 routeFromNames 와 달리 서버가 준 좌표만 쓴다. 좌표가 2개 미만이면 null.
+  function routeFromPlaces(places) {
+    const coords = (places || [])
+      .map((place, index) => ({
+        lat: Number(place?.latitude),
+        lng: Number(place?.longitude),
+        label: String(index + 1),
+      }))
+      .filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng) && item.lat !== 0 && item.lng !== 0);
+    if (coords.length < 2) return null;
+    return {
+      markers: coords,
+      polyline: coords.map((item) => ({ lat: item.lat, lng: item.lng })),
+    };
+  }
+
   global.MoyeoKakaoMap = {
     DEFAULT_COURSE_STOPS,
     MEETING_POINT,
     routeFromNames,
+    routeFromPlaces,
     isAvailable,
     isCaptureMode,
     javaScriptKey,

@@ -94,9 +94,12 @@
   function normalizeListItem(item = {}, index = 0) {
     return {
       contentId: String(firstValue(item, ['contentId', 'id', 'tourismContentId'], `tourism-${index}`)),
+      contentTypeId: Number(firstValue(item, ['contentTypeId'], 0)) || null,
       type: contentType(firstValue(item, ['contentType', 'type', 'category', 'contentTypeId'])),
       title: String(firstValue(item, ['title', 'name'], '이름 없는 장소')),
-      address: String(firstValue(item, ['address', 'addr1', 'roadAddress'])),
+      // 서버 목록은 address1(지번/도로명) + address2(상세)로 나뉘어 온다
+      address: [firstValue(item, ['address', 'address1', 'addr1', 'roadAddress']), firstValue(item, ['address2'])]
+        .filter(Boolean).join(' ').trim(),
       thumbnailUrl: String(firstValue(item, ['thumbnailUrl', 'thumbnail', 'firstImage', 'imageUrl'])),
       latitude: Number(firstValue(item, ['latitude', 'lat', 'mapY'], 0)),
       longitude: Number(firstValue(item, ['longitude', 'lng', 'mapX'], 0)),
@@ -130,13 +133,41 @@
     };
   }
 
+  // 캡처·QA 라우트 판정 — moyeo-api.deterministicParams / kakao-map.isCaptureMode 와 같은 기준.
   function usesDeterministicSamples() {
     const params = new URLSearchParams(global.location?.search || '');
-    return params.get('mockAuth') === '1' || params.get('capture') === '1' || params.get('uitest') === '1';
+    if (params.get('liveData') === '1') return false;
+    return params.get('mockAuth') === '1'
+      || params.get('capture') === '1'
+      || params.get('uitest') === '1'
+      || Boolean(params.get('screen'))
+      || Boolean(params.get('route'));
   }
 
-  async function list() {
-    return listItems(await request('/api/v1/tourism-contents'));
+  function query(params = {}) {
+    const search = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') search.set(key, String(value));
+    });
+    const text = search.toString();
+    return text ? `?${text}` : '';
+  }
+
+  async function list({ contentTypeId, page, size } = {}) {
+    return listItems(await request(`/api/v1/tourism-contents${query({ contentTypeId, page, size })}`));
+  }
+
+  // GET /api/v1/tourism-contents/types — 17-1a 유형 필터 후보 (관광지·문화시설·축제공연행사·레포츠·숙박·쇼핑·음식점)
+  async function types() {
+    const payload = await request('/api/v1/tourism-contents/types');
+    const items = Array.isArray(payload) ? payload : (payload?.data ?? payload?.items);
+    if (!Array.isArray(items)) throw new TourismApiError('관광 유형 응답 형식을 확인할 수 없어요.', 200, 'SCHEMA_MISMATCH');
+    return items
+      .map((item) => ({
+        contentTypeId: Number(firstValue(item, ['contentTypeId', 'id'], 0)),
+        contentTypeName: String(firstValue(item, ['contentTypeName', 'name'])),
+      }))
+      .filter((item) => item.contentTypeId && item.contentTypeName);
   }
 
   async function detail(contentId) {
@@ -152,6 +183,7 @@
     normalizeListItem,
     sampleDetail: SAMPLE_DETAIL,
     samplePlaces: SAMPLE_PLACES,
+    types,
     usesDeterministicSamples,
   };
 }(window));

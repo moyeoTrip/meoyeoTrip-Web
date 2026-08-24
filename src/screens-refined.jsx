@@ -574,6 +574,36 @@ function ScreenHome() {
   const [homeWeather, setHomeWeather] = React.useState('sunny');
   const weatherItem = WEATHER_HERO_ITEMS[homeWeather] || WEATHER_HERO_ITEMS.sunny;
   const weatherTone = WEATHER_HERO_TONE[weatherItem.state] || WEATHER_HERO_TONE.good;
+  // 로그인 상태에서는 GET travel-courses/public · /popular · /tags 로 코스 섹션을 대체한다.
+  const liveMode = window.MoyeoApi?.live();
+  const [publicCourses, setPublicCourses] = React.useState(null);
+  const [popularCourses, setPopularCourses] = React.useState(null);
+  const [courseTags, setCourseTags] = React.useState(null);
+  const [activeTagId, setActiveTagId] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.popularCourses()
+      .then((result) => { if (active && Array.isArray(result)) setPopularCourses(result); })
+      .catch(() => {});
+    window.MoyeoApi.courseTags()
+      .then((result) => { if (active && Array.isArray(result) && result.length) setCourseTags(result); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode]);
+  // 태그 칩을 고르면 GET travel-courses/public?tagId= 로 다시 받는다.
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.publicCourses(activeTagId || undefined)
+      .then((result) => { if (active && Array.isArray(result)) setPublicCourses(result); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode, activeTagId]);
+  const openCourse = (courseId) => {
+    window.MoyeoApi.selectCourse(courseId);
+    nav.go('course');
+  };
   const courses = [
     { title: '주왕산 & 주산지 힐링 트레킹', meta: '청송', people: '2/5명', hue: 'forest' },
     { title: '안동 하회마을 하루 코스', meta: '안동', people: '3/6명', hue: 'hanok' },
@@ -636,8 +666,33 @@ function ScreenHome() {
             <div style={{ fontSize: 16, fontWeight: 900 }}>지금 떠나기 좋은 코스</div>
             <button onClick={() => nav.go('explore')} style={{ border: 'none', background: 'transparent', color: T.text500, fontSize: 12, fontWeight: 700, fontFamily: T.fontStack, cursor: 'pointer' }}>더보기 ›</button>
           </div>
+          {courseTags && (
+            <div data-testid="home-course-tags" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8 }}>
+              {[{ tagId: null, name: '전체' }, ...courseTags].map((tag) => {
+                const on = activeTagId === tag.tagId;
+                return (
+                  <button key={tag.tagId ?? 'all'} type="button" onClick={() => setActiveTagId(tag.tagId)} style={{ height: 28, padding: '0 11px', borderRadius: 999, border: `1px solid ${on ? T.primary500 : T.line200}`, background: on ? T.primary50 : RF.card, color: on ? T.primary700 : T.text700, fontSize: 11.5, fontWeight: 800, fontFamily: T.fontStack, whiteSpace: 'nowrap', cursor: 'pointer' }}>{tag.name}</button>
+                );
+              })}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 3 }}>
-            {courses.map((c, i) => (
+            {publicCourses && publicCourses.length === 0 && (
+              <div style={{ padding: '18px 4px', fontSize: 12, color: T.text500 }}>아직 공개된 코스가 없어요.</div>
+            )}
+            {publicCourses && publicCourses.map((c) => (
+              <div key={c.courseId} onClick={() => openCourse(c.courseId)} style={{ width: 134, flex: '0 0 auto', border: `1px solid ${RF.softLine}`, borderRadius: 12, overflow: 'hidden', background: RF.card, cursor: 'pointer' }}>
+                <RoomThumb src={c.thumbnail} height={92}/>
+                <div style={{ padding: 10 }}>
+                  <div style={{ height: 34, fontSize: 12, fontWeight: 800, lineHeight: '17px', overflow: 'hidden' }}>{c.title}</div>
+                  <div style={{ marginTop: 8, fontSize: 11, color: T.text500, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Icon name="pin" size={11} color={T.text500}/>
+                    방문지 {c.places?.length || 0}곳
+                  </div>
+                </div>
+              </div>
+            ))}
+            {!publicCourses && courses.map((c, i) => (
               <div key={c.title} onClick={() => nav.go(i === 0 ? 'course' : 'detail')} style={{ width: 134, flex: '0 0 auto', border: `1px solid ${RF.softLine}`, borderRadius: 12, overflow: 'hidden', background: RF.card, cursor: 'pointer' }}>
                 <Photo hue={c.hue} height={92} radius={0}>
                   {i === 0 && <Chip variant="primary" style={{ position: 'absolute' }}>진행중</Chip>}
@@ -655,7 +710,20 @@ function ScreenHome() {
 
           <div style={{ marginTop: 22, fontSize: 16, fontWeight: 900 }}>인기 코스 TOP 3</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-            {[
+            {popularCourses && popularCourses.length === 0 && (
+              <div style={{ padding: '14px 4px', fontSize: 12, color: T.text500 }}>아직 인기 코스가 없어요. 첫 코스를 남겨보세요!</div>
+            )}
+            {popularCourses && popularCourses.slice(0, 3).map((c, index) => (
+              <div key={c.courseId} onClick={() => openCourse(c.courseId)} style={{ height: 48, borderRadius: 12, border: `1px solid ${RF.softLine}`, display: 'flex', alignItems: 'center', gap: 12, padding: '0 12px', background: RF.card, cursor: 'pointer' }}>
+                <div style={{ width: 24, height: 24, borderRadius: 999, background: T.primary50, color: T.primary700, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>{index + 1}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title}</div>
+                  <div style={{ fontSize: 11, color: T.text500, marginTop: 1 }}>{c.tags?.length ? c.tags.map((tag) => tag.name).join(', ') : c.travelTime}</div>
+                </div>
+                <Icon name="arrow" size={15} color={T.text400}/>
+              </div>
+            ))}
+            {!popularCourses && [
               ['1', '주왕산 단풍 물길', '청송 · 자연'],
               ['2', '안동 하회마을 산책', '안동 · 문화'],
               ['3', '울릉도 2박 3일 섬 여행', '울릉 · 힐링'],
@@ -693,19 +761,98 @@ function ScreenHome() {
   );
 }
 
+// 서버 썸네일이 있으면 사진, 없으면 기존 플레이스홀더를 쓴다
+function RoomThumb({ src, hue = 'forest', height, overlay = false, children }) {
+  if (!src) return <Photo hue={hue} height={height} radius={0} overlay={overlay}>{children}</Photo>;
+  return (
+    <div style={{ position: 'relative', overflow: 'hidden', height, background: T.primary50 }}>
+      <img src={src} alt="" loading="lazy" style={{ display: 'block', width: '100%', height, objectFit: 'cover' }}/>
+      {overlay && <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.06), rgba(0,0,0,0.48))' }}/>}
+      {children}
+    </div>
+  );
+}
+
+// 10 탐색의 목데이터 모집 목록. 12 검색의 비로그인 결과도 같은 목록을 쓴다
+// (docs/alignment/MOCKDATA-CANON.md — 4개 플랫폼 공통 값).
+var MOYEO_EXPLORE_ROOMS = [
+  { title: '주왕산 & 주산지 힐링 트레킹', area: '청송 · 자연, 히든명소', people: '2/5명', hue: 'forest', liked: true, status: '진행중' },
+  { title: '안동 하회마을 하루 코스', area: '안동 · 역사, 문화', people: '3/6명', hue: 'autumn', liked: false, status: '진행중' },
+  { title: '울릉도 2박 3일 섬 여행', area: '울릉 · 자연, 힐링', people: '3/5명', hue: 'coast', liked: false, status: '진행중' },
+  { title: '경주 감성 힐링 코스', area: '경주 · 역사, 야경', people: '4/6명', hue: 'hanok', liked: false, status: '진행중' },
+  { title: '포항·영덕 동해 드라이브', area: '포항 · 바다, 드라이브', people: '6/6명', hue: 'coast', liked: true, status: '확정' },
+  { title: '문경 새재 단풍 트레킹', area: '문경 · 자연, 단풍', people: '2/5명', hue: 'autumn', liked: false, status: '진행중' },
+  { title: '영주 부석사 눈꽃 산책', area: '영주 · 역사, 사찰', people: '4/5명', hue: 'coast', liked: false, status: '진행중' },
+  { title: '안동 도산서원 그늘 코스', area: '안동 · 역사, 그늘', people: '2/4명', hue: 'forest', liked: false, status: '진행중' },
+];
+
+// 10 탐색의 목록 카드. 12 검색 결과가 같은 컴포넌트를 재사용한다 (새 카드 디자인을 만들지 않는다).
+function ExploreRoomCard({ room, onClick, testId }) {
+  return (
+    <div data-testid={testId} onClick={onClick} style={{ height: 94, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: 9, display: 'flex', gap: 11, alignItems: 'center', marginBottom: 10, cursor: 'pointer' }}>
+      <div style={{ width: 102, height: 74, borderRadius: 9, overflow: 'hidden', flexShrink: 0, position: 'relative' }}>
+        <Photo hue={room.hue} height={74} radius={0} overlay>
+          <span style={{ position: 'absolute', left: 7, bottom: 7, background: T.primary600, color: '#fff', borderRadius: 6, padding: '3px 6px', fontSize: 10, fontWeight: 800 }}>{room.status}</span>
+        </Photo>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 900, lineHeight: '19px' }}>{room.title}</div>
+        <div style={{ marginTop: 6, fontSize: 12, color: T.text500 }}>{room.area}</div>
+        <div style={{ marginTop: 5, fontSize: 12, color: T.text700, fontWeight: 700 }}>{room.people}</div>
+      </div>
+      <Icon name="heart" size={20} color={room.liked ? T.accent500 : T.text700}/>
+    </div>
+  );
+}
+
+// 서버(GET /api/v1/chat-rooms/search) 응답용 같은 카드.
+// 검색 응답에는 찜 여부·상태 값이 없어 하트와 상태 배지는 표시하지 않는다 (서버 값 없는 요소는 숨김).
+function ExploreServerRoomCard({ room, onClick, testId }) {
+  return (
+    <div data-testid={testId} onClick={onClick} style={{ height: 94, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: 9, display: 'flex', gap: 11, alignItems: 'center', marginBottom: 10, cursor: 'pointer' }}>
+      <div style={{ width: 102, height: 74, borderRadius: 9, overflow: 'hidden', flexShrink: 0, position: 'relative' }}>
+        <RoomThumb src={room.thumbnail} height={74} overlay/>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 900, lineHeight: '19px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{room.title}</div>
+        <div style={{ marginTop: 6, fontSize: 12, color: T.text500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {room.courseTitle}{room.tags?.length ? ` · ${room.tags.map((tag) => tag.name).join(', ')}` : ''}
+        </div>
+        <div style={{ marginTop: 5, fontSize: 12, color: T.text700, fontWeight: 700 }}>{room.participantCount}/{room.maxParticipants}명 · {window.MoyeoApi.formatDate(room.startDate)} 출발</div>
+      </div>
+    </div>
+  );
+}
+
 function ScreenExplore() {
   const nav = window.useNav ? window.useNav() : { go: () => {} };
+  // 로그인 상태에서는 GET /api/v1/chat-rooms/search 결과로 목록을 대체하고,
+  // 상단 카테고리 칩은 GET /api/v1/travel-courses/tags 후보로 대체한다.
+  const liveMode = window.MoyeoApi?.live();
+  const [serverRooms, setServerRooms] = React.useState(null);
+  const [serverTags, setServerTags] = React.useState(null);
+  const [activeTag, setActiveTag] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.searchRooms()
+      .then((rooms) => { if (active && Array.isArray(rooms)) setServerRooms(rooms); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    window.MoyeoApi.courseTags()
+      .then((tags) => { if (active && Array.isArray(tags) && tags.length) setServerTags(tags); })
+      .catch(() => { /* 실패 시 기존 칩 유지 */ });
+    return () => { active = false; };
+  }, [liveMode]);
+  // 검색 응답에 tagId 필터가 없으므로 응답에 포함된 room.tags 로 화면에서 걸러낸다.
+  const visibleRooms = serverRooms && activeTag
+    ? serverRooms.filter((room) => (room.tags || []).some((tag) => tag.tagId === activeTag))
+    : serverRooms;
+  const openServerRoom = (roomId) => {
+    window.MoyeoApi.selectRoom(roomId);
+    nav.go('detail');
+  };
   // 목데이터는 4개 플랫폼 공통 값이다 (docs/alignment/MOCKDATA-CANON.md)
-  const rows = [
-    { title: '주왕산 & 주산지 힐링 트레킹', area: '청송 · 자연, 히든명소', people: '2/5명', hue: 'forest', liked: true, status: '진행중' },
-    { title: '안동 하회마을 하루 코스', area: '안동 · 역사, 문화', people: '3/6명', hue: 'autumn', liked: false, status: '진행중' },
-    { title: '울릉도 2박 3일 섬 여행', area: '울릉 · 자연, 힐링', people: '3/5명', hue: 'coast', liked: false, status: '진행중' },
-    { title: '경주 감성 힐링 코스', area: '경주 · 역사, 야경', people: '4/6명', hue: 'hanok', liked: false, status: '진행중' },
-    { title: '포항·영덕 동해 드라이브', area: '포항 · 바다, 드라이브', people: '6/6명', hue: 'coast', liked: true, status: '확정' },
-    { title: '문경 새재 단풍 트레킹', area: '문경 · 자연, 단풍', people: '2/5명', hue: 'autumn', liked: false, status: '진행중' },
-    { title: '영주 부석사 눈꽃 산책', area: '영주 · 역사, 사찰', people: '4/5명', hue: 'coast', liked: false, status: '진행중' },
-    { title: '안동 도산서원 그늘 코스', area: '안동 · 역사, 그늘', people: '2/4명', hue: 'forest', liked: false, status: '진행중' },
-  ];
+  const rows = MOYEO_EXPLORE_ROOMS;
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
@@ -716,24 +863,22 @@ function ScreenExplore() {
             <span style={{ fontSize: 13, color: T.text400 }}>어디로 떠나고 싶나요?</span>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 14, overflowX: 'auto' }}>
-            {['전체', '자연', '역사', '체험', '힐링'].map((c, i) => <Chip key={c} variant={i === 0 ? 'primary' : 'neutral'} size="md">{c}</Chip>)}
+            {serverTags
+              ? [{ tagId: null, name: '전체' }, ...serverTags].map((tag) => (
+                <button key={tag.tagId ?? 'all'} type="button" data-testid={`explore-tag-${tag.tagId ?? 'all'}`} onClick={() => setActiveTag(tag.tagId)} style={{ height: 32, padding: '0 13px', borderRadius: 999, flexShrink: 0, border: `1px solid ${activeTag === tag.tagId ? T.primary500 : T.line200}`, background: activeTag === tag.tagId ? T.primary50 : RF.card, color: activeTag === tag.tagId ? T.primary700 : T.text700, fontSize: 12.5, fontWeight: 800, fontFamily: T.fontStack, whiteSpace: 'nowrap', cursor: 'pointer' }}>{tag.name}</button>
+              ))
+              : ['전체', '자연', '역사', '체험', '힐링'].map((c, i) => <Chip key={c} variant={i === 0 ? 'primary' : 'neutral'} size="md">{c}</Chip>)}
           </div>
         </div>
         <div style={{ height: 'calc(100% - 214px)', overflow: 'auto', padding: '14px 18px 98px' }}>
-          {rows.map((r) => (
-            <div key={r.title} onClick={() => nav.go('detail')} style={{ height: 94, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: 9, display: 'flex', gap: 11, alignItems: 'center', marginBottom: 10, cursor: 'pointer' }}>
-              <div style={{ width: 102, height: 74, borderRadius: 9, overflow: 'hidden', flexShrink: 0, position: 'relative' }}>
-                <Photo hue={r.hue} height={74} radius={0} overlay>
-                  <span style={{ position: 'absolute', left: 7, bottom: 7, background: T.primary600, color: '#fff', borderRadius: 6, padding: '3px 6px', fontSize: 10, fontWeight: 800 }}>{r.status}</span>
-                </Photo>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 900, lineHeight: '19px' }}>{r.title}</div>
-                <div style={{ marginTop: 6, fontSize: 12, color: T.text500 }}>{r.area}</div>
-                <div style={{ marginTop: 5, fontSize: 12, color: T.text700, fontWeight: 700 }}>{r.people}</div>
-              </div>
-              <Icon name="heart" size={20} color={r.liked ? T.accent500 : T.text700}/>
-            </div>
+          {visibleRooms && visibleRooms.length === 0 && (
+            <div style={{ padding: '48px 0', textAlign: 'center', color: T.text500, fontSize: 13 }}>지금 모집 중인 모임이 없어요.</div>
+          )}
+          {visibleRooms && visibleRooms.map((room) => (
+            <ExploreServerRoomCard key={room.roomId} room={room} testId={`explore-room-${room.roomId}`} onClick={() => openServerRoom(room.roomId)}/>
+          ))}
+          {!serverRooms && rows.map((r) => (
+            <ExploreRoomCard key={r.title} room={r} onClick={() => nav.go('detail')}/>
           ))}
         </div>
         <button onClick={() => nav.go('create-review')} style={{ position: 'absolute', right: 22, bottom: 96, width: 54, height: 54, borderRadius: 999, border: 'none', background: T.primary500, color: '#fff', boxShadow: '0 10px 22px rgba(45,143,90,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
@@ -830,6 +975,94 @@ function ScreenExploreMap() {
 
 function ScreenCourseDetail() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 로그인 상태에서는 선택된 공개 코스(GET travel-courses/{id}) 또는 선택된 모임의 코스로 대체한다.
+  const liveMode = window.MoyeoApi?.live();
+  const [course, setCourse] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    const courseId = window.MoyeoApi.selectedCourseId();
+    const load = courseId
+      ? window.MoyeoApi.courseDetail(courseId)
+      : window.MoyeoApi.roomCourse(window.MoyeoApi.selectedRoomId() || '1').then((result) => result?.course);
+    load
+      .then((result) => { if (active && result?.courseId != null) setCourse(result); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    return () => { active = false; };
+  }, [liveMode]);
+  const courseRoute = React.useMemo(
+    () => (course ? window.MoyeoKakaoMap?.routeFromPlaces?.(course.places) : null) || null,
+    [course],
+  );
+
+  if (course) {
+    const stats = [
+      ['clock', '소요시간', course.travelTime],
+      ['map', '이동거리', `${course.distanceKm}km`],
+      // 평점이 없으면(averageRating null) 지어내지 않고 숨긴다
+      course.averageRating != null ? ['star', '평점', `${course.averageRating} (${course.ratingCount})`] : null,
+    ].filter(Boolean);
+    return (
+      <Phone>
+        <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+          <Header title="코스 상세" left center onBack={nav.back}/>
+          <div style={{ height: 'calc(100% - 148px)', overflow: 'auto', paddingBottom: 96 }}>
+            <RoomThumb src={course.thumbnail} height={174}/>
+            <div style={{ padding: '20px 20px 0' }}>
+              <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: 0 }}>{course.title}</div>
+              {course.tags?.length > 0 && (
+                <div style={{ display: 'flex', gap: 7, marginTop: 12, flexWrap: 'wrap' }}>
+                  {course.tags.map((tag) => <Chip key={tag.tagId} variant="soft">{tag.name}</Chip>)}
+                </div>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 14, padding: 11, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card }}>
+                <span style={{ width: 30, height: 30, borderRadius: 999, background: T.primary50, display: 'grid', placeItems: 'center' }}><Icon name="map" size={15} color={T.primary600}/></span>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 800 }}>{course.type === 'CUSTOM' ? '호스트가 직접 만든 코스' : '등록된 공개 코스'}</div>
+              </div>
+              {course.description && (
+                <div style={{ fontSize: 13, color: T.text700, lineHeight: '21px', marginTop: 14 }}>{course.description}</div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${stats.length}, 1fr)`, gap: 8, marginTop: 18 }}>
+                {stats.map((s) => (
+                  <div key={s[1]} style={{ textAlign: 'center', color: T.text700 }}>
+                    <Icon name={s[0]} size={18} color={T.text500}/>
+                    <div style={{ fontSize: 10, color: T.text500, marginTop: 6 }}>{s[1]}</div>
+                    <div style={{ fontSize: 12, fontWeight: 900, marginTop: 3 }}>{s[2]}</div>
+                  </div>
+                ))}
+              </div>
+              {/* 서버가 준 방문지 좌표만으로 경로를 그린다. 좌표가 모자라면 지도를 아예 두지 않는다. */}
+              {courseRoute && (
+                <>
+                  <div style={{ fontSize: 15, fontWeight: 900, marginTop: 28, marginBottom: 10 }}>코스 미리보기</div>
+                  <div style={{ borderRadius: 12, overflow: 'hidden' }}>
+                    <MiniMap height={146} pins={[]} markers={courseRoute.markers} polyline={courseRoute.polyline}/>
+                  </div>
+                </>
+              )}
+              <div style={{ fontSize: 15, fontWeight: 900, marginTop: 28, marginBottom: 10 }}>방문지 {course.places?.length || 0}곳</div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {(course.places || []).map((place) => (
+                  <div key={`${place.dayNumber}-${place.sequence}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card }}>
+                    <span style={{ width: 24, height: 24, borderRadius: 999, background: T.primary50, color: T.primary700, display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 900, flexShrink: 0 }}>{place.sequence}</span>
+                    <div style={{ width: 46, height: 40, borderRadius: 8, overflow: 'hidden', flexShrink: 0 }}><RoomThumb src={place.thumbnail} height={40}/></div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{place.title}</div>
+                      <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>{place.dayNumber}일차 · {window.MoyeoApi.formatTime(place.visitTime)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 18px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <Btn variant="secondary" onClick={() => nav.go('create-review')}>이 코스로 모집 만들기</Btn>
+            <Btn variant="primary" onClick={() => nav.go('detail')}>모집 중인 모임 보기</Btn>
+          </div>
+        </div>
+      </Phone>
+    );
+  }
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
@@ -884,6 +1117,143 @@ function ScreenCourseDetail() {
 
 function ScreenGroupDetail() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {}, toggleLike: () => {}, isLiked: () => false };
+  // 로그인 상태에서는 GET chat-rooms/{id} + join-eligibility + 코스 정보로 화면을 채운다.
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? (window.MoyeoApi.selectedRoomId() || '1') : null;
+  const [room, setRoom] = React.useState(null);
+  const [course, setCourse] = React.useState(null);
+  const [canApply, setCanApply] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode || !roomId) return undefined;
+    let active = true;
+    window.MoyeoApi.roomDetail(roomId)
+      .then((detail) => { if (active && detail?.roomId != null) setRoom(detail); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    window.MoyeoApi.joinEligibility(roomId)
+      .then((result) => { if (active && typeof result?.canApply === 'boolean') setCanApply(result.canApply); })
+      .catch(() => {});
+    window.MoyeoApi.roomCourse(roomId)
+      .then((result) => { if (active && result?.course) setCourse(result.course); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode, roomId]);
+  const onToggleFavorite = async () => {
+    try {
+      const result = await window.MoyeoApi.toggleFavorite(roomId);
+      setRoom((current) => (current ? { ...current, favorite: Boolean(result?.favorite) } : current));
+    } catch (_) { /* 찜 실패는 조용히 무시 */ }
+  };
+
+  if (room) {
+    const statusLabel = { RECRUITING: '진행중', CONFIRMED: '확정', CANCELLED: '취소됨' }[room.status] || room.status;
+    // 서버 enum 은 NONE / MALE_ONLY / FEMALE_ONLY 다 (MALE·FEMALE 아님)
+    const genderLabel = { NONE: '제한 없음', MALE_ONLY: '남성만', FEMALE_ONLY: '여성만' }[room.genderRestriction] || room.genderRestriction;
+    const ageLabel = room.minimumAge == null && room.maximumAge == null
+      ? '제한 없음'
+      : `${room.minimumAge ?? ''} ~ ${room.maximumAge ?? ''}세`;
+    const meetingTime = room.meetingDateTime ? window.MoyeoApi.formatTime(String(room.meetingDateTime).split('T')[1]) : '';
+    const infoRows = [
+      ['calendar', '일정', `${window.MoyeoApi.formatDate(room.startDate)} · ${window.MoyeoApi.tripTypeLabel(room)}`],
+      room.tripType === 'DAY_TRIP' && room.dayTripStartTime
+        ? ['clock', '여행 시간', `${window.MoyeoApi.formatTime(room.dayTripStartTime)} - ${window.MoyeoApi.formatTime(room.dayTripEndTime)}`]
+        : null,
+      room.meetingDetails ? ['pin', '집합', `${meetingTime ? `${meetingTime} ` : ''}${room.meetingDetails}`] : null,
+    ].filter(Boolean);
+    const summaryCells = [
+      room.participationFee != null ? ['money', '예상 비용', `1인 ${Number(room.participationFee).toLocaleString()}원`] : null,
+      ['clock', '모집 마감', `D-${room.recruitmentDDay} · ${window.MoyeoApi.formatDate(room.recruitmentDeadlineDate)}`],
+      ['users', '나이대', ageLabel],
+      ['user', '성별', genderLabel],
+    ].filter(Boolean);
+    return (
+      <Phone>
+        <div style={{ position: 'absolute', inset: 0, background: RF.bg }}>
+          <RoomThumb src={room.thumbnail} height={284} overlay>
+            <div style={{ position: 'absolute', top: 58, left: 18 }}>
+              <IconButton name="back" onClick={nav.back} bg={T.overlayPanel}/>
+            </div>
+            <div style={{ position: 'absolute', top: 58, right: 18 }}>
+              <IconButton name="flag" ariaLabel="신고" onClick={() => nav.go('report')} bg={T.overlayPanel}/>
+            </div>
+            <span style={{ position: 'absolute', left: 20, bottom: 20, color: '#fff', fontSize: 12, fontWeight: 800 }}>{statusLabel}</span>
+          </RoomThumb>
+          <div style={{ position: 'absolute', top: 246, left: 0, right: 0, bottom: 86, background: RF.card, borderRadius: '24px 24px 0 0', padding: '24px 20px 18px', overflow: 'auto' }}>
+            <h1 style={{ margin: 0, fontSize: 23, lineHeight: '31px', fontWeight: 900, letterSpacing: 0 }}>{room.title}</h1>
+            {room.description && <div style={{ marginTop: 8, fontSize: 13, color: T.text500, lineHeight: '19px' }}>{room.description}</div>}
+            {course && (
+              <button type="button" onClick={() => nav.go('course')} style={{ width: '100%', marginTop: 12, padding: 12, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, color: T.text900, display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', fontFamily: T.fontStack, cursor: 'pointer' }}>
+                <span style={{ width: 34, height: 34, borderRadius: 10, background: T.primary50, display: 'grid', placeItems: 'center' }}><Icon name="map" size={17} color={T.primary600}/></span>
+                <span style={{ flex: 1 }}>
+                  <b style={{ display: 'block', fontSize: 13 }}>{course.title}</b>
+                  <span style={{ display: 'block', marginTop: 3, fontSize: 11, color: T.text500 }}>방문지 {course.places?.length || 0}곳 · {course.type === 'CUSTOM' ? '호스트 직접 코스' : '등록된 코스'}</span>
+                </span>
+                <Icon name="arrow" size={15} color={T.text400}/>
+              </button>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16 }}>
+              {(room.participants || []).slice(0, 5).map((member, index) => (
+                member.profileImageUrl
+                  ? <img key={member.userId} src={member.profileImageUrl} alt="" style={{ width: 28, height: 28, borderRadius: 999, border: '2px solid #fff', marginLeft: index ? -8 : 0, objectFit: 'cover', background: T.primary50 }}/>
+                  : <span key={member.userId} style={{ width: 28, height: 28, borderRadius: 999, border: '2px solid #fff', marginLeft: index ? -8 : 0, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={14} color={T.primary600}/></span>
+              ))}
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 800, marginBottom: 7 }}>
+                <span>{room.participantCount} / {room.maxParticipants}명</span>
+                {canApply != null && <span style={{ color: canApply ? T.text400 : T.accent500 }}>{canApply ? '신청 가능' : '신청 불가'}</span>}
+              </div>
+              <ProgressBar current={room.participantCount} max={room.maxParticipants}/>
+            </div>
+            <div style={{ marginTop: 18, border: `1px solid ${RF.softLine}`, borderRadius: 12, padding: 14, display: 'grid', gap: 10 }}>
+              {infoRows.map((r) => (
+                <div key={r[1]} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                  <Icon name={r[0]} size={16} color={T.text500}/>
+                  <span style={{ width: 66, color: T.text500, flexShrink: 0 }}>{r[1]}</span>
+                  <span style={{ flex: 1, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{r[2]}</span>
+                </div>
+              ))}
+              {room.meetingLatitude != null && room.meetingLongitude != null && (
+                <>
+                  <div style={{ height: 1, background: RF.softLine }}/>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Icon name="map" size={16} color={T.text500}/>
+                    <span style={{ flex: 1, fontSize: 11.5, color: T.text500, fontVariantNumeric: 'tabular-nums' }}>{room.meetingLatitude}, {room.meetingLongitude}</span>
+                    <button type="button" style={{ border: 0, background: 'transparent', padding: 0, fontSize: 12, fontWeight: 800, color: T.primary600, fontFamily: T.fontStack, cursor: 'pointer' }}>길 찾기</button>
+                  </div>
+                </>
+              )}
+            </div>
+            <div style={{ marginTop: 10, border: `1px solid ${RF.softLine}`, borderRadius: 12, padding: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {summaryCells.map((item) => <div key={item[1]} style={{ display: 'flex', gap: 8 }}><Icon name={item[0]} size={15} color={T.text500}/><span><span style={{ display: 'block', fontSize: 10.5, color: T.text500 }}>{item[1]}</span><b style={{ display: 'block', marginTop: 3, fontSize: 12 }}>{item[2]}</b></span></div>)}
+            </div>
+            {course?.type === 'CUSTOM' && (
+              <div style={{ marginTop: 10, display: 'flex', gap: 9, alignItems: 'flex-start', padding: 12, borderRadius: 12, background: T.primary50, border: `1px solid ${T.primary100}` }}>
+                <Icon name="refresh" size={15} color={T.primary700}/>
+                <div style={{ flex: 1, fontSize: 11.5, lineHeight: '17px', color: T.primary700 }}>
+                  호스트가 직접 만든 코스예요. 여행이 확정({window.MoyeoApi.formatDate(room.recruitmentDeadlineDate)} 마감)되기 전까지 경로가 바뀔 수 있고, 바뀌면 알림으로 알려드려요.
+                </div>
+              </div>
+            )}
+            {/* 호스트 닉네임·매너 점수는 서버 응답에 없어 프로필 이미지만 보여준다 */}
+            <div style={{ marginTop: 18, fontSize: 13, fontWeight: 900 }}>호스트</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+              {room.hostProfileImageUrl
+                ? <img src={room.hostProfileImageUrl} alt="호스트 프로필" style={{ width: 44, height: 44, borderRadius: 999, objectFit: 'cover', background: T.primary50 }}/>
+                : <span style={{ width: 44, height: 44, borderRadius: 999, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={20} color={T.primary600}/></span>}
+              <div style={{ flex: 1 }}/>
+            </div>
+          </div>
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '10px 18px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'grid', gridTemplateColumns: '52px 1fr', gap: 10 }}>
+            <button data-testid="detail-favorite" aria-label={room.favorite ? '찜 해제' : '찜하기'} onClick={onToggleFavorite} style={{ width: 52, height: 48, borderRadius: 12, border: `1px solid ${T.line200}`, background: RF.card, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+              <Icon name="heart" size={22} color={room.favorite ? T.accent500 : T.text900}/>
+            </button>
+            <Btn variant="primary" disabled={canApply === false} onClick={() => nav.go('apply')}>함께 가기 신청</Btn>
+          </div>
+        </div>
+      </Phone>
+    );
+  }
+
   const liked = nav.isLiked('group-ref', false);
   return (
     <Phone>
@@ -980,6 +1350,35 @@ function ScreenGroupDetail() {
 
 function ScreenApplySheet() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 로그인 상태에서는 실제 신청 폼: 내 프로필 카드(GET profile) + POST {roomId}/applications
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? (window.MoyeoApi.selectedRoomId() || '1') : null;
+  const [profile, setProfile] = React.useState(null);
+  const [message, setMessage] = React.useState('');
+  const [submitting, setSubmitting] = React.useState(false);
+  const [error, setError] = React.useState('');
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.myProfile()
+      .then((result) => { if (active && result?.nickname) setProfile(result); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode]);
+  const submit = async () => {
+    if (!liveMode) { nav.go('chat'); return; }
+    if (submitting) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const result = await window.MoyeoApi.applyToRoom(roomId, message.trim() || null);
+      setSubmitting(false);
+      nav.go(result?.result === 'JOINED' ? 'chat-list' : 'chat-list-applied');
+    } catch (requestError) {
+      setSubmitting(false);
+      setError(requestError?.message || '신청을 완료하지 못했어요. 잠시 후 다시 시도해주세요.');
+    }
+  };
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0, background: '#111' }}>
@@ -996,19 +1395,41 @@ function ScreenApplySheet() {
             <IconButton name="close" onClick={nav.back}/>
           </div>
           <div style={{ fontSize: 13, fontWeight: 900, marginTop: 18 }}>한마디를 남겨주세요!</div>
-          <div style={{ marginTop: 10, height: 112, borderRadius: 12, border: `1px solid ${T.line200}`, padding: 14, color: T.text400, fontSize: 13, lineHeight: '20px' }}>
-            간단한 인사나 기대하는 마음을<br/>남겨주세요 😊 (10자 이상 200자 이하)
-            <div style={{ textAlign: 'right', marginTop: 30, fontSize: 11 }}>0/200</div>
-          </div>
+          {liveMode ? (
+            <div style={{ marginTop: 10, borderRadius: 12, border: `1px solid ${T.line200}`, padding: '12px 14px 10px' }}>
+              <textarea
+                value={message}
+                maxLength={200}
+                onChange={(event) => setMessage(event.target.value)}
+                aria-label="신청 한마디"
+                data-testid="apply-message"
+                placeholder={'간단한 인사나 기대하는 마음을\n남겨주세요 😊 (10자 이상 200자 이하)'}
+                style={{ width: '100%', height: 74, border: 0, outline: 0, resize: 'none', background: 'transparent', color: T.text900, fontFamily: T.fontStack, fontSize: 13, lineHeight: '20px' }}
+              />
+              <div style={{ textAlign: 'right', fontSize: 11, color: T.text400 }}>{message.length}/200</div>
+            </div>
+          ) : (
+            <div style={{ marginTop: 10, height: 112, borderRadius: 12, border: `1px solid ${T.line200}`, padding: 14, color: T.text400, fontSize: 13, lineHeight: '20px' }}>
+              간단한 인사나 기대하는 마음을<br/>남겨주세요 😊 (10자 이상 200자 이하)
+              <div style={{ textAlign: 'right', marginTop: 30, fontSize: 11 }}>0/200</div>
+            </div>
+          )}
           <div style={{ fontSize: 13, fontWeight: 900, marginTop: 18 }}>내 소개 카드</div>
           <div style={{ marginTop: 10, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: T.bgSubtle, padding: 12, display: 'flex', gap: 12 }}>
-            <AnimalAvatar kind="bear" size={54} bg={T.primary50}/>
+            {profile
+              ? (profile.profileImageUrl
+                ? <img src={profile.profileImageUrl} alt="" style={{ width: 54, height: 54, borderRadius: 999, objectFit: 'cover', background: T.primary50 }}/>
+                : <span style={{ width: 54, height: 54, borderRadius: 999, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={24} color={T.primary600}/></span>)
+              : <AnimalAvatar kind="bear" size={54} bg={T.primary50}/>}
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 900 }}>모여트립이</div>
-              <div style={{ fontSize: 12, color: T.text700, lineHeight: '18px', marginTop: 4 }}>자연 속에서 힐링하는 걸 좋아해요!<br/>사진 찍는 것도 좋아합니다</div>
+              <div style={{ fontSize: 13, fontWeight: 900 }}>{profile ? profile.nickname : '모여트립이'}</div>
+              {profile
+                ? (profile.introduction && <div style={{ fontSize: 12, color: T.text700, lineHeight: '18px', marginTop: 4 }}>{profile.introduction}</div>)
+                : <div style={{ fontSize: 12, color: T.text700, lineHeight: '18px', marginTop: 4 }}>자연 속에서 힐링하는 걸 좋아해요!<br/>사진 찍는 것도 좋아합니다</div>}
             </div>
           </div>
-          <Btn variant="primary" full onClick={() => nav.go('chat')} style={{ marginTop: 18 }}>신청하기</Btn>
+          {error && <div role="alert" style={{ marginTop: 12, fontSize: 12, color: T.dangerText, lineHeight: '17px' }}>{error}</div>}
+          <Btn variant="primary" full disabled={submitting} onClick={submit} style={{ marginTop: 18 }} testId="apply-submit">{submitting ? '신청하는 중...' : '신청하기'}</Btn>
         </div>
       </div>
     </Phone>
@@ -1136,6 +1557,55 @@ function ChatRoomBody() {
   const nav = window.useNav ? window.useNav() : { back: () => {} };
   // 기획 20과 같이 진입 시 입력이 비어 있으면 전송은 비활성이다.
   const [draft, setDraft] = React.useState('');
+  // 참여 중인 방이면 GET {id}/members · messages · notices · {id} 상세 · 코스로 대체하고,
+  // 텍스트 전송은 POST {id}/messages 로 보낸다. 비참여자는 403 이라 아래 목데이터가 그대로 남는다.
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  const [room, setRoom] = React.useState(null);
+  const [memberList, setMemberList] = React.useState(null);
+  const [notices, setNotices] = React.useState(null);
+  const [messages, setMessages] = React.useState(null);
+  const [course, setCourse] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode || !roomId) return undefined;
+    let active = true;
+    window.MoyeoApi.roomDetail(roomId)
+      .then((result) => { if (active && result?.roomId != null) setRoom(result); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    window.MoyeoApi.roomMembers(roomId)
+      .then((result) => { if (active && Array.isArray(result?.members)) setMemberList(result); })
+      .catch(() => { /* 403(미참여) 이면 목데이터 유지 */ });
+    window.MoyeoApi.roomMessages(roomId, { limit: 50 })
+      .then((result) => { if (active && Array.isArray(result?.messages)) setMessages(result.messages); })
+      .catch(() => { /* 403(미참여) 이면 목데이터 유지 */ });
+    window.MoyeoApi.roomNotices(roomId)
+      .then((result) => { if (active && Array.isArray(result?.pinnedNotices)) setNotices(result); })
+      .catch(() => { /* 403(미참여) 이면 목데이터 유지 */ });
+    window.MoyeoApi.roomCourse(roomId)
+      .then((result) => { if (active && result?.course) setCourse(result.course); })
+      .catch(() => { /* 코스가 없으면 코스 줄을 숨긴다 */ });
+    return () => { active = false; };
+  }, [liveMode, roomId]);
+  const serverMode = Boolean(room && memberList && messages);
+  const myUserId = memberList?.members?.find((member) => member.me)?.userId ?? null;
+  const [sending, setSending] = React.useState(false);
+  const [sendError, setSendError] = React.useState('');
+  const sendServerMessage = async () => {
+    const content = draft.trim();
+    if (!content || sending) return;
+    setSending(true);
+    setSendError('');
+    try {
+      const created = await window.MoyeoApi.sendRoomMessage(roomId, content);
+      setDraft('');
+      // 응답이 생성된 메시지를 그대로 돌려주므로 목록 끝에 붙인다.
+      if (created?.messageId != null) setMessages((current) => [...(current || []), created]);
+      else setMessages((await window.MoyeoApi.roomMessages(roomId, { limit: 50 }))?.messages || []);
+    } catch (error) {
+      setSendError(error?.message || '메시지를 보내지 못했어요.');
+    }
+    setSending(false);
+  };
   const Bubble = ({ me, children, time }) => (
     <div style={{ display: 'flex', justifyContent: me ? 'flex-end' : 'flex-start', gap: 8, alignItems: 'flex-end' }}>
       {!me && <AnimalAvatar kind="bear" size={30} bg={T.primary50}/>}
@@ -1150,6 +1620,89 @@ function ChatRoomBody() {
       </div>
     </div>
   );
+  const ServerBubble = ({ message }) => {
+    const me = myUserId != null && message.senderId === myUserId;
+    const sender = memberList?.members?.find((member) => member.userId === message.senderId);
+    const time = window.MoyeoApi.formatClock(message.createdAt);
+    return (
+      <div style={{ display: 'flex', justifyContent: me ? 'flex-end' : 'flex-start', gap: 8, alignItems: 'flex-end', marginBottom: 14 }}>
+        {!me && <ProfileAvatar src={sender?.profileImageUrl} size={30}/>}
+        <div>
+          {!me && <div style={{ fontSize: 10, color: T.text500, margin: '0 0 4px 2px' }}>{message.senderNickname}</div>}
+          <div style={{ display: 'flex', flexDirection: me ? 'row-reverse' : 'row', alignItems: 'flex-end', gap: 6 }}>
+            <div style={{ maxWidth: 244, background: me ? 'var(--moyeo-chat-mine)' : RF.card, border: me ? 'none' : `1px solid ${RF.softLine}`, borderRadius: me ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding: '10px 13px', fontSize: 13, lineHeight: '19px', color: T.text900, whiteSpace: 'pre-line' }}>
+              {message.imageUrl
+                ? <img src={message.imageUrl} alt="" style={{ display: 'block', maxWidth: 220, borderRadius: 10 }}/>
+                : message.content}
+            </div>
+            {time && <div style={{ fontSize: 10, color: T.text400 }}>{time}</div>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (serverMode) {
+    const pinnedCount = notices?.pinnedNotices?.length || 0;
+    const noticeCount = pinnedCount + (notices?.unpinnedNotices?.length || 0);
+    const latestPinned = notices?.pinnedNotices?.[0] || room.latestPinnedNotice || null;
+    const conditions = [
+      room.participationFee != null ? (Number(room.participationFee) > 0 ? `1인 ${Number(room.participationFee).toLocaleString()}원` : '참가비 없음') : null,
+      room.minimumAge != null && room.maximumAge != null ? `${room.minimumAge}~${room.maximumAge}세` : null,
+      { NONE: '성별 무관', MALE_ONLY: '남성만', FEMALE_ONLY: '여성만' }[room.genderRestriction] || null,
+    ].filter(Boolean);
+    const dayTripTime = room.tripType === 'DAY_TRIP' && room.dayTripStartTime
+      ? `${window.MoyeoApi.formatTime(room.dayTripStartTime)}-${window.MoyeoApi.formatTime(room.dayTripEndTime)}`
+      : '';
+    return (
+      <div data-testid="chat-room-live" style={{ height: '100%', background: RF.bg, paddingTop: 46, display: 'flex', flexDirection: 'column' }}>
+        <Header title={room.title} left center onBack={nav.back} right={<IconButton name="more" onClick={() => nav.go('chat-menu')}/>}/>
+        <div style={{ flexShrink: 0, textAlign: 'center', fontSize: 12, color: T.text500, lineHeight: '18px', paddingBottom: 10, borderBottom: `1px solid ${RF.softLine}`, fontVariantNumeric: 'tabular-nums' }}>
+          {memberList.participantCount}/{memberList.maxParticipants}명 · {window.MoyeoApi.formatDate(room.startDate)}
+          {dayTripTime ? ` ${dayTripTime}` : ''} · {window.MoyeoApi.tripTypeLabel(room)}
+          {room.recruitmentDDay != null && <> · <b style={{ color: T.accent500 }}>마감 D-{room.recruitmentDDay}</b></>}
+        </div>
+        {conditions.length > 0 && (
+          <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', gap: 6, padding: '7px 12px', borderBottom: `1px solid ${RF.softLine}`, background: RF.card }}>
+            {conditions.map((condition) => <Chip key={condition} variant="neutral">{condition}</Chip>)}
+          </div>
+        )}
+        {noticeCount > 0 && (
+          <button type="button" data-testid="chat-notice-history" onClick={() => nav.go('notice-history')} style={{ flexShrink: 0, width: '100%', border: 'none', borderBottom: `1px solid ${T.primary100}`, cursor: 'pointer', background: T.primary50, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, fontFamily: T.fontStack, textAlign: 'left' }}>
+            <Icon name="note" size={15} color={T.primary700}/>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 900, color: T.primary700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{latestPinned?.content || '공지 이력 보기'}</div>
+              <div style={{ fontSize: 10.5, color: T.primary600, marginTop: 2 }}>공지 {noticeCount}개 · 고정 {pinnedCount} · 이력 보기</div>
+            </div>
+            <Icon name="arrow" size={14} color={T.primary600}/>
+          </button>
+        )}
+        {course && (
+          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 9, padding: '9px 16px', borderBottom: `1px solid ${RF.softLine}`, background: RF.card }}>
+            <Icon name="map" size={15} color={T.text500}/>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <b style={{ display: 'block', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{course.title}</b>
+              <span style={{ display: 'block', marginTop: 2, fontSize: 10.5, color: T.text500 }}>방문지 {course.places?.length || 0}곳 · {course.type === 'CUSTOM' ? '호스트 직접 코스' : '등록된 코스'}</span>
+            </div>
+            <button type="button" data-testid="chat-course-edit" onClick={() => nav.go('course-edit')} style={{ border: `1px solid ${T.primary200}`, background: T.primary50, color: T.primary700, borderRadius: 999, height: 26, padding: '0 10px', fontSize: 11, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>경로 보기</button>
+          </div>
+        )}
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '18px 18px 12px', background: RF.bg }}>
+          {messages.length === 0 && (
+            <div style={{ padding: '48px 0', textAlign: 'center', fontSize: 13, color: T.text500 }}>아직 대화가 없어요.</div>
+          )}
+          {messages.map((message) => (message.type === 'SYSTEM'
+            ? <div key={message.messageId} style={{ width: 'fit-content', maxWidth: '90%', margin: '0 auto 14px', background: T.systemMsg, color: T.primary700, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 800, whiteSpace: 'pre-line', textAlign: 'center' }}>{message.content}</div>
+            : <ServerBubble key={message.messageId} message={message}/>))}
+        </div>
+        {/* 사진·장소·투표·정산 등 특수 메시지는 엔드포인트가 따로여서 아직 열지 않는다 — 첨부 버튼을 두지 않는다 */}
+        <div style={{ flexShrink: 0, padding: '10px 14px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}` }}>
+          {sendError && <div role="alert" style={{ fontSize: 11.5, color: T.danger, marginBottom: 7 }}>{sendError}</div>}
+          <Composer value={draft} onChange={setDraft} onSend={sendServerMessage} placeholder={sending ? '보내는 중...' : '메시지 입력'} testId="chat-composer"/>
+        </div>
+      </div>
+    );
+  }
   return (
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
         <Header title="30대끼리 느긋하게 힐링 여행가요~" left center onBack={nav.back} right={<><IconButton name="phone"/><IconButton name="more" onClick={() => nav.go('chat-menu')}/></>}/>
@@ -1198,8 +1751,39 @@ function ChatRoomBody() {
   );
 }
 
+// 서버 프로필 이미지가 있으면 사진, 없으면 아이콘 아바타
+function ProfileAvatar({ src, size = 34 }) {
+  if (src) return <img src={src} alt="" style={{ width: size, height: size, borderRadius: 999, objectFit: 'cover', background: T.primary50 }}/>;
+  return <span style={{ width: size, height: size, borderRadius: 999, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="user" size={Math.round(size * 0.5)} color={T.primary600}/></span>;
+}
+
 function ScreenFeed() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, toggleLike: () => {}, isLiked: () => false };
+  // 로그인 상태에서는 GET /api/v1/feeds 로 목록을 대체한다 (발견=DISCOVER, 팔로잉=FRIENDS)
+  const liveMode = window.MoyeoApi?.live();
+  const [feedTab, setFeedTab] = React.useState('DISCOVER');
+  const [serverFeeds, setServerFeeds] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.feeds({ tab: feedTab })
+      .then((result) => { if (active && Array.isArray(result?.feeds)) setServerFeeds(result.feeds); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode, feedTab]);
+  const openFeed = (feedId) => {
+    window.MoyeoApi.selectFeed(feedId);
+    nav.go('feed-detail');
+  };
+  const likeServerFeed = async (event, feedId) => {
+    event.stopPropagation();
+    try {
+      const result = await window.MoyeoApi.likeFeed(feedId);
+      setServerFeeds((current) => (current || []).map((feed) => (
+        feed.feedId === feedId ? { ...feed, liked: Boolean(result?.liked), likeCount: result?.likeCount ?? feed.likeCount } : feed
+      )));
+    } catch (_) { /* 실패는 조용히 무시 */ }
+  };
   const feedItems = [
     { kind: 'bear', author: '숲속여행자', time: '2시간 전', title: '주왕산 & 주산지 힐링 트레킹', subtitle: '청송 · #주왕산 #주산지 #숲길', hue: 'forest', likes: 128, comments: 18 },
     { kind: 'rabbit', author: '토끼여행자', time: '5시간 전', title: '안동 하회마을, 잊지 못할 하루', subtitle: '안동 · #한옥산책 #가을여행', hue: 'hanok', likes: 128, comments: 18 },
@@ -1212,12 +1796,46 @@ function ScreenFeed() {
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
         <div style={{ height: 52, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `1px solid ${RF.softLine}`, gap: 42 }}>
-          {['팔로잉', '발견'].map((t, i) => (
-            <button key={t} style={{ border: 'none', background: 'transparent', height: 52, color: i === 1 ? T.text900 : T.text500, fontSize: 14, fontWeight: 900, fontFamily: T.fontStack, borderBottom: i === 1 ? `2px solid ${T.primary500}` : '2px solid transparent' }}>{t}</button>
-          ))}
+          {[['FRIENDS', '팔로잉'], ['DISCOVER', '발견']].map(([id, t], i) => {
+            const on = liveMode ? feedTab === id : i === 1;
+            return (
+              <button key={t} onClick={liveMode ? () => setFeedTab(id) : undefined} style={{ border: 'none', background: 'transparent', height: 52, color: on ? T.text900 : T.text500, fontSize: 14, fontWeight: 900, fontFamily: T.fontStack, borderBottom: on ? `2px solid ${T.primary500}` : '2px solid transparent', cursor: liveMode ? 'pointer' : 'default' }}>{t}</button>
+            );
+          })}
         </div>
         <div style={{ height: 'calc(100% - 134px)', overflow: 'auto', padding: '14px 16px 96px', background: RF.card }}>
-          {feedItems.map((item) => (
+          {serverFeeds && serverFeeds.length === 0 && (
+            <div style={{ padding: '64px 20px', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '20px' }}>
+              아직 올라온 여행 기록이 없어요.<br/>여행을 다녀오면 첫 기록을 남겨보세요!
+            </div>
+          )}
+          {serverFeeds && serverFeeds.map((feed) => (
+            <div key={feed.feedId} onClick={() => openFeed(feed.feedId)} style={{ borderBottom: `1px solid ${RF.softLine}`, paddingBottom: 18, marginBottom: 18, cursor: 'pointer' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <ProfileAvatar src={feed.author?.profileImageUrl} size={34}/>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 900 }}>{feed.author?.nickname}</div>
+                  <div style={{ fontSize: 10, color: T.text500, marginTop: 2 }}>{window.MoyeoApi.formatRelative(feed.createdAt)}</div>
+                </div>
+              </div>
+              {feed.trip?.courseTitle && <div style={{ fontSize: 15, fontWeight: 900, marginTop: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{feed.trip.courseTitle}</div>}
+              {feed.content && <div style={{ fontSize: 12, color: T.text700, marginTop: 5, lineHeight: '18px' }}>{feed.content}</div>}
+              {feed.images?.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: feed.images.length > 1 ? '1fr 1fr' : '1fr', gap: 2, marginTop: 12, borderRadius: 10, overflow: 'hidden' }}>
+                  {feed.images.slice(0, 2).map((image) => (
+                    <img key={image.imageId} src={image.imageUrl} alt="" loading="lazy" style={{ display: 'block', width: '100%', height: 166, objectFit: 'cover', background: T.primary50 }}/>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 12, fontSize: 12, color: T.text700 }}>
+                <button onClick={(event) => likeServerFeed(event, feed.feedId)} aria-label="좋아요" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: 'none', background: 'transparent', padding: 0, fontSize: 12, color: feed.liked ? T.accent500 : T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>
+                  <Icon name="heart" size={17} color={feed.liked ? T.accent500 : T.text700}/>{feed.likeCount}
+                </button>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="chat" size={17} color={T.text700}/>{feed.commentCount}</span>
+              </div>
+            </div>
+          ))}
+          {!serverFeeds && feedItems.map((item) => (
             <div key={item.title} onClick={() => nav.go('feed-detail')} style={{ borderBottom: `1px solid ${RF.softLine}`, paddingBottom: 18, marginBottom: 18, cursor: 'pointer' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                 <AnimalAvatar kind={item.kind} size={34} bg={T.primary50}/>
@@ -1253,6 +1871,85 @@ function ScreenFeedDetail() {
   const nav = window.useNav ? window.useNav() : { back: () => {} };
   // 댓글 입력이 비어 있으면 전송은 비활성이다.
   const [comment, setComment] = React.useState('');
+  // 로그인 상태 + 피드 목록에서 선택해 들어온 경우 GET feeds/{id} 로 대체한다.
+  const liveMode = window.MoyeoApi?.live();
+  const feedId = liveMode ? window.MoyeoApi.selectedFeedId() : null;
+  const [feed, setFeed] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode || !feedId) return undefined;
+    let active = true;
+    window.MoyeoApi.feedDetail(feedId)
+      .then((result) => { if (active && result?.feedId != null) setFeed(result); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode, feedId]);
+  const sendComment = async () => {
+    if (!comment.trim()) return;
+    if (!liveMode || !feed) { setComment(''); return; }
+    try {
+      await window.MoyeoApi.addFeedComment(feed.feedId, comment.trim());
+      setComment('');
+      setFeed((current) => (current ? { ...current, commentCount: (current.commentCount || 0) + 1 } : current));
+    } catch (_) { /* 실패 시 입력 유지 */ }
+  };
+  const toggleServerLike = async () => {
+    if (!feed) return;
+    try {
+      const result = await window.MoyeoApi.likeFeed(feed.feedId);
+      setFeed((current) => (current ? { ...current, liked: Boolean(result?.liked), likeCount: result?.likeCount ?? current.likeCount } : current));
+    } catch (_) { /* 실패는 조용히 무시 */ }
+  };
+
+  if (feed) {
+    const visibilityLabel = { FRIENDS: '친구만', PUBLIC: '전체 공개', PRIVATE: '나만 보기' }[feed.visibility] || feed.visibility;
+    return (
+      <Phone>
+        <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+          <Header title="" left onBack={nav.back}/>
+          <div style={{ height: 'calc(100% - 98px)', overflow: 'auto', padding: '0 18px 84px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <ProfileAvatar src={feed.author?.profileImageUrl} size={34}/>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 900 }}>{feed.author?.nickname}</div>
+                <div style={{ fontSize: 10, color: T.text500, marginTop: 2 }}>{window.MoyeoApi.formatRelative(feed.createdAt)}</div>
+              </div>
+              {visibilityLabel && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 24, padding: '0 9px', borderRadius: 999, background: T.bgSubtle, border: `1px solid ${RF.softLine}`, color: T.text500, fontSize: 10.5, fontWeight: 800 }}>
+                  <Icon name="users" size={12} color={T.text500}/> {visibilityLabel}
+                </span>
+              )}
+            </div>
+            {feed.trip?.courseTitle && <div style={{ fontSize: 15, fontWeight: 900, marginTop: 14 }}>{feed.trip.courseTitle}</div>}
+            {feed.trip?.startDate && <div style={{ fontSize: 12, color: T.text500, marginTop: 5 }}>{window.MoyeoApi.formatDate(feed.trip.startDate)}{feed.trip.endDate ? ` - ${window.MoyeoApi.formatDate(feed.trip.endDate)}` : ''}</div>}
+            {feed.images?.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: feed.images.length > 1 ? '1fr 1fr' : '1fr', gap: 2, marginTop: 14, borderRadius: 10, overflow: 'hidden', position: 'relative' }}>
+                {feed.images.slice(0, 2).map((image) => (
+                  <img key={image.imageId} src={image.imageUrl} alt="" loading="lazy" style={{ display: 'block', width: '100%', height: 198, objectFit: 'cover', background: T.primary50 }}/>
+                ))}
+                <span style={{ position: 'absolute', right: 8, top: 8, background: 'rgba(0,0,0,0.55)', color: '#fff', borderRadius: 999, padding: '4px 7px', fontSize: 10, fontWeight: 900 }}>1/{feed.images.length}</span>
+              </div>
+            )}
+            {feed.content && <div style={{ fontSize: 13, lineHeight: '21px', marginTop: 14 }}>{feed.content}</div>}
+            {feed.trip?.places?.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginTop: 16 }}>
+                <div style={{ borderRadius: 10, background: RF.subtle, padding: '12px 6px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, color: T.text500 }}>방문지</div>
+                  <div style={{ fontSize: 13, fontWeight: 900, marginTop: 5 }}>{feed.trip.places.length}곳</div>
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 18, marginTop: 18, paddingBottom: 14, borderBottom: `1px solid ${RF.softLine}`, fontSize: 13, color: T.text700 }}>
+              <span onClick={toggleServerLike} style={{ cursor: 'pointer', color: feed.liked ? T.accent500 : T.text700 }}>좋아요 {feed.likeCount}개</span>
+              <span onClick={() => nav.go && nav.go('feed-comments')} style={{ cursor: 'pointer', fontWeight: 800, color: T.primary600 }}>댓글 {feed.commentCount}개 모두 보기 →</span>
+            </div>
+          </div>
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 16px 28px', borderTop: `1px solid ${RF.softLine}`, background: RF.card, display: 'flex', gap: 8 }}>
+            <Composer value={comment} onChange={setComment} onSend={sendComment} placeholder="댓글을 입력하세요..." fontSize={12} inputLabel="댓글 입력" testId="feed-detail-composer"/>
+          </div>
+        </div>
+      </Phone>
+    );
+  }
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
@@ -1308,7 +2005,28 @@ function ScreenFeedDetail() {
 
 function ScreenMyPage() {
   const nav = window.useNav ? window.useNav() : { go: () => {} };
-  const mySegments = ['진행중', '지난여행', '찜한 코스'];
+  // 로그인 상태: GET users/me/profile + chat-rooms/my + travel-dex 로 화면을 채운다.
+  // 찜한 코스 탭은 서버에 조회 API가 없어 로그인 상태에서는 숨긴다 (보고서 C 참고).
+  const liveMode = window.MoyeoApi?.live();
+  const [profile, setProfile] = React.useState(null);
+  const [serverRooms, setServerRooms] = React.useState(null);
+  const [dexCount, setDexCount] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.myProfile()
+      .then((result) => { if (active && result?.nickname) setProfile(result); })
+      .catch(() => {});
+    window.MoyeoApi.myRooms()
+      .then((result) => { if (active && Array.isArray(result)) setServerRooms(result); })
+      .catch(() => {});
+    window.MoyeoApi.travelDex()
+      .then((result) => { if (active && typeof result?.totalCount === 'number') setDexCount(result.totalCount); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode]);
+  const serverMode = Boolean(profile || serverRooms);
+  const mySegments = serverMode ? ['진행중', '지난여행'] : ['진행중', '지난여행', '찜한 코스'];
   const initialSegment = (() => {
     const requested = new URLSearchParams(window.location.search).get('myTab');
     return mySegments.includes(requested) ? requested : '진행중';
@@ -1383,10 +2101,43 @@ function ScreenMyPage() {
       </div>
     </div>
   );
+  // 로그인 상태에서는 서버 내 채팅방 목록으로 대체 (진행중=!ended, 지난여행=ended)
+  const serverVisible = serverRooms
+    ? serverRooms.filter((room) => (selectedSegment === '진행중' ? !room.ended : room.ended))
+    : null;
+  // 채팅이 열린 방이면 채팅방(20)으로, 아직 아니면 모집 상세(15)로 보낸다.
+  const openServerRoom = (room) => {
+    window.MoyeoApi.selectRoom(room.roomId);
+    nav.go(room.chatAvailable ? 'chat' : 'detail');
+  };
+  const ServerTrip = ({ room }) => (
+    <div onClick={() => openServerRoom(room)} style={{ ...cardStyle, minHeight: 108 }}>
+      <div style={{ width: 96, height: 86, borderRadius: 9, overflow: 'hidden', flexShrink: 0 }}>
+        <RoomThumb src={room.thumbnail} height={86}/>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+          <div style={{ fontSize: 15, fontWeight: 900, lineHeight: '20px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{room.title}</div>
+          {room.recruitmentDDay != null && <Chip variant="danger">D-{room.recruitmentDDay}</Chip>}
+          {room.ended && <Chip variant="neutral">종료</Chip>}
+        </div>
+        <div style={{ fontSize: 12.5, color: T.text500, marginTop: 5, fontWeight: 700 }}>
+          {window.MoyeoApi.formatDate(room.startDate)}{room.endDate ? ` - ${window.MoyeoApi.formatDate(room.endDate)}` : ''}
+        </div>
+        {room.description && <div style={{ fontSize: 11.5, color: T.text500, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{room.description}</div>}
+        {room.participantCount != null && room.maxParticipants != null && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
+            <div style={{ flex: 1 }}><ProgressBar current={room.participantCount} max={room.maxParticipants}/></div>
+            <span style={{ fontSize: 12.5, color: T.text700, fontWeight: 900 }}>{room.participantCount}/{room.maxParticipants}명</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
   const visibleCards = selectedSegment === '진행중' ? activeTrips : selectedSegment === '지난여행' ? pastTrips : savedCourses;
   const menuRows = [
     { icon: 'feed', title: '내 피드', subtitle: '내가 기록한 경북 여행', route: 'feed' },
-    { icon: 'users', title: '친구 도감', subtitle: '12마리 · 최근 동행 순', route: 'dex' },
+    { icon: 'users', title: '친구 도감', subtitle: serverMode ? `${dexCount ?? 0}마리 · 최근 동행 순` : '12마리 · 최근 동행 순', route: 'dex' },
     { icon: 'chat', title: '고객센터', subtitle: '문의와 신고 내역' },
   ];
   return (
@@ -1400,30 +2151,37 @@ function ScreenMyPage() {
             onClick={() => nav.go('public-profile')}
             style={{ width: '100%', minHeight: 94, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: 12, display: 'flex', alignItems: 'center', gap: 12, color: T.text900, textAlign: 'left', fontFamily: T.fontStack, cursor: 'pointer' }}
           >
-            <AnimalAvatar kind="bear" size={58} bg={T.primary50}/>
+            {profile ? <ProfileAvatar src={profile.profileImageUrl} size={58}/> : <AnimalAvatar kind="bear" size={58} bg={T.primary50}/>}
             <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 16, lineHeight: '21px', fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>모여트립이</span>
-              <span style={{ display: 'block', marginTop: 4, fontSize: 12.5, lineHeight: '18px', color: T.text500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>자연 속에서 힐링하는 걸 좋아해요!</span>
-              <span style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                <Chip variant="primary">여행 12</Chip>
-                <Chip variant="danger">매너 4.7</Chip>
-              </span>
+              <span style={{ display: 'block', fontSize: 16, lineHeight: '21px', fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile ? profile.nickname : '모여트립이'}</span>
+              {(!profile || profile.introduction) && (
+                <span style={{ display: 'block', marginTop: 4, fontSize: 12.5, lineHeight: '18px', color: T.text500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile ? profile.introduction : '자연 속에서 힐링하는 걸 좋아해요!'}</span>
+              )}
+              {/* 여행 횟수·매너 점수는 서버 프로필 응답에 없어 로그인 상태에서는 숨긴다 */}
+              {!serverMode && (
+                <span style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <Chip variant="primary">여행 12</Chip>
+                  <Chip variant="danger">매너 4.7</Chip>
+                </span>
+              )}
             </span>
             <Icon name="arrow" size={17} color={T.text400}/>
           </button>
 
-          <div data-testid="my-profile-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 10 }}>
-            {[['12', '여행'], ['4.7', '매너'], ['21', '피드']].map(([value, label]) => (
-              <div key={label} style={{ height: 54, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 3 }}>
-                <div style={{ fontSize: 16, lineHeight: '20px', fontWeight: 900 }}>{value}</div>
-                <div style={{ fontSize: 11.5, color: T.text500, fontWeight: 700 }}>{label}</div>
-              </div>
-            ))}
-          </div>
+          {!serverMode && (
+            <div data-testid="my-profile-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 10 }}>
+              {[['12', '여행'], ['4.7', '매너'], ['21', '피드']].map(([value, label]) => (
+                <div key={label} style={{ height: 54, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 3 }}>
+                  <div style={{ fontSize: 16, lineHeight: '20px', fontWeight: 900 }}>{value}</div>
+                  <div style={{ fontSize: 11.5, color: T.text500, fontWeight: 700 }}>{label}</div>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, marginBottom: 10 }}>
             <div style={{ fontSize: 18, lineHeight: '24px', fontWeight: 900 }}>내 여행</div>
-            <div style={{ fontSize: 12, color: T.primary600, fontWeight: 900 }}>{visibleCards.length}개</div>
+            <div style={{ fontSize: 12, color: T.primary600, fontWeight: 900 }}>{(serverVisible || visibleCards).length}개</div>
           </div>
           <div style={{ display: 'flex', gap: 6, padding: 4, borderRadius: 999, background: RF.subtle, marginBottom: 10 }}>
             {mySegments.map((t) => (
@@ -1436,7 +2194,13 @@ function ScreenMyPage() {
               </button>
             ))}
           </div>
-          {visibleCards.map((item) => (
+          {serverVisible && serverVisible.length === 0 && (
+            <div style={{ padding: '36px 0', textAlign: 'center', color: T.text500, fontSize: 13 }}>
+              {selectedSegment === '진행중' ? '진행 중인 여행이 없어요. 탐색에서 모임을 찾아보세요!' : '아직 다녀온 여행이 없어요.'}
+            </div>
+          )}
+          {serverVisible && serverVisible.map((room) => <ServerTrip key={room.roomId} room={room}/>)}
+          {!serverVisible && visibleCards.map((item) => (
             selectedSegment === '진행중'
               ? <Trip key={item.title} {...item}/>
               : <SummaryTrip key={item.title} {...item}/>
@@ -1468,6 +2232,70 @@ function ScreenMyPage() {
 
 function ScreenPublicProfile() {
   const nav = window.useNav ? window.useNav() : { go: () => {} };
+  // 로그인 상태에서는 GET users/me/profile 로 대체한다.
+  // 매너 점수·여행/호스트/피드 지표는 서버 응답에 없어 로그인 상태에서는 숨긴다 (보고서 C 참고).
+  const liveMode = window.MoyeoApi?.live();
+  const [profile, setProfile] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.myProfile()
+      .then((result) => { if (active && result?.nickname) setProfile(result); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode]);
+
+  if (profile) {
+    return (
+      <Phone>
+        <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+          <div style={{ height: 'calc(100% - 82px)', overflow: 'auto', paddingBottom: 100 }}>
+            <div style={{ height: 188, position: 'relative', background: `linear-gradient(180deg, ${T.coverTop} 0%, ${T.coverBottom} 100%)` }}>
+              <svg width="393" height="188" viewBox="0 0 393 188" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0 }}>
+                <path d="M0 140 Q58 104 109 124 T215 122 T319 125 T393 104 L393 188 L0 188 Z" fill={T.coverHill} opacity="0.55"/>
+              </svg>
+              <div style={{ position: 'absolute', right: 18, top: 14 }}><IconButton name="settings" onClick={() => nav.go('settings')}/></div>
+              <div style={{ position: 'absolute', left: 0, right: 0, bottom: -44, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <ProfileAvatar src={profile.profileImageUrl} size={86}/>
+                <div style={{ fontSize: 19, fontWeight: 900, marginTop: 8 }}>{profile.nickname}</div>
+              </div>
+            </div>
+            <div style={{ padding: '62px 18px 0' }}>
+              {(profile.travelStyles?.length > 0 || profile.interestedRegions?.length > 0) && (
+                <div style={{ borderRadius: 12, border: `1px solid ${RF.softLine}`, padding: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 900 }}>여행 취향</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                    {(profile.travelStyles || []).map((style) => <Chip key={`style-${style.id}`} variant="soft">{style.label}</Chip>)}
+                    {(profile.interestedRegions || []).map((region) => <Chip key={`region-${region.id}`} variant="neutral">{region.signguName}</Chip>)}
+                  </div>
+                </div>
+              )}
+              {profile.introduction && (
+                <div style={{ marginTop: 14, borderRadius: 12, border: `1px solid ${RF.softLine}`, padding: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 900 }}>소개</div>
+                  <div style={{ fontSize: 12, color: T.text700, lineHeight: '20px', marginTop: 8 }}>{profile.introduction}</div>
+                </div>
+              )}
+              <div style={{ marginTop: 12, borderTop: `1px solid ${RF.softLine}` }}>
+                {[
+                  ['feed', '내 정보 수정', 'profile-edit'],
+                  ['users', '친구 관리', 'dex'],
+                  ['close', '차단한 사용자', 'blocked'],
+                ].map((r) => (
+                  <button key={r[1]} onClick={() => nav.go(r[2])} style={{ height: 54, width: '100%', border: 'none', borderBottom: `1px solid ${RF.softLine}`, background: RF.card, display: 'flex', alignItems: 'center', gap: 12, fontFamily: T.fontStack, cursor: 'pointer' }}>
+                    <Icon name={r[0]} size={19} color={T.text700}/>
+                    <span style={{ flex: 1, textAlign: 'left', fontSize: 13, fontWeight: 800, color: T.text900 }}>{r[1]}</span>
+                    <Icon name="arrow" size={15} color={T.text400}/>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <BottomNav active="my"/>
+        </div>
+      </Phone>
+    );
+  }
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
@@ -1529,6 +2357,10 @@ Object.assign(window, {
   Phone,
   IconButton,
   Header,
+  MOYEO_EXPLORE_ROOMS,
+  ExploreRoomCard,
+  ExploreServerRoomCard,
+  RoomThumb,
   Btn,
   Chip,
   ProgressBar,

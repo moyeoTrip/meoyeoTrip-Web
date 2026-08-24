@@ -116,20 +116,49 @@ function ScreenTripDay() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   // 기획 20-5와 같이 입력이 비어 있으면 전송은 비활성이다.
   const [draft, setDraft] = React.useState('');
-  const stops = ['청송터미널', '주왕산', '주산지', '달기약수탕'];
-  const current = 2; // 1-indexed
-  const placeMarker = React.useMemo(() => window.MoyeoKakaoMap?.placeCoord?.('주산지') || null, []);
+  // 참여 중인 방이면 GET {id}/roadmap/current 로 진행 위젯(방문지 스텝·현재/다음 일정)을 대체한다.
+  // active 가 false 거나 places 가 비면 서버가 진행 상황을 주지 않는 것이므로 목데이터를 유지한다.
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  const [roadmap, setRoadmap] = React.useState(null);
+  const [roadmapRoom, setRoadmapRoom] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode || !roomId) return undefined;
+    let active = true;
+    window.MoyeoApi.roomRoadmap(roomId)
+      .then((result) => { if (active && result?.active && (result.places || []).length) setRoadmap(result); })
+      .catch(() => { /* 403(미참여) 이면 목데이터 유지 */ });
+    window.MoyeoApi.roomDetail(roomId)
+      .then((result) => { if (active && result?.roomId != null) setRoadmapRoom(result); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode, roomId]);
+  const stops = roadmap ? roadmap.places.map((place) => place.title) : ['청송터미널', '주왕산', '주산지', '달기약수탕'];
+  // 서버는 방문지별 progress(COMPLETED/CURRENT/UPCOMING)를 준다 — 완료 개수가 곧 진행 단계다.
+  const current = roadmap
+    ? Math.max(1, roadmap.places.filter((place) => place.progress === 'COMPLETED').length + (roadmap.places.some((place) => place.progress === 'CURRENT') ? 1 : 0))
+    : 2; // 1-indexed
+  const placeMarker = React.useMemo(() => {
+    const place = roadmap?.currentPlace || roadmap?.nextPlace;
+    if (place && Number.isFinite(Number(place.latitude)) && Number.isFinite(Number(place.longitude))) {
+      return { lat: Number(place.latitude), lng: Number(place.longitude), label: place.title };
+    }
+    return roadmap ? null : (window.MoyeoKakaoMap?.placeCoord?.('주산지') || null);
+  }, [roadmap]);
 
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
         <Header
-          title="주왕산 & 주산지 힐링 트레킹"
+          title={roadmapRoom?.title || '주왕산 & 주산지 힐링 트레킹'}
           left center onBack={nav.back}
           right={<><IconButton name="search"/><IconButton name="menu" onClick={() => nav.go('chat-menu')}/></>}
         />
         <div style={{ textAlign: 'center', fontSize: 12, color: T.text500, paddingBottom: 10, borderBottom: `1px solid ${RF.softLine}`, fontVariantNumeric: 'tabular-nums' }}>
-          <span style={{ color: T.primary600, fontWeight: 900 }}>여행 중</span> · 5명 · 오늘 08:00 출발
+          <span style={{ color: T.primary600, fontWeight: 900 }}>여행 중</span>
+          {roadmap
+            ? <>{roadmapRoom?.participantCount != null ? ` · ${roadmapRoom.participantCount}명` : ''}{roadmap.dayNumber != null ? ` · ${roadmap.dayNumber}/${roadmap.totalDays}일차` : ''}</>
+            : ' · 5명 · 오늘 08:00 출발'}
         </div>
 
         {/* 여행 진행 위젯 — 여행 시작일 당일에만 상단 고정 */}
@@ -164,10 +193,19 @@ function ScreenTripDay() {
               </React.Fragment>
             ))}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 11.5, color: T.primary700 }}>
-            <Icon name="clock" size={13} color={T.primary600}/>
-            다음 일정 · <b>14:00 주산지</b> 왕버들 산책로
-          </div>
+          {roadmap
+            ? (roadmap.nextPlace && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 11.5, color: T.primary700 }}>
+                <Icon name="clock" size={13} color={T.primary600}/>
+                다음 일정 · <b>{window.MoyeoApi.formatClock(roadmap.nextPlace.scheduledAt)} {roadmap.nextPlace.title}</b>
+              </div>
+            ))
+            : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 11.5, color: T.primary700 }}>
+                <Icon name="clock" size={13} color={T.primary600}/>
+                다음 일정 · <b>14:00 주산지</b> 왕버들 산책로
+              </div>
+            )}
         </div>
 
         <div style={{ height: 'calc(100% - 274px)', overflow: 'auto', padding: '16px 18px 86px', background: T.chatCanvas }}>
@@ -218,6 +256,58 @@ function ScreenNotifDetail() {
   const [dnd, setDnd] = React.useState(true);
   const days = ['월', '화', '수', '목', '금', '토', '일'];
   const [onDays, setOnDays] = React.useState(['월', '화', '수', '목', '금']);
+  const [dndTimes, setDndTimes] = React.useState({ start: '22:30', end: '07:00' });
+  // 로그인 상태: GET users/me/profile(채팅 알림 방식) + notifications/settings(방해금지)로 채우고,
+  // 변경 즉시 PUT notifications/settings 로 저장한다.
+  const liveMode = window.MoyeoApi?.live();
+  const serverStateRef = React.useRef(null);
+  const DAY_MAP = { 월: 'MONDAY', 화: 'TUESDAY', 수: 'WEDNESDAY', 목: 'THURSDAY', 금: 'FRIDAY', 토: 'SATURDAY', 일: 'SUNDAY' };
+  const DAY_MAP_REVERSE = Object.fromEntries(Object.entries(DAY_MAP).map(([ko, en]) => [en, ko]));
+  const MODE_MAP = { ALL: 'all', MENTIONS_AND_REPLIES: 'mention', NONE: 'off' };
+  const MODE_MAP_REVERSE = { all: 'ALL', mention: 'MENTIONS_AND_REPLIES', off: 'NONE' };
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    Promise.all([window.MoyeoApi.myProfile(), window.MoyeoApi.notificationSettings()])
+      .then(([profile, settings]) => {
+        if (!active || !profile?.chatNotificationMode) return;
+        serverStateRef.current = { profile, settings };
+        setMode(MODE_MAP[profile.chatNotificationMode] || 'all');
+        setDnd(Boolean(settings?.doNotDisturbEnabled));
+        setOnDays((settings?.doNotDisturbDays || []).map((day) => DAY_MAP_REVERSE[day]).filter(Boolean));
+        if (settings?.doNotDisturbStartTime) setDndTimes({ start: settings.doNotDisturbStartTime, end: settings.doNotDisturbEndTime || '' });
+      })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    return () => { active = false; };
+  }, [liveMode]);
+  const saveServer = async (next) => {
+    const server = serverStateRef.current;
+    if (!server) return;
+    const merged = {
+      mode: next.mode ?? mode,
+      dnd: next.dnd ?? dnd,
+      onDays: next.onDays ?? onDays,
+    };
+    try {
+      await window.MoyeoApi.updateNotificationSettings({
+        chatNotificationMode: MODE_MAP_REVERSE[merged.mode] || 'ALL',
+        recruitmentDeadlineEnabled: server.profile.recruitmentDeadlineEnabled,
+        socialActivityEnabled: server.profile.socialActivityEnabled,
+        marketingEnabled: server.profile.marketingEnabled,
+        doNotDisturbEnabled: merged.dnd,
+        doNotDisturbStartTime: merged.dnd ? (dndTimes.start || null) : null,
+        doNotDisturbEndTime: merged.dnd ? (dndTimes.end || null) : null,
+        doNotDisturbDays: merged.onDays.map((day) => DAY_MAP[day]).filter(Boolean),
+      });
+    } catch (_) { /* 저장 실패는 조용히 무시 — 다음 진입 시 서버 값으로 되돌아온다 */ }
+  };
+  const chooseMode = (nextMode) => { setMode(nextMode); if (liveMode) saveServer({ mode: nextMode }); };
+  const toggleDnd = () => { const next = !dnd; setDnd(next); if (liveMode) saveServer({ dnd: next }); };
+  const toggleDay = (day, on) => {
+    const next = on ? onDays.filter((x) => x !== day) : [...onDays, day];
+    setOnDays(next);
+    if (liveMode) saveServer({ onDays: next });
+  };
 
   const Toggle = ({ on, onClick }) => (
     <button type="button" onClick={onClick} style={{
@@ -249,7 +339,7 @@ function ScreenNotifDetail() {
                 <button
                   key={o.id}
                   type="button"
-                  onClick={() => setMode(o.id)}
+                  onClick={() => chooseMode(o.id)}
                   style={{
                     width: '100%', textAlign: 'left', cursor: 'pointer', fontFamily: T.fontStack,
                     borderRadius: 12, padding: 13, display: 'flex', gap: 11, alignItems: 'flex-start',
@@ -282,7 +372,7 @@ function ScreenNotifDetail() {
                 <div style={{ fontSize: 13.5, fontWeight: 900 }}>방해금지 시간대</div>
                 <div style={{ fontSize: 11.5, color: T.text500, marginTop: 3 }}>이 시간엔 소리·진동 없이 조용히 쌓여요</div>
               </div>
-              <Toggle on={dnd} onClick={() => setDnd((v) => !v)}/>
+              <Toggle on={dnd} onClick={toggleDnd}/>
             </div>
 
             {dnd && (
@@ -290,11 +380,11 @@ function ScreenNotifDetail() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 }}>
                   <div>
                     <AddFieldLabel>시작</AddFieldLabel>
-                    <AddFieldBox icon="clock" value="22:30" chevron={false}/>
+                    <AddFieldBox icon="clock" value={dndTimes.start} chevron={false}/>
                   </div>
                   <div>
                     <AddFieldLabel>종료</AddFieldLabel>
-                    <AddFieldBox icon="clock" value="07:00" chevron={false}/>
+                    <AddFieldBox icon="clock" value={dndTimes.end} chevron={false}/>
                   </div>
                 </div>
                 <div style={{ marginTop: 14 }}>
@@ -306,7 +396,7 @@ function ScreenNotifDetail() {
                         <button
                           key={d}
                           type="button"
-                          onClick={() => setOnDays((v) => (on ? v.filter((x) => x !== d) : [...v, d]))}
+                          onClick={() => toggleDay(d, on)}
                           style={{
                             flex: 1, height: 38, borderRadius: 10, cursor: 'pointer', fontFamily: T.fontStack,
                             fontSize: 12.5, fontWeight: 800,
@@ -338,6 +428,20 @@ function ScreenAccountDelete() {
   const [reason, setReason] = React.useState('');
   const [deleteAcknowledged, setDeleteAcknowledged] = React.useState(false);
   const [confirm, setConfirm] = React.useState(false);
+  const [withdrawing, setWithdrawing] = React.useState(false);
+  // 로그인 상태에서는 DELETE /api/v1/users/me 실호출로 연결한다 (검증 시 실행 금지 — QA 계정 보호).
+  const liveMode = window.MoyeoApi?.live();
+  const confirmWithdraw = async () => {
+    if (!liveMode) { nav.go('login'); return; }
+    if (withdrawing) return;
+    setWithdrawing(true);
+    try {
+      await window.MoyeoAuth.withdraw();
+      nav.go('login', { replace: true });
+    } catch (_) {
+      setWithdrawing(false);
+    }
+  };
   const reasons = [
     '여행을 자주 가지 않게 됐어요',
     '마음에 드는 모집이 없어요',
@@ -352,8 +456,8 @@ function ScreenAccountDelete() {
         <Header title="계정 탈퇴" left center onBack={nav.back}/>
 
         <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 96, overflow: 'auto', padding: '10px 20px 20px' }}>
-          {/* 참여 중인 모임이 있으면 먼저 정리하도록 */}
-          <div style={{ borderRadius: 14, border: `1px solid ${T.warningBg}`, background: T.warningBg, padding: 14 }}>
+          {/* 참여 중인 모임이 있으면 먼저 정리하도록 — 서버 조회로 대체하지 않은 목데이터라 로그인 상태에서는 숨긴다 */}
+          {!liveMode && <div style={{ borderRadius: 14, border: `1px solid ${T.warningBg}`, background: T.warningBg, padding: 14 }}>
             <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
               <Icon name="users" size={17} color={T.warningText}/>
               <div style={{ flex: 1 }}>
@@ -372,7 +476,7 @@ function ScreenAccountDelete() {
                 </div>
               ))}
             </div>
-          </div>
+          </div>}
 
           <div style={{ fontSize: 13, fontWeight: 900, marginTop: 22 }}>떠나는 이유를 알려주세요</div>
           <div style={{ fontSize: 11.5, color: T.text500, marginTop: 5 }}>서비스를 고치는 데만 쓰여요. (필수)</div>
@@ -460,11 +564,13 @@ function ScreenAccountDelete() {
               </div>
               <div style={{ fontSize: 17, fontWeight: 900, lineHeight: '24px' }}>정말 탈퇴할까요?</div>
               <div style={{ fontSize: 12.5, color: T.text500, marginTop: 10, lineHeight: '19px' }}>
-                도감에 모은 친구 <b>12마리</b>와 여행 기록 <b>8개</b>가 사라져요. 30일이 지나면 되돌릴 수 없어요.
+                {liveMode
+                  ? <>도감 친구와 여행 기록이 모두 사라져요. 30일이 지나면 되돌릴 수 없어요.</>
+                  : <>도감에 모은 친구 <b>12마리</b>와 여행 기록 <b>8개</b>가 사라져요. 30일이 지나면 되돌릴 수 없어요.</>}
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
                 <Btn variant="ghost" onClick={() => setConfirm(false)}>취소</Btn>
-                <div style={{ flex: 1 }}><Btn variant="danger" full onClick={() => nav.go('login')}>탈퇴할게요</Btn></div>
+                <div style={{ flex: 1 }}><Btn variant="danger" full disabled={withdrawing} onClick={confirmWithdraw}>{withdrawing ? '탈퇴 처리 중...' : '탈퇴할게요'}</Btn></div>
               </div>
             </div>
           </div>
@@ -542,6 +648,63 @@ function ScreenFeedComments() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   // 기획 23-1과 같이 입력이 비어 있으면 전송은 비활성이다.
   const [comment, setComment] = React.useState('');
+  // 로그인 상태 + 선택된 피드가 있으면 GET feeds/{id}/comments 로 대체하고, 작성은 POST 실연동한다.
+  const liveMode = window.MoyeoApi?.live();
+  const feedId = liveMode ? window.MoyeoApi.selectedFeedId() : null;
+  const [serverComments, setServerComments] = React.useState(null);
+  const loadComments = React.useCallback(() => {
+    if (!liveMode || !feedId) return;
+    window.MoyeoApi.feedComments(feedId)
+      .then((result) => { if (Array.isArray(result)) setServerComments(result); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+  }, [liveMode, feedId]);
+  React.useEffect(() => { loadComments(); }, [loadComments]);
+  const sendServerComment = async () => {
+    if (!comment.trim()) return;
+    try {
+      await window.MoyeoApi.addFeedComment(feedId, comment.trim());
+      setComment('');
+      loadComments();
+    } catch (_) { /* 실패 시 입력 유지 */ }
+  };
+
+  if (serverComments) {
+    const ServerComment = ({ item, reply = false }) => (
+      <div style={{ display: 'flex', gap: 10, padding: reply ? '10px 0 10px 38px' : '12px 0' }}>
+        {item.author?.profileImageUrl
+          ? <img src={item.author.profileImageUrl} alt="" style={{ width: reply ? 26 : 34, height: reply ? 26 : 34, borderRadius: 999, objectFit: 'cover', background: T.primary50 }}/>
+          : <span style={{ width: reply ? 26 : 34, height: reply ? 26 : 34, borderRadius: 999, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="user" size={reply ? 13 : 16} color={T.primary600}/></span>}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12.5, fontWeight: 800 }}>{item.author?.nickname}</span>
+            <span style={{ fontSize: 10.5, color: T.text400 }}>{window.MoyeoApi.formatRelative(item.createdAt)}</span>
+          </div>
+          <div style={{ fontSize: 13, lineHeight: '20px', marginTop: 5 }}>{item.content}</div>
+        </div>
+      </div>
+    );
+    return (
+      <Phone>
+        <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+          <Header title={`댓글 ${serverComments.length}`} left center onBack={nav.back}/>
+          <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 78, overflow: 'auto', padding: '0 18px 16px' }}>
+            {serverComments.length === 0 && (
+              <div style={{ padding: '56px 0', textAlign: 'center', color: T.text500, fontSize: 13 }}>아직 댓글이 없어요. 첫 댓글을 남겨보세요!</div>
+            )}
+            {serverComments.map((item) => (
+              <div key={item.commentId} style={{ borderBottom: `1px solid ${RF.softLine}` }}>
+                <ServerComment item={item}/>
+                {(item.replies || []).map((reply) => <ServerComment key={reply.commentId} item={reply} reply/>)}
+              </div>
+            ))}
+          </div>
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 14px 24px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Composer value={comment} onChange={setComment} onSend={sendServerComment} placeholder="댓글을 남겨주세요" height={40} buttonSize={36} iconSize={16} inputLabel="댓글 입력" testId="feed-comments-composer"/>
+          </div>
+        </div>
+      </Phone>
+    );
+  }
   const comments = [
     { k: 'rabbit', n: '엉뚱한 토끼 1457', t: '2시간 전', c: '이날 진짜 좋았어요! 주산지 물안개 사진 저도 올릴게요 📷', likes: 4, mate: true, replies: [
       { k: 'bear', n: '숲속여행자', t: '1시간 전', c: '토끼님 사진이 훨씬 잘 나왔어요 ㅎㅎ', author: true },

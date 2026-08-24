@@ -77,26 +77,31 @@
   <script src="https://t1.kakaocdn.net/kakao_js_sdk/2.8.1/kakao.min.js" crossorigin="anonymous"></script>
   <script src="src/observability.js"></script>
   <!-- 카카오 지도 SDK 는 이 로더가 화면에서 필요할 때만 주입한다 (정적 <script> 금지 — 초기 로딩·캡처 영향 최소화) -->
-  <script src="src/kakao-map.js?v=20260823"></script>
+  <script src="src/kakao-map.js?v=20260824"></script>
 
+  <!-- 클라이언트 전용 상태(최근 검색어 · 테마 3상태 · 앱 버전). tokens.jsx 가 첫 페인트 전에 테마를 적용하므로 먼저 둔다. -->
+  <script src="src/client-prefs.js?v=20260824"></script>
   <script type="text/babel" src="src/tokens.jsx"></script>
   <script type="text/babel" src="src/shared.jsx"></script>
   <script type="text/babel" src="src/cached-image.jsx?v=20260804"></script>
   <script src="src/push-notifications.js?v=20260817d"></script>
-  <script type="text/babel" src="src/auth-api.jsx?v=20260817d"></script>
-  <script src="src/tourism-api.js?v=20260817d"></script>
+  <script type="text/babel" src="src/auth-api.jsx?v=20260823"></script>
+  <script src="src/tourism-api.js?v=20260824"></script>
+  <script src="src/moyeo-api.js?v=20260824b"></script>
+  <script src="src/oss-licenses.js?v=20260824"></script>
   <script type="text/babel" src="src/screens-onboarding.jsx?v=20260817d"></script>
   <script type="text/babel" src="src/screens-home.jsx"></script>
   <script type="text/babel" src="src/screens-chat.jsx"></script>
   <script type="text/babel" src="src/screens-system.jsx"></script>
-  <script type="text/babel" src="src/screens-extra.jsx?v=20260817b"></script>
-  <script type="text/babel" src="src/screens-extra2.jsx?v=20260817d"></script>
-  <script type="text/babel" src="src/screens-refined.jsx?v=20260817b"></script>
-  <script type="text/babel" src="src/screens-additions.jsx?v=20260817b"></script>
-  <script type="text/babel" src="src/screens-additions2.jsx?v=20260817b"></script>
-  <script type="text/babel" src="src/screens-additions3.jsx?v=20260817"></script>
-  <script type="text/babel" src="src/screens-additions4.jsx?v=20260817d"></script>
-  <script type="text/babel" src="src/prototype.jsx?v=20260817d"></script>
-  <script type="text/babel" src="src/mobile-app.jsx?v=20260817d"></script>
+  <script type="text/babel" src="src/screens-extra.jsx?v=20260824c"></script>
+  <script type="text/babel" src="src/screens-extra2.jsx?v=20260824c"></script>
+  <script type="text/babel" src="src/screens-refined.jsx?v=20260824c"></script>
+  <script type="text/babel" src="src/screens-additions.jsx?v=20260824b"></script>
+  <script type="text/babel" src="src/screens-additions2.jsx?v=20260824"></script>
+  <script type="text/babel" src="src/screens-additions3.jsx?v=20260824"></script>
+  <script type="text/babel" src="src/screens-additions4.jsx?v=20260824"></script>
+  <script type="text/babel" src="src/screens-additions5.jsx?v=20260824"></script>
+  <script type="text/babel" src="src/prototype.jsx?v=20260824c"></script>
+  <script type="text/babel" src="src/mobile-app.jsx?v=20260824c"></script>
 </body>
 </html>

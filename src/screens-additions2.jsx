@@ -236,6 +236,35 @@ function ScreenChatMenu() {
 // 읽히도록 배경으로도 재사용한다 (changeLog14)
 function ChatMenuBody() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 참여 중인 방이면 GET {id} 상세 · {id}/members · {id}/notices · 코스로 대체한다 (비참여자는 403 → 목데이터 유지).
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  const [room, setRoom] = React.useState(null);
+  const [memberList, setMemberList] = React.useState(null);
+  const [notices, setNotices] = React.useState(null);
+  const [course, setCourse] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode || !roomId) return undefined;
+    let active = true;
+    window.MoyeoApi.roomDetail(roomId)
+      .then((result) => { if (active && result?.roomId != null) setRoom(result); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    window.MoyeoApi.roomMembers(roomId)
+      .then((result) => { if (active && Array.isArray(result?.members)) setMemberList(result); })
+      .catch(() => { /* 403(미참여) 이면 목데이터 유지 */ });
+    window.MoyeoApi.roomNotices(roomId)
+      .then((result) => { if (active && Array.isArray(result?.pinnedNotices)) setNotices(result); })
+      .catch(() => { /* 403(미참여) 이면 공지 수를 숨긴다 */ });
+    window.MoyeoApi.roomCourse(roomId)
+      .then((result) => { if (active && result?.course) setCourse(result.course); })
+      .catch(() => { /* 코스가 없으면 코스 줄을 숨긴다 */ });
+    return () => { active = false; };
+  }, [liveMode, roomId]);
+  const serverMode = Boolean(room && memberList);
+  const openMemberActions = (member) => {
+    window.MoyeoApi.selectMember({ userId: member.userId, nickname: member.nickname, profileImageUrl: member.profileImageUrl });
+    nav.go('member-actions');
+  };
   const members = [
     { k: 'bear', n: '숲속여행자', role: '호스트' },
     { k: 'deer', n: '따스한 사슴 3492', role: '나' },
@@ -259,6 +288,82 @@ function ChatMenuBody() {
       {right || <Icon name="arrow" size={15} color={T.text400}/>}
     </button>
   );
+
+  if (serverMode) {
+    const pinnedCount = notices?.pinnedNotices?.length || 0;
+    const noticeCount = pinnedCount + (notices?.unpinnedNotices?.length || 0);
+    const dayTripTime = room.tripType === 'DAY_TRIP' && room.dayTripStartTime
+      ? `${window.MoyeoApi.formatTime(room.dayTripStartTime)} – ${window.MoyeoApi.formatTime(room.dayTripEndTime)}`
+      : '';
+    const meetingTime = room.meetingDateTime ? window.MoyeoApi.formatTime(String(room.meetingDateTime).split('T')[1]) : '';
+    const conditions = [
+      room.participationFee != null ? (Number(room.participationFee) > 0 ? `1인 ${Number(room.participationFee).toLocaleString()}원` : '참가비 없음') : null,
+      room.recruitmentDDay != null ? `마감 D-${room.recruitmentDDay}` : null,
+      room.minimumAge != null && room.maximumAge != null ? `${room.minimumAge}~${room.maximumAge}세` : null,
+      { NONE: '성별 무관', MALE_ONLY: '남성만', FEMALE_ONLY: '여성만' }[room.genderRestriction] || null,
+    ].filter(Boolean);
+    return (
+      <div data-testid="chat-menu-live" style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+        <Header title="모임 정보" left center onBack={nav.back}/>
+        <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 0, overflow: 'auto', paddingBottom: 24 }}>
+          <div style={{ padding: '4px 20px 16px', borderBottom: `8px solid ${T.bgSubtle}` }}>
+            <div style={{ fontSize: 15, fontWeight: 900 }}>{room.title}</div>
+            {course && <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, fontSize: 12, color: T.text500 }}><Icon name="map" size={13} color={T.text500}/><b>{course.title}</b></div>}
+            <div style={{ fontSize: 12, color: T.text500, marginTop: 5, fontVariantNumeric: 'tabular-nums' }}>
+              {window.MoyeoApi.formatDate(room.startDate)}{room.endDate ? ` - ${window.MoyeoApi.formatDate(room.endDate)}` : ''} {window.MoyeoApi.tripTypeLabel(room)}{dayTripTime ? ` · ${dayTripTime}` : ''}
+            </div>
+            {room.meetingDetails && (
+              <div style={{ fontSize: 12, color: T.text500, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{meetingTime ? `${meetingTime} ` : ''}{room.meetingDetails} 집합</div>
+            )}
+            {conditions.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                {conditions.map((condition) => <Chip key={condition} variant={condition.startsWith('마감') ? 'accent' : 'neutral'}>{condition}</Chip>)}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <Btn variant="secondary" style={{ height: 40, flex: 1 }} onClick={() => nav.go('detail')}>모집 상세</Btn>
+              {course && <Btn variant="secondary" style={{ height: 40, flex: 1 }} onClick={() => nav.go('course-edit')}>여행 경로</Btn>}
+            </div>
+          </div>
+
+          <div style={{ padding: '16px 20px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ fontSize: 13, fontWeight: 900 }}>동행자 <span style={{ color: T.text400, fontVariantNumeric: 'tabular-nums' }}>{memberList.participantCount}</span></div>
+            <span style={{ fontSize: 11.5, color: T.text500 }}>최대 {memberList.maxParticipants}명{memberList.waitlistCount ? ` · 대기 ${memberList.waitlistCount}명` : ''}</span>
+          </div>
+          <div style={{ padding: '0 20px' }}>
+            {memberList.members.map((member) => (
+              <div key={member.userId} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 0' }}>
+                {member.profileImageUrl
+                  ? <img src={member.profileImageUrl} alt="" style={{ width: 38, height: 38, borderRadius: 999, objectFit: 'cover', background: T.primary50 }}/>
+                  : <span style={{ width: 38, height: 38, borderRadius: 999, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={19} color={T.primary600}/></span>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{member.nickname}</div>
+                  {/* 서버가 주는 값은 완료 여행 횟수뿐이다 — 매너 점수는 없으므로 표시하지 않는다 */}
+                  <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>여행 {member.completedTripCount}회</div>
+                </div>
+                {member.host
+                  ? <Chip variant="soft">호스트</Chip>
+                  : member.me
+                    ? <Chip variant="neutral">나</Chip>
+                    : <IconButton name="more" size={18} onClick={() => openMemberActions(member)}/>}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ height: 8, background: T.bgSubtle, margin: '16px 0 8px' }}/>
+
+          <Row icon="note" label="공지" sub={notices ? `고정 ${pinnedCount}개 · 전체 ${noticeCount}개` : null} onClick={() => nav.go('notice-history')}/>
+          <Row icon="bell" label="알림 설정" sub="이 모임의 알림만 끄기" onClick={() => nav.go('notif-detail')}/>
+          {/* 대상이 정해지지 않은 신고 진입이라 이전에 고른 멤버를 지운다 — 엉뚱한 사람이 차단되면 안 된다 */}
+          <Row icon="flag" label="신고 · 차단" sub="부적절한 대화나 멤버를 신고해요" onClick={() => { window.MoyeoApi.selectMember(null); nav.go('report'); }}/>
+
+          <div style={{ height: 8, background: T.bgSubtle, margin: '8px 0' }}/>
+
+          <Row icon="close" label="채팅방 나가기" sub="나가면 대기 중인 다음 신청자가 자동으로 합류해요" danger onClick={() => nav.go('leave-alert')}/>
+        </div>
+      </div>
+    );
+  }
 
   return (
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
@@ -323,6 +428,24 @@ function ChatMenuBody() {
 // 내보내기는 호스트에게만 보인다. 내보내기를 고르면 20-1b 사유 입력 시트로 이어진다. (changeLog14)
 function ScreenMemberActions() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 20-1에서 고른 멤버가 있으면 그 멤버에게 POST users/me/friend-requests/{userId} 를 보낸다.
+  const liveMode = window.MoyeoApi?.live();
+  const member = liveMode ? window.MoyeoApi.selectedMember() : null;
+  const [requestState, setRequestState] = React.useState('idle');
+  const [requestError, setRequestError] = React.useState('');
+  const sendFriendRequest = async () => {
+    if (!member?.userId || requestState !== 'idle') return;
+    setRequestState('sending');
+    setRequestError('');
+    try {
+      await window.MoyeoApi.sendFriendRequest(member.userId);
+      setRequestState('sent');
+    } catch (error) {
+      setRequestState('idle');
+      setRequestError(error?.message || '친구 요청을 보내지 못했어요.');
+    }
+  };
+  const friendLabel = requestState === 'sent' ? '친구 요청을 보냈어요' : requestState === 'sending' ? '보내는 중...' : '친구 요청하기';
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
@@ -332,18 +455,24 @@ function ScreenMemberActions() {
         <div data-testid="member-actions-sheet" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3 }}>
           <div style={{ width: 36, height: 4, borderRadius: 999, background: T.line300, margin: '0 auto 14px' }}/>
           <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '4px 0 12px' }}>
-            <AnimalAvatar kind="raccoon" size={44} bg={T.primary50}/>
+            {member
+              ? (member.profileImageUrl
+                ? <img src={member.profileImageUrl} alt="" style={{ width: 44, height: 44, borderRadius: 999, objectFit: 'cover', background: T.primary50 }}/>
+                : <span style={{ width: 44, height: 44, borderRadius: 999, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={22} color={T.primary600}/></span>)
+              : <AnimalAvatar kind="raccoon" size={44} bg={T.primary50}/>}
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14.5, fontWeight: 700 }}>호기심 많은 너구리 9027</div>
-              <div style={{ fontSize: 11.5, color: T.text500, marginTop: 2 }}>매너 4.8 · 여행 8회 · 어제 합류</div>
+              <div style={{ fontSize: 14.5, fontWeight: 700 }}>{member ? member.nickname : '호기심 많은 너구리 9027'}</div>
+              {/* 서버 멤버 응답에는 매너 점수·합류 시각이 없어 목데이터에서만 보조 줄을 둔다 */}
+              {!member && <div style={{ fontSize: 11.5, color: T.text500, marginTop: 2 }}>매너 4.8 · 여행 8회 · 어제 합류</div>}
             </div>
           </div>
           <div style={{ height: 1, background: T.line100 }}/>
-          <button type="button" data-testid="member-actions-friend" style={{ width: '100%', height: 54, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 11, fontFamily: T.fontStack, cursor: 'pointer', padding: 0 }}>
+          <button type="button" data-testid="member-actions-friend" disabled={requestState !== 'idle'} onClick={member ? sendFriendRequest : undefined} style={{ width: '100%', height: 54, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 11, fontFamily: T.fontStack, cursor: requestState === 'idle' ? 'pointer' : 'default', padding: 0 }}>
             <Icon name="user" size={19} color={T.text700}/>
-            <span style={{ flex: 1, textAlign: 'left', fontSize: 14, fontWeight: 600, color: T.text900 }}>친구 요청하기</span>
-            <Icon name="arrow" size={15} color={T.text400}/>
+            <span style={{ flex: 1, textAlign: 'left', fontSize: 14, fontWeight: 600, color: requestState === 'sent' ? T.primary600 : T.text900 }}>{friendLabel}</span>
+            {requestState === 'idle' && <Icon name="arrow" size={15} color={T.text400}/>}
           </button>
+          {requestError && <div role="alert" style={{ fontSize: 11.5, color: T.danger, paddingBottom: 8 }}>{requestError}</div>}
           <div style={{ height: 1, background: T.line100 }}/>
           {/* 호스트에게만 보이는 행 — 멤버 시점 시안에서는 이 행이 없다 */}
           <button type="button" data-testid="member-actions-remove" onClick={() => nav.go('member-remove')} style={{ width: '100%', height: 54, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 11, fontFamily: T.fontStack, cursor: 'pointer', padding: 0 }}>
@@ -352,6 +481,18 @@ function ScreenMemberActions() {
             <Icon name="arrow" size={15} color={T.text400}/>
           </button>
           <div style={{ fontSize: 11, color: T.text400, margin: '6px 0 14px' }}>내보내기는 호스트에게만 보여요.</div>
+          {/* 차단(POST users/me/blocks/{userId})은 대상이 확실한 이 경로에서만 열어둔다 */}
+          {member && (
+            <>
+              <div style={{ height: 1, background: T.line100 }}/>
+              <button type="button" data-testid="member-actions-report" onClick={() => nav.go('report')} style={{ width: '100%', height: 54, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 11, fontFamily: T.fontStack, cursor: 'pointer', padding: 0 }}>
+                <Icon name="flag" size={19} color={T.text700}/>
+                <span style={{ flex: 1, textAlign: 'left', fontSize: 14, fontWeight: 600, color: T.text900 }}>신고 · 차단</span>
+                <Icon name="arrow" size={15} color={T.text400}/>
+              </button>
+              <div style={{ height: 12 }}/>
+            </>
+          )}
           <Btn variant="secondary" full onClick={() => nav.back()}>닫기</Btn>
         </div>
       </div>
@@ -481,6 +622,141 @@ function ScreenChatAttach() {
 function ScreenFriends() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const [tab, setTab] = React.useState('mine');
+  // 로그인 상태: GET friends + friend-requests/received·sent 로 대체, 수락/거절/취소 실연동.
+  const liveMode = window.MoyeoApi?.live();
+  const [serverData, setServerData] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    Promise.all([
+      window.MoyeoApi.friends(),
+      window.MoyeoApi.receivedFriendRequests(),
+      window.MoyeoApi.sentFriendRequests(),
+    ])
+      .then(([friendsResult, receivedResult, sentResult]) => {
+        if (!active || !Array.isArray(friendsResult?.friends)) return;
+        setServerData({
+          mine: friendsResult.friends,
+          received: receivedResult?.requests || [],
+          sent: sentResult?.requests || [],
+        });
+      })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    return () => { active = false; };
+  }, [liveMode]);
+  const answerRequest = async (requestId, accept) => {
+    try {
+      if (accept) await window.MoyeoApi.acceptFriendRequest(requestId);
+      else await window.MoyeoApi.rejectFriendRequest(requestId);
+      setServerData((current) => (current ? { ...current, received: current.received.filter((item) => item.requestId !== requestId) } : current));
+      if (accept) window.MoyeoApi.friends().then((result) => {
+        setServerData((current) => (current ? { ...current, mine: result?.friends || current.mine } : current));
+      }).catch(() => {});
+    } catch (_) { /* 실패 시 목록 유지 */ }
+  };
+  const cancelSent = async (requestId) => {
+    try {
+      await window.MoyeoApi.cancelFriendRequest(requestId);
+      setServerData((current) => (current ? { ...current, sent: current.sent.filter((item) => item.requestId !== requestId) } : current));
+    } catch (_) { /* 실패 시 목록 유지 */ }
+  };
+  // DELETE users/me/friends/{friendId} — 경로 변수는 friendshipId 가 아니라 상대 userId 다 (스펙 설명 기준).
+  const [confirmRemoveId, setConfirmRemoveId] = React.useState(null);
+  const removeFriend = async (userId) => {
+    try {
+      await window.MoyeoApi.removeFriend(userId);
+      setServerData((current) => (current ? { ...current, mine: current.mine.filter((item) => item.user?.userId !== userId) } : current));
+    } catch (_) { /* 실패 시 목록 유지 */ }
+    setConfirmRemoveId(null);
+  };
+  const ServerAvatar = ({ src, size = 44 }) => (
+    src
+      ? <img src={src} alt="" style={{ width: size, height: size, borderRadius: 999, objectFit: 'cover', background: T.primary50 }}/>
+      : <span style={{ width: size, height: size, borderRadius: 999, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={Math.round(size * 0.5)} color={T.primary600}/></span>
+  );
+
+  if (serverData) {
+    const list = serverData[tab] || [];
+    return (
+      <Phone>
+        <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+          <Header title="친구 관리" left center onBack={nav.back} right={<IconButton name="search"/>}/>
+          <div style={{ padding: '0 20px', display: 'flex', gap: 20, borderBottom: `1px solid ${RF.softLine}` }}>
+            {[
+              { id: 'mine', label: '내 친구', count: serverData.mine.length },
+              { id: 'received', label: '받은 신청', count: serverData.received.length },
+              { id: 'sent', label: '보낸 신청', count: serverData.sent.length },
+            ].map((t) => {
+              const on = t.id === tab;
+              return (
+                <button key={t.id} type="button" onClick={() => setTab(t.id)} style={{ padding: '12px 0', marginBottom: -1, border: 'none', background: 'transparent', cursor: 'pointer', borderBottom: on ? `2px solid ${T.primary500}` : '2px solid transparent', fontFamily: T.fontStack }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 800, color: on ? T.primary600 : T.text500 }}>{t.label}</span>
+                  <span style={{ fontSize: 12, color: on ? T.primary500 : T.text400, marginLeft: 4, fontVariantNumeric: 'tabular-nums' }}>{t.count}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ position: 'absolute', top: 126, left: 0, right: 0, bottom: 0, overflow: 'auto', padding: '6px 0 24px' }}>
+            {tab === 'received' && serverData.received.length > 0 && (
+              <div style={{ padding: '10px 20px 4px', fontSize: 11.5, color: T.text500 }}>거절해도 상대방에게는 알려지지 않아요.</div>
+            )}
+            {list.length === 0 && (
+              <div style={{ padding: '48px 20px', textAlign: 'center', color: T.text500, fontSize: 13 }}>
+                {tab === 'mine' ? '아직 친구가 없어요. 여행에서 만난 친구에게 신청해보세요!' : tab === 'received' ? '받은 친구 신청이 없어요.' : '보낸 친구 신청이 없어요.'}
+              </div>
+            )}
+            {tab === 'mine' && serverData.mine.map((item) => (
+              <div key={item.friendshipId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px' }}>
+                <ServerAvatar src={item.user?.profileImageUrl}/>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.user?.nickname}</div>
+                  {item.lastActive && <div style={{ fontSize: 11.5, color: T.text500, marginTop: 3 }}>{item.lastActive} 접속</div>}
+                </div>
+                {confirmRemoveId === item.friendshipId
+                  ? (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button type="button" onClick={() => setConfirmRemoveId(null)} style={{ height: 32, padding: '0 10px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontSize: 12, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>취소</button>
+                      <button type="button" data-testid={`friend-remove-confirm-${item.friendshipId}`} onClick={() => removeFriend(item.user?.userId)} style={{ height: 32, padding: '0 12px', borderRadius: 10, border: 'none', background: T.danger, color: '#fff', fontSize: 12, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>친구 삭제</button>
+                    </div>
+                  )
+                  : <button type="button" aria-label={`${item.user?.nickname} 친구 삭제`} onClick={() => setConfirmRemoveId(item.friendshipId)} style={{ height: 32, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontSize: 12, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>삭제</button>}
+              </div>
+            ))}
+            {tab === 'received' && serverData.received.map((item) => (
+              <div key={item.requestId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px' }}>
+                <ServerAvatar src={item.user?.profileImageUrl}/>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.user?.nickname}</div>
+                  <div style={{ fontSize: 11.5, color: T.text500, marginTop: 3 }}>{window.MoyeoApi.formatRelative(item.requestedAt)} 신청</div>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button type="button" onClick={() => answerRequest(item.requestId, false)} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontSize: 12, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>거절</button>
+                  <button type="button" onClick={() => answerRequest(item.requestId, true)} style={{ height: 34, padding: '0 14px', borderRadius: 10, border: 'none', background: T.primary500, color: '#fff', fontSize: 12, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>수락</button>
+                </div>
+              </div>
+            ))}
+            {tab === 'sent' && serverData.sent.map((item) => (
+              <div key={item.requestId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px' }}>
+                <ServerAvatar src={item.user?.profileImageUrl}/>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.user?.nickname}</div>
+                  <div style={{ fontSize: 11.5, color: T.text500, marginTop: 3 }}>{window.MoyeoApi.formatRelative(item.requestedAt)} 신청 · 수락 대기 중</div>
+                </div>
+                <button type="button" onClick={() => cancelSent(item.requestId)} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontSize: 12, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>신청 취소</button>
+              </div>
+            ))}
+            <div style={{ margin: '18px 20px 0', padding: 13, borderRadius: 12, background: T.primary50, border: `1px solid ${T.primary100}`, display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+              <Icon name="bookmark" size={16} color={T.primary700}/>
+              <div style={{ flex: 1, fontSize: 11.5, lineHeight: '17px', color: T.primary700 }}>
+                함께 여행한 친구는 <b>친구가 아니어도 도감에 남아요.</b> 친구 신청은 피드를 구독하고 싶을 때만 하면 돼요.
+                <span onClick={() => nav.go('dex')} style={{ display: 'block', marginTop: 6, fontWeight: 800, cursor: 'pointer' }}>도감 열어보기 →</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Phone>
+    );
+  }
   const mine = [
     { k: 'bear', n: '우직한 곰 7821', sub: '함께 여행 3회 · 어제 접속' },
     { k: 'rabbit', n: '엉뚱한 토끼 1457', sub: '함께 여행 1회 · 3일 전 접속' },
@@ -662,6 +938,24 @@ function ScreenReportSheet() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const [reason, setReason] = React.useState('harass');
   const [block, setBlock] = React.useState(true);
+  // 신고 접수 API 는 서버에 없다. 차단만 POST users/me/blocks/{userId} 로 실제 반영한다.
+  const liveMode = window.MoyeoApi?.live();
+  const member = liveMode ? window.MoyeoApi.selectedMember() : null;
+  const [blocking, setBlocking] = React.useState(false);
+  const [blockError, setBlockError] = React.useState('');
+  const submit = async () => {
+    if (!member?.userId || !block) { nav.back(); return; }
+    setBlocking(true);
+    setBlockError('');
+    try {
+      await window.MoyeoApi.blockUser(member.userId);
+      setBlocking(false);
+      nav.back();
+    } catch (error) {
+      setBlocking(false);
+      setBlockError(error?.message || '차단하지 못했어요. 잠시 후 다시 시도해주세요.');
+    }
+  };
   const reasons = [
     { id: 'spam', label: '스팸 · 도박' },
     { id: 'harass', label: '성희롱 · 불쾌한 언행' },
@@ -744,9 +1038,15 @@ function ScreenReportSheet() {
             </div>
           )}
 
+          {member && (
+            <div style={{ fontSize: 11, color: T.text500, marginTop: 7, lineHeight: '16px' }}>
+              {member.nickname} 님을 차단해요. 신고 접수는 아직 서버에서 받지 않아 차단만 반영돼요.
+            </div>
+          )}
+          {blockError && <div role="alert" style={{ fontSize: 11.5, color: T.danger, marginTop: 8 }}>{blockError}</div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
             <Btn variant="ghost" onClick={nav.back}>취소</Btn>
-            <div style={{ flex: 1 }}><Btn variant="danger" full onClick={nav.back}>신고하기</Btn></div>
+            <div style={{ flex: 1 }}><Btn variant="danger" full disabled={blocking} onClick={submit}>{blocking ? '차단 중...' : '신고하기'}</Btn></div>
           </div>
           <div style={{ fontSize: 11, color: T.text400, textAlign: 'center', marginTop: 10 }}>24시간 이내에 검토해 드릴게요.</div>
         </div>
@@ -758,6 +1058,56 @@ function ScreenReportSheet() {
 // ───────── 29-2 · 차단한 사용자 ─────────
 function ScreenBlocked() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 로그인 상태: GET users/me/blocks 로 대체, 차단 해제는 DELETE blocks/{userId} 실연동.
+  const liveMode = window.MoyeoApi?.live();
+  const [serverBlocked, setServerBlocked] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.blocks()
+      .then((result) => { if (active && Array.isArray(result)) setServerBlocked(result); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    return () => { active = false; };
+  }, [liveMode]);
+  const unblock = async (userId) => {
+    try {
+      await window.MoyeoApi.unblockUser(userId);
+      setServerBlocked((current) => (current || []).filter((item) => item.userId !== userId));
+    } catch (_) { /* 실패 시 목록 유지 */ }
+  };
+
+  if (serverBlocked) {
+    return (
+      <Phone>
+        <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+          <Header title="차단한 사용자" left center onBack={nav.back}/>
+          <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 0, overflow: 'auto', paddingBottom: 24 }}>
+            <div style={{ margin: '10px 20px 14px', padding: 13, borderRadius: 12, background: T.bgSubtle, border: `1px solid ${RF.softLine}`, fontSize: 11.5, lineHeight: '17px', color: T.text700 }}>
+              차단하면 그 사람이 <b>만들었거나 참여한 모집</b>이 홈·탐색·코스 상세에서 모두 숨겨져요. 상대방에게는 알려지지 않아요.
+            </div>
+            {serverBlocked.length === 0 && (
+              <div style={{ padding: '48px 20px', textAlign: 'center', color: T.text500, fontSize: 13 }}>차단한 사용자가 없어요.</div>
+            )}
+            {serverBlocked.map((item) => (
+              <div key={item.userId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px' }}>
+                {item.profileImageUrl
+                  ? <img src={item.profileImageUrl} alt="" style={{ width: 42, height: 42, borderRadius: 999, objectFit: 'cover', background: T.bgSubtle }}/>
+                  : <span style={{ width: 42, height: 42, borderRadius: 999, background: T.bgSubtle, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={20} color={T.text500}/></span>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 800 }}>{item.nickname}</div>
+                  <div style={{ fontSize: 11, color: T.text500, marginTop: 3 }}>{window.MoyeoApi.formatRelative(item.blockedAt)} 차단</div>
+                </div>
+                <button type="button" onClick={() => unblock(item.userId)} style={{ height: 32, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontSize: 12, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>차단 해제</button>
+              </div>
+            ))}
+            <div style={{ margin: '16px 20px 0', fontSize: 11, color: T.text400, lineHeight: '17px' }}>
+              차단을 해제하면 서로의 모집·피드를 다시 볼 수 있어요. 해제 전에 한 번 더 확인해요.
+            </div>
+          </div>
+        </div>
+      </Phone>
+    );
+  }
   const blocked = [
     { k: 'raccoon', n: '말많은 너구리 7791', at: '2026.07.28 차단', why: '채팅방에서 신고와 함께 차단' },
     { k: 'crane', n: '청아한 두루미 2024', at: '2026.06.02 차단', why: '프로필에서 차단' },

@@ -552,6 +552,65 @@ function ScreenCustomCourse() {
 // ───────── 20-2 · 공지 이력 ─────────
 function ScreenNoticeHistory() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 참여 중인 방이면 GET {id}/notices 로 대체하고, 호스트면 POST {id}/notices 로 등록한다
+  // (고정 토글은 PUT {id}/notices/{noticeId}). 비참여자는 403 → 목데이터 유지.
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  const [serverNotices, setServerNotices] = React.useState(null);
+  const [serverRoom, setServerRoom] = React.useState(null);
+  const [serverCourse, setServerCourse] = React.useState(null);
+  const [isHost, setIsHost] = React.useState(false);
+  const [noticeBusy, setNoticeBusy] = React.useState(false);
+  const [noticeError, setNoticeError] = React.useState('');
+  const reloadNotices = React.useCallback(async () => {
+    const result = await window.MoyeoApi.roomNotices(roomId);
+    if (Array.isArray(result?.pinnedNotices)) setServerNotices(result);
+  }, [roomId]);
+  React.useEffect(() => {
+    if (!liveMode || !roomId) return undefined;
+    let active = true;
+    window.MoyeoApi.roomNotices(roomId)
+      .then((result) => { if (active && Array.isArray(result?.pinnedNotices)) setServerNotices(result); })
+      .catch(() => { /* 403(미참여) 이면 목데이터 유지 */ });
+    window.MoyeoApi.roomDetail(roomId)
+      .then((result) => { if (active && result?.roomId != null) setServerRoom(result); })
+      .catch(() => {});
+    window.MoyeoApi.roomCourse(roomId)
+      .then((result) => { if (active && result?.course) setServerCourse(result.course); })
+      .catch(() => {});
+    // 공지 작성은 호스트만 — members 응답의 host && me 로 판정한다.
+    window.MoyeoApi.roomMembers(roomId)
+      .then((result) => { if (active) setIsHost(Boolean((result?.members || []).some((member) => member.me && member.host))); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode, roomId]);
+  const publishServerNotice = async (content, pinned) => {
+    if (!content.trim() || noticeBusy) return;
+    setNoticeBusy(true);
+    setNoticeError('');
+    try {
+      await window.MoyeoApi.createRoomNotice(roomId, content.trim(), pinned);
+      await reloadNotices();
+      setNoticeBusy(false);
+      return true;
+    } catch (error) {
+      setNoticeError(error?.message || '공지를 올리지 못했어요.');
+      setNoticeBusy(false);
+      return false;
+    }
+  };
+  const toggleServerPin = async (notice) => {
+    if (noticeBusy) return;
+    setNoticeBusy(true);
+    setNoticeError('');
+    try {
+      await window.MoyeoApi.updateRoomNotice(roomId, notice.noticeId, { pinned: !notice.pinned });
+      await reloadNotices();
+    } catch (error) {
+      setNoticeError(error?.message || '고정 상태를 바꾸지 못했어요.');
+    }
+    setNoticeBusy(false);
+  };
   const [composing, setComposing] = React.useState(false);
   const [title, setTitle] = React.useState('');
   const [body, setBody] = React.useState('');
@@ -624,6 +683,83 @@ function ScreenNoticeHistory() {
       </div>
     </div>
   );
+
+  // 서버 공지는 제목이 없다(content 한 필드) — 제목을 지어내지 않고 본문·작성자·시각만 보여준다.
+  const ServerCard = ({ notice, dim = false }) => (
+    <div style={{
+      borderRadius: 14, padding: 14,
+      background: dim ? T.bgSubtle : T.primary50,
+      border: `1px solid ${dim ? RF.softLine : T.primary100}`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Icon name="note" size={14} color={dim ? T.text500 : T.primary700}/>
+        <div style={{ flex: 1 }}/>
+        {dim ? <Chip variant="neutral">고정 해제됨</Chip> : <Chip variant="soft">📌 고정</Chip>}
+      </div>
+      <div style={{ fontSize: 13, lineHeight: '20px', color: T.text900, marginTop: 9, whiteSpace: 'pre-line' }}>{notice.content}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 11, color: T.text500 }}>
+        <span>{notice.authorNickname}</span>
+        <span style={{ color: T.line300 }}>·</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{window.MoyeoApi.formatDateTime(notice.createdAt)}</span>
+        <div style={{ flex: 1 }}/>
+        {isHost && (
+          <button type="button" disabled={noticeBusy} onClick={() => toggleServerPin(notice)} style={{ border: 0, background: 'transparent', padding: 0, color: T.primary600, fontWeight: 800, fontSize: 11, fontFamily: T.fontStack, cursor: noticeBusy ? 'default' : 'pointer' }}>{dim ? '다시 고정' : '고정 해제'}</button>
+        )}
+      </div>
+    </div>
+  );
+
+  if (serverNotices) {
+    const serverPinned = serverNotices.pinnedNotices || [];
+    const serverPast = serverNotices.unpinnedNotices || [];
+    return (
+      <Phone>
+        <div data-testid="notice-history-live" style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+          <Header title="공지 이력" left center onBack={nav.back}/>
+          <div style={{ padding: '0 20px 12px', borderBottom: `1px solid ${RF.softLine}` }}>
+            <div style={{ fontSize: 13, fontWeight: 900 }}>{serverCourse?.title || serverRoom?.title || '공지'}</div>
+            <div style={{ fontSize: 11, color: T.text500, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>공지 {serverPinned.length + serverPast.length}개 · 고정 {serverPinned.length} / 최대 3</div>
+          </div>
+          <div style={{ position: 'absolute', top: 126, left: 0, right: 0, bottom: isHost ? 96 : 0, overflow: 'auto', padding: '16px 20px 24px' }}>
+            {noticeError && <div role="alert" style={{ marginBottom: 12, fontSize: 12, color: T.danger }}>{noticeError}</div>}
+            {serverPinned.length === 0 && serverPast.length === 0 && (
+              <div style={{ padding: '48px 0', textAlign: 'center', fontSize: 13, color: T.text500 }}>아직 등록된 공지가 없어요.</div>
+            )}
+            {serverPinned.length > 0 && <div style={{ fontSize: 12, fontWeight: 900, color: T.text500 }}>상단 고정 중</div>}
+            <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
+              {serverPinned.map((notice) => <ServerCard key={notice.noticeId} notice={notice}/>)}
+            </div>
+            {serverPast.length > 0 && <div style={{ fontSize: 12, fontWeight: 900, color: T.text500, marginTop: 24 }}>지난 공지</div>}
+            <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
+              {serverPast.map((notice) => <ServerCard key={notice.noticeId} notice={notice} dim/>)}
+            </div>
+            <div style={{ fontSize: 11, color: T.text400, lineHeight: '17px', marginTop: 16 }}>
+              공지는 호스트만 올릴 수 있고, 고정은 최대 3개까지예요. 고정을 해제해도 이력에는 그대로 남아요.
+            </div>
+          </div>
+          {isHost && (
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}` }}>
+              <Btn variant="primary" full icon="plus" onClick={() => setComposing(true)}>새 공지 작성 (호스트)</Btn>
+            </div>
+          )}
+          {isHost && composing && (
+            <div data-testid="notice-composer-live" style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(2,12,9,0.62)', display: 'flex', alignItems: 'flex-end' }}>
+              <div style={{ width: '100%', borderRadius: '18px 18px 0 0', background: RF.card, borderTop: `1px solid ${RF.softLine}`, padding: '18px 20px 30px' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}><b style={{ flex: 1, fontSize: 16 }}>새 공지 작성</b><IconButton name="close" onClick={() => setComposing(false)}/></div>
+                {/* 서버 공지는 제목 필드가 없다 — 내용 한 칸만 받는다 */}
+                <label style={{ display: 'grid', gap: 6, marginTop: 16, fontSize: 12, fontWeight: 800 }}>내용<textarea data-testid="notice-body" value={body} maxLength={300} onChange={(event) => setBody(event.target.value)} placeholder="멤버에게 알릴 내용을 적어주세요" style={{ minHeight: 100, resize: 'none', borderRadius: 10, border: `1px solid ${T.line200}`, background: RF.bg, color: T.text900, padding: 12, fontFamily: T.fontStack, lineHeight: 1.5 }}/></label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 9, margin: '12px 0 16px', fontSize: 12, color: T.text700 }}><input data-testid="notice-pin" type="checkbox" checked={pinNew} onChange={(event) => setPinNew(event.target.checked)}/>채팅방 상단에 고정하기 (최대 3개)</label>
+                {noticeError && <div role="alert" style={{ fontSize: 12, color: T.danger, marginBottom: 10 }}>{noticeError}</div>}
+                <Btn variant="primary" full disabled={!body.trim() || noticeBusy} onClick={async () => {
+                  if (await publishServerNotice(body, pinNew)) { setBody(''); setComposing(false); }
+                }}>{noticeBusy ? '올리는 중...' : '공지 올리기'}</Btn>
+              </div>
+            </div>
+          )}
+        </div>
+      </Phone>
+    );
+  }
 
   return (
     <Phone>
@@ -788,13 +924,60 @@ function ScreenCourseEdit({ mode = 'custom' }) {
     setSaved(true);
     window.setTimeout(() => nav.go('chat'), 450);
   };
+  // 로그인 상태에서는 GET travel-courses/chat-rooms/{roomId} 의 방문지·시간·좌표로 경로를 대체한다.
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  const [serverCourse, setServerCourse] = React.useState(null);
+  const [serverRoom, setServerRoom] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode || !roomId) return undefined;
+    let active = true;
+    window.MoyeoApi.roomCourse(roomId)
+      .then((result) => { if (active && result?.course) setServerCourse(result.course); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    window.MoyeoApi.roomDetail(roomId)
+      .then((result) => { if (active && result?.roomId != null) setServerRoom(result); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode, roomId]);
+  const serverPlaces = serverCourse?.places || null;
   // 방문지 이름으로 실좌표를 찾아 순번 마커 + 경로선을 그린다. 못 찾으면 목업 지도가 남는다.
+  // 서버 코스가 있으면 서버가 준 좌표를 그대로 쓴다.
   const courseRoute = React.useMemo(
-    () => window.MoyeoKakaoMap?.routeFromNames?.(stops.map((s) => s.name)) || null,
-    [stops],
+    () => (serverPlaces
+      ? window.MoyeoKakaoMap?.routeFromPlaces?.(serverPlaces)
+      : window.MoyeoKakaoMap?.routeFromNames?.(stops.map((s) => s.name))) || null,
+    [serverPlaces, stops],
   );
+  // 화면에 그릴 방문지 — 서버 코스에는 메모가 없어 메모 줄을 생략한다.
+  const visibleStops = serverPlaces
+    ? serverPlaces.map((place) => ({
+      id: `${place.dayNumber}-${place.sequence}-${place.contentId}`,
+      time: window.MoyeoApi.formatTime(place.visitTime),
+      name: place.title,
+      memo: '',
+    }))
+    : stops;
+  const serverMode = Boolean(serverPlaces);
+  // 서버 코스 저장(PUT travel-courses/chat-rooms/{roomId})은 이번 범위(읽기)에 없어 편집을 열지 않는다.
+  const canEdit = editable && !serverMode;
 
-  const banner = {
+  // 서버 코스가 있으면 방문지 수·일정은 서버 값으로 적는다 (없는 값은 생략).
+  const serverMeta = serverMode
+    ? [
+      serverRoom?.startDate ? `${window.MoyeoApi.formatDate(serverRoom.startDate)}${serverRoom.endDate ? ` - ${window.MoyeoApi.formatDate(serverRoom.endDate)}` : ''}` : null,
+      serverRoom ? window.MoyeoApi.tripTypeLabel(serverRoom) : null,
+      `방문지 ${visibleStops.length}개`,
+      serverRoom?.participantCount != null && serverRoom?.maxParticipants != null ? `${serverRoom.participantCount}/${serverRoom.maxParticipants}명` : null,
+    ].filter(Boolean).join(' · ')
+    : '';
+  const banner = serverMode
+    ? {
+      icon: 'lock', bg: T.bgSubtle, bd: RF.softLine, fg: T.text700,
+      title: '지금은 경로를 확인만 할 수 있어요',
+      body: '서버에 등록된 방문지·시간·순서를 그대로 보여드려요. 경로 수정 저장은 아직 연결되지 않았어요.',
+    }
+    : {
     custom: {
       icon: 'sparkle', bg: T.primary50, bd: T.primary100, fg: T.primary700,
       title: '마감 전까지 경로를 바꿀 수 있어요',
@@ -820,16 +1003,16 @@ function ScreenCourseEdit({ mode = 'custom' }) {
           left
           center
           onBack={nav.back}
-          right={editable ? <button type="button" onClick={saveAndNotify} style={{ border: 'none', background: 'transparent', color: T.primary600, fontSize: 14, fontWeight: 900, fontFamily: T.fontStack, cursor: 'pointer', padding: '0 4px' }}>저장</button> : <IconButton name="more"/>}
+          right={canEdit ? <button type="button" onClick={saveAndNotify} style={{ border: 'none', background: 'transparent', color: T.primary600, fontSize: 14, fontWeight: 900, fontFamily: T.fontStack, cursor: 'pointer', padding: '0 4px' }}>저장</button> : <IconButton name="more"/>}
         />
 
         <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 96, overflow: 'auto', padding: '0 20px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0 14px' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>주왕산 &amp; 주산지 힐링 트레킹</div>
-              <div style={{ fontSize: 11, color: T.text500, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>5/25(토) 당일치기 · 방문지 {stops.length}개 · 2/5명</div>
+              <div style={{ fontSize: 14, fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{serverMode ? serverCourse.title : '주왕산 & 주산지 힐링 트레킹'}</div>
+              <div style={{ fontSize: 11, color: T.text500, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{serverMode ? serverMeta : '5/25(토) 당일치기 · 방문지 4개 · 2/5명'}</div>
             </div>
-            <CourseSourceBadge source={mode === 'linked' ? 'linked' : 'custom'}/>
+            <CourseSourceBadge source={serverMode ? (serverCourse.type === 'CUSTOM' ? 'custom' : 'linked') : (mode === 'linked' ? 'linked' : 'custom')}/>
           </div>
 
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: 13, borderRadius: 12, background: banner.bg, border: `1px solid ${banner.bd}` }}>
@@ -840,13 +1023,13 @@ function ScreenCourseEdit({ mode = 'custom' }) {
             </div>
           </div>
 
-          <div style={{ marginTop: 14, borderRadius: 12, overflow: 'hidden', opacity: editable ? 1 : 0.92 }}>
-            <MiniMap height={150} pins={stops.slice(0, 4).map((_, i) => i + 1)} markers={courseRoute?.markers} polyline={courseRoute?.polyline}/>
+          <div style={{ marginTop: 14, borderRadius: 12, overflow: 'hidden', opacity: canEdit ? 1 : 0.92 }}>
+            <MiniMap height={150} pins={visibleStops.slice(0, 4).map((_, i) => i + 1)} markers={courseRoute?.markers} polyline={courseRoute?.polyline}/>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 }}>
             <div style={{ fontSize: 13, fontWeight: 900 }}>Day 1</div>
-            {!editable && (
+            {!canEdit && (
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, color: T.text500 }}>
                 <Icon name="lock" size={12} color={T.text500} strokeWidth={2}/> 수정 불가
               </div>
@@ -854,29 +1037,29 @@ function ScreenCourseEdit({ mode = 'custom' }) {
           </div>
 
           <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-            {stops.map((s, i) => (
+            {visibleStops.map((s, i) => (
               <div key={s.id} style={{
                 borderRadius: 12, border: `1px solid ${RF.softLine}`,
-                background: editable ? RF.card : T.bgSubtle,
+                background: canEdit ? RF.card : T.bgSubtle,
                 padding: '11px 12px', display: 'flex', alignItems: 'center', gap: 10,
               }}>
-                {editable
-                  ? <div style={{ width: 22, display: 'flex', flexDirection: 'column', alignItems: 'center', color: T.text400 }}><Icon name="menu" size={16} color="currentColor"/><div style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}><button type="button" aria-label={`${s.name} 위로 이동`} disabled={i === 0} onClick={() => moveStop(i, -1)}>위로</button><button type="button" aria-label={`${s.name} 아래로 이동`} disabled={i === stops.length - 1} onClick={() => moveStop(i, 1)}>아래로</button></div></div>
+                {canEdit
+                  ? <div style={{ width: 22, display: 'flex', flexDirection: 'column', alignItems: 'center', color: T.text400 }}><Icon name="menu" size={16} color="currentColor"/><div style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}><button type="button" aria-label={`${s.name} 위로 이동`} disabled={i === 0} onClick={() => moveStop(i, -1)}>위로</button><button type="button" aria-label={`${s.name} 아래로 이동`} disabled={i === visibleStops.length - 1} onClick={() => moveStop(i, 1)}>아래로</button></div></div>
                   : <div style={{ width: 22, display: 'flex', justifyContent: 'center' }}><Icon name="lock" size={14} color={T.text300} strokeWidth={2}/></div>}
                 <div style={{
                   width: 26, height: 26, borderRadius: 999,
-                  background: editable ? T.primary500 : T.line300, color: '#fff',
+                  background: canEdit ? T.primary500 : T.line300, color: '#fff',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 12, fontWeight: 800, fontVariantNumeric: 'tabular-nums', flexShrink: 0,
                 }}>{i + 1}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <span style={{ fontSize: 12, fontWeight: 800, color: editable ? T.primary700 : T.text500, fontVariantNumeric: 'tabular-nums' }}>{s.time}</span>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: canEdit ? T.primary700 : T.text500, fontVariantNumeric: 'tabular-nums' }}>{s.time}</span>
                     <span style={{ fontSize: 13, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
                   </div>
                   <div style={{ fontSize: 11, color: T.text500, marginTop: 3 }}>{s.memo}</div>
                 </div>
-                {editable && (
+                {canEdit && (
                   <button
                     type="button"
                     onClick={() => removeStop(s.id)}
@@ -889,7 +1072,7 @@ function ScreenCourseEdit({ mode = 'custom' }) {
             ))}
           </div>
 
-          {editable && (
+          {canEdit && (
             <button
               type="button"
               onClick={addStop}
@@ -904,19 +1087,27 @@ function ScreenCourseEdit({ mode = 'custom' }) {
             </button>
           )}
 
-          <div style={{ marginTop: 18, fontSize: 13, fontWeight: 900 }}>집합 정보</div>
+          {(!serverMode || serverRoom?.meetingDetails) && <div style={{ marginTop: 18, fontSize: 13, fontWeight: 900 }}>집합 정보</div>}
+          {(!serverMode || serverRoom?.meetingDetails) && (
           <div style={{ marginTop: 10, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: 13, display: 'flex', gap: 11, alignItems: 'center' }}>
             <div style={{ width: 38, height: 38, borderRadius: 11, background: T.primary50, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Icon name="pin" size={18} color={T.primary600}/>
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 800 }}>07:50 · 청송 시외버스터미널 정문 앞</div>
-              <div style={{ fontSize: 11, color: T.text500, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>36.435612, 129.057214</div>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>{serverMode
+                ? `${window.MoyeoApi.formatTime(String(serverRoom.meetingDateTime || '').split('T')[1])} · ${serverRoom.meetingDetails}`
+                : '07:50 · 청송 시외버스터미널 정문 앞'}</div>
+              {(!serverMode || (serverRoom.meetingLatitude != null && serverRoom.meetingLongitude != null)) && (
+                <div style={{ fontSize: 11, color: T.text500, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{serverMode ? `${serverRoom.meetingLatitude}, ${serverRoom.meetingLongitude}` : '36.435612, 129.057214'}</div>
+              )}
             </div>
-            {mode !== 'locked'
-              ? <span style={{ fontSize: 12, fontWeight: 800, color: T.primary600 }}>수정</span>
-              : <Icon name="lock" size={15} color={T.text400} strokeWidth={2}/>}
+            {serverMode
+              ? <Icon name="lock" size={15} color={T.text400} strokeWidth={2}/>
+              : mode !== 'locked'
+                ? <span style={{ fontSize: 12, fontWeight: 800, color: T.primary600 }}>수정</span>
+                : <Icon name="lock" size={15} color={T.text400} strokeWidth={2}/>}
           </div>
+          )}
           {mode === 'linked' && (
             <div style={{ fontSize: 11, color: T.text500, marginTop: 8, lineHeight: '17px' }}>
               등록된 코스여도 집합 장소와 시간은 호스트가 정해요. 마감 전까지 언제든 바꿀 수 있어요.
@@ -925,19 +1116,23 @@ function ScreenCourseEdit({ mode = 'custom' }) {
         </div>
 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}>
-          {mode === 'custom' && (
+          {/* 서버 코스는 읽기만 연동돼 있어 저장·수정 버튼 대신 채팅방으로 돌아가는 길만 둔다 */}
+          {serverMode && (
+            <div style={{ flex: 1 }}><Btn variant="secondary" full onClick={() => nav.go('notice-history')}>공지 이력 보기</Btn></div>
+          )}
+          {!serverMode && mode === 'custom' && (
             <>
               <Btn variant="ghost" onClick={nav.back}>취소</Btn>
               <div style={{ flex: 1 }}><Btn variant="primary" full onClick={saveAndNotify}>{saved ? '변경 내용을 알렸어요' : '저장하고 멤버에게 알리기'}</Btn></div>
             </>
           )}
-          {mode === 'linked' && (
+          {!serverMode && mode === 'linked' && (
             <>
               <Btn variant="ghost" onClick={() => nav.go('create-review')}>코스 바꾸기</Btn>
               <div style={{ flex: 1 }}><Btn variant="primary" full onClick={() => nav.go('create-meet')}>집합 정보 수정</Btn></div>
             </>
           )}
-          {mode === 'locked' && (
+          {!serverMode && mode === 'locked' && (
             <>
               <div style={{ flex: 1 }}><Btn variant="secondary" full onClick={() => nav.go('notice-history')}>공지로 알리기</Btn></div>
               <Btn variant="primary" disabled>경로 수정</Btn>

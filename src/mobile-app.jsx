@@ -119,6 +119,11 @@
     settings: 'settings',
     'auth-methods': 'auth-methods',
     authMethods: 'auth-methods',
+    // 29-4 · 29-4a 오픈소스 라이선스 (changeLog17)
+    'oss-licenses': 'oss-licenses',
+    ossLicenses: 'oss-licenses',
+    'oss-license-detail': 'oss-license-detail',
+    ossLicenseDetail: 'oss-license-detail',
     friends: 'friends',
     tripMessage: 'trip-message',
     'trip-message': 'trip-message',
@@ -300,11 +305,10 @@
     return !params.get('screen') && !params.get('route') && params.get('capture') !== '1';
   }
 
-  function getInitialTheme() {
-    const params = new URLSearchParams(window.location.search);
-    const requested = params.get('theme');
-    if (requested === 'dark' || requested === 'light') return requested;
-    return window.getInitialMoyeoThemeMode?.() || 'light';
+  // 캡처의 강제 테마(?theme=)는 사용자 설정보다 우선하고 저장하지 않는다.
+  // 강제 테마가 없으면 사용자 설정(system/light/dark)을 적용하고 OS 변경을 따라간다.
+  function getForcedTheme() {
+    return window.getForcedMoyeoTheme?.() || null;
   }
 
   function getInitialScroll() {
@@ -399,7 +403,7 @@
   }
 
   function App() {
-    const [themeMode] = React.useState(getInitialTheme);
+    const [forcedTheme] = React.useState(getForcedTheme);
     const [initial] = React.useState(getInitialRoute);
     const [initialScroll] = React.useState(getInitialScroll);
     const [captureMode] = React.useState(getCaptureMode);
@@ -407,8 +411,12 @@
     const [online, setOnline] = React.useState(getInitialOnline);
 
     React.useEffect(() => {
-      window.setMoyeoThemeMode?.(themeMode);
-    }, [themeMode]);
+      if (forcedTheme) {
+        window.applyMoyeoTheme?.(forcedTheme);
+        return undefined;
+      }
+      return window.watchMoyeoThemeMode?.();
+    }, [forcedTheme]);
 
     React.useEffect(() => {
       const update = () => setOnline(window.navigator.onLine !== false);

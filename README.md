@@ -20,7 +20,7 @@ http://127.0.0.1:5174/
 http://127.0.0.1:5174/?screen=feed&theme=dark
 ```
 
-지원 예시: `home`, `explore`, `explore-map`, `chat-list`, `chat`, `chat-menu`, `chat-attach`, `feed`, `feed-detail`, `feed-comments`, `feed-write`, `my`, `dex`, `friends`, `settings`, `login`, `email-auth`, `terms`, `course`, `trip`, `create`, `custom-course`, `create-schedule`, `create-people`, `create-detail`, `create-meet`, `create-summary`, `course-edit`, `host-manage`, `trip-confirmed`, `trip-day`, `notif-detail`, `account-delete`, `system-maintenance`, `system-error`, `report`, `blocked`, `course-publish`.
+지원 예시: `home`, `explore`, `explore-map`, `chat-list`, `chat`, `chat-menu`, `chat-attach`, `feed`, `feed-detail`, `feed-comments`, `feed-write`, `my`, `dex`, `friends`, `settings`, `login`, `email-auth`, `terms`, `course`, `trip`, `create`, `custom-course`, `create-schedule`, `create-people`, `create-detail`, `create-meet`, `create-summary`, `course-edit`, `host-manage`, `trip-confirmed`, `trip-day`, `notif-detail`, `account-delete`, `system-maintenance`, `system-error`, `report`, `blocked`, `course-publish`, `oss-licenses`, `oss-license-detail`.
 
 비교 리포트처럼 하단 스크롤 상태를 바로 캡처해야 할 때는 `scroll=bottom` 또는 `scroll=middle`을 함께 붙입니다.
 
@@ -41,6 +41,41 @@ http://127.0.0.1:5174/?screen=create-meet&theme=light&mockAuth=1&liveMap=1
 ```
 
 실지도가 보이려면 카카오 개발자 콘솔의 해당 앱에 **플랫폼 › Web › 사이트 도메인**으로 접속 도메인이 등록돼 있어야 합니다. 등록되지 않은 도메인에서는 SDK가 `401 domain mismatched`를 돌려주고 목업 지도로 폴백합니다. 로컬 개발에는 `http://127.0.0.1:5174`, `http://127.0.0.1:5173`, `http://localhost:5173`을 함께 등록하세요.
+
+## 클라이언트 전용 기능 (서버 API 없음)
+
+최근 검색어, 테마, 앱 버전은 서버 API가 없어 클라이언트가 스스로 들고 있습니다. 관련 로직은
+`src/client-prefs.js`(plain JS)에 모아 두었고, `tokens.jsx`보다 먼저 동기 실행되므로 첫 페인트 전에 테마가 적용됩니다.
+
+- **최근 검색어** — `localStorage` 키 `moyeo-trip-recent-searches`. 검색 실행 시 공백을 트림해 추가하고, 중복은
+  최신순으로 끌어올리며 최대 10개까지만 남깁니다. 칩의 × 는 개별 삭제, `전체 삭제`는 저장소 키를 지웁니다.
+  비어 있으면 `최근 검색어` 섹션(제목·전체 삭제·칩)을 통째로 숨기고 `인기 검색어`만 남깁니다.
+  인기 검색어는 서버 데이터가 없어 목데이터를 그대로 두고 탭하면 그 키워드로 검색만 실행합니다.
+- **테마** — `localStorage` 키 `moyeo-trip-theme`에 `system`(기본) · `light` · `dark` 3상태로 저장합니다.
+  `29 설정 › 화면 › 테마` 행을 탭하면 `시스템 기본 → 라이트 → 다크` 순으로 순환하고 즉시 전체 화면에 적용됩니다.
+  `system`이면 `prefers-color-scheme` 변경을 런타임에 그대로 따라갑니다.
+- **앱 버전** — `src/client-prefs.js`의 `APP_VERSION`이며 `package.json`의 `version`과 같아야 합니다
+  (`npm test`가 두 값을 비교합니다). 최신 버전을 알려주는 서버 API가 없어 `(최신)` 표기는 붙이지 않습니다.
+
+캡처·QA 라우트(`?screen=` · `?route=` · `capture=1` · `uitest=1` · `mockAuth=1`)에서는 화면기획의 목데이터
+(최근 검색어 5개 · `시스템 기본` · `1.0.4 (최신)`)를 그대로 보여주고 저장소를 건드리지 않습니다. 강제 테마(`?theme=`)는
+사용자 설정보다 항상 우선하며 저장되지 않습니다. 개발 중에 실제 동작을 보려면 `?liveData=1`을 붙입니다
+(캡처 도구는 이 값을 붙이지 않습니다).
+
+```txt
+http://127.0.0.1:5174/?screen=search&liveData=1
+```
+
+## 오픈소스 라이선스 화면 (29-4 · 29-4a)
+
+`설정 › 정보 › 오픈소스 라이선스`에서 들어갑니다. 데이터는 서버 호출 없이 `src/oss-licenses.js`에 내장돼 오프라인에서도
+열립니다. 정본은 워크스페이스의 `docs/oss/oss-licenses.json`과 `docs/oss/license-texts/`이고, 웹은 그중
+**web 플랫폼 항목 7건**과 필요한 전문(Apache-2.0 · MIT)만 담습니다. 항목 수가 플랫폼마다 다른 것은 정상입니다.
+
+의존성(`index.html`의 CDN, `package.json`)을 바꾸는 작업에서는 같은 작업 안에서 정본 JSON과 `src/oss-licenses.js`를
+함께 갱신합니다. 라이선스 식별자는 실제 `LICENSE`/POM에서 확인한 값만 쓰고 추정하지 않습니다 — 카카오 SDK는
+오픈소스가 아니라 자체 배포 약관이며 전문을 지어내지 않고 라이선스 이름과 원문 URL만 보여줍니다.
+`npm test`가 `src/oss-licenses.js`를 정본 JSON과 대조합니다.
 
 ## 글꼴 라이선스
 

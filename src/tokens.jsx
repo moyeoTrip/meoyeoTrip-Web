@@ -1,5 +1,6 @@
 // Design tokens from 모여트립 in 경북 design system
-const MOYEO_THEME_STORAGE_KEY = 'moyeo-trip-theme';
+// 테마 3상태(system/light/dark) 저장·해석·적용은 src/client-prefs.js 에 있다
+// (plain JS 라 단위 테스트에서 그대로 실행할 수 있고, text/babel 보다 먼저 실행된다).
 
 const MOYEO_THEME_CSS = `
 :root,
@@ -249,21 +250,8 @@ if (typeof document !== 'undefined' && !document.getElementById('moyeo-theme-sty
   document.head.appendChild(s);
 }
 
-function getInitialMoyeoThemeMode() {
-  if (typeof window === 'undefined') return 'light';
-  const saved = window.localStorage?.getItem(MOYEO_THEME_STORAGE_KEY);
-  if (saved === 'dark' || saved === 'light') return saved;
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
-function setMoyeoThemeMode(mode) {
-  const next = mode === 'dark' ? 'dark' : 'light';
-  if (typeof document !== 'undefined') document.documentElement.dataset.moyeoTheme = next;
-  if (typeof window !== 'undefined') window.localStorage?.setItem(MOYEO_THEME_STORAGE_KEY, next);
-}
-
-const initialMoyeoThemeMode = getInitialMoyeoThemeMode();
-setMoyeoThemeMode(initialMoyeoThemeMode);
+// 저장된 사용자 설정(또는 캡처의 강제 테마)을 첫 페인트 전에 적용한다.
+window.applyMoyeoTheme(window.getInitialMoyeoThemeMode());
 
 const T = {
   // Brand Primary - 경북 포레스트
@@ -405,4 +393,4 @@ const Icon = ({ name, size = 24, color = 'currentColor', strokeWidth = 1.6 }) =>
   );
 };
 
-Object.assign(window, { T, Icon, getInitialMoyeoThemeMode, setMoyeoThemeMode });
+Object.assign(window, { T, Icon });

@@ -392,6 +392,7 @@
   const api = {
     setIdentityProvider(provider) { identityProvider = provider; },
     getConfig,
+    request,
     getSession: readSession,
     clearSession: clearServiceSession,
     routeForSignupState,

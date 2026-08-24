@@ -89,6 +89,8 @@
       'profile-taste-edit': window.ScreenProfileTasteEdit,
       settings: window.ScreenSettings,
       'auth-methods': window.ScreenAuthMethods,
+      'oss-licenses': window.ScreenOssLicenses,             // 29-4 오픈소스 라이선스 목록
+      'oss-license-detail': window.ScreenOssLicenseDetail,  // 29-4a 라이선스 전문
     };
   }
 
