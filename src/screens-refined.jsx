@@ -452,6 +452,20 @@ const WEATHER_HERO_ITEMS = {
 
 const WEATHER_HERO_ORDER = ['sunny', 'cloudy', 'rain', 'snow', 'fog', 'wind', 'heavyRain', 'heatwave', 'dust'];
 
+// 서버 `GyeongbukWeatherResponse.condition` 의 9가지 값 → 히어로 시안 키.
+// 1:1 로 맞아떨어져서 별도 보정이 필요 없다.
+const WEATHER_CONDITION_TO_HERO = {
+  SUNNY: 'sunny',
+  CLOUDY: 'cloudy',
+  RAIN: 'rain',
+  SNOW: 'snow',
+  FOG: 'fog',
+  STRONG_WIND: 'wind',
+  HEAVY_RAIN: 'heavyRain',
+  HEAT_WAVE: 'heatwave',
+  FINE_DUST: 'dust',
+};
+
 const WEATHER_HERO_TONE = {
   good: {
     badge: '추천',
@@ -473,7 +487,9 @@ const WEATHER_HERO_TONE = {
   },
 };
 
-function HeroIllustration({ weather = 'sunny' }) {
+// `place` 를 넘기면 그 값으로 지명을 덮는다. 서버 날씨는 예보 지점(예: 경상북도 포항시)을
+// 함께 주므로, 시안에 박힌 랜드마크 대신 실제 예보 지점을 보여줘야 맞다.
+function HeroIllustration({ weather = 'sunny', place = null }) {
   const item = WEATHER_HERO_ITEMS[weather] || WEATHER_HERO_ITEMS.sunny;
   const tone = WEATHER_HERO_TONE[item.state] || WEATHER_HERO_TONE.good;
   const imageSource = window.MoyeoImageCache?.themeSource(item.assets.light, item.assets.dark) || item.assets.light;
@@ -516,7 +532,7 @@ function HeroIllustration({ weather = 'sunny' }) {
       }}>
         <span>{item.label}</span>
         <span style={{ opacity: 0.45 }}>·</span>
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.place}</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{place || item.place}</span>
       </div>
     </div>
   );
@@ -571,11 +587,25 @@ function ScreenSplash() {
 
 function ScreenHome() {
   const nav = window.useNav ? window.useNav() : { go: () => {} };
-  const [homeWeather, setHomeWeather] = React.useState('sunny');
-  const weatherItem = WEATHER_HERO_ITEMS[homeWeather] || WEATHER_HERO_ITEMS.sunny;
-  const weatherTone = WEATHER_HERO_TONE[weatherItem.state] || WEATHER_HERO_TONE.good;
   // 로그인 상태에서는 GET travel-courses/public · /popular · /tags 로 코스 섹션을 대체한다.
   const liveMode = window.MoyeoApi?.live();
+  // 09 히어로의 날씨. 로그인 상태에서는 서버가 정한다 — 사용자가 고르는 값이 아니다.
+  const [homeWeather, setHomeWeather] = React.useState('sunny');
+  const [weatherPlace, setWeatherPlace] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.gyeongbukWeather()
+      .then((result) => {
+        if (!active || !result?.condition) return;
+        setHomeWeather(WEATHER_CONDITION_TO_HERO[result.condition] || 'sunny');
+        setWeatherPlace(result.locationName || null);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode]);
+  const weatherItem = WEATHER_HERO_ITEMS[homeWeather] || WEATHER_HERO_ITEMS.sunny;
+  const weatherTone = WEATHER_HERO_TONE[weatherItem.state] || WEATHER_HERO_TONE.good;
   const [publicCourses, setPublicCourses] = React.useState(null);
   const [popularCourses, setPopularCourses] = React.useState(null);
   const [courseTags, setCourseTags] = React.useState(null);
@@ -638,28 +668,10 @@ function ScreenHome() {
               }}>{weatherTone.badge}</span>
             </div>
             <div style={{ fontSize: 12, marginTop: 5, opacity: 0.9 }}>{weatherItem.copy}</div>
-            <div style={{ marginTop: 12 }}><HeroIllustration weather={homeWeather}/></div>
-            <div style={{ display: 'flex', gap: 6, marginTop: 10, overflowX: 'auto', paddingBottom: 1 }}>
-              {WEATHER_HERO_ORDER.map((key) => {
-                const item = WEATHER_HERO_ITEMS[key];
-                const on = key === homeWeather;
-                return (
-                  <button key={key} onClick={() => setHomeWeather(key)} style={{
-                    height: 27,
-                    padding: '0 10px',
-                    borderRadius: 999,
-                    border: `1px solid ${on ? '#fff' : 'rgba(255,255,255,0.34)'}`,
-                    background: on ? 'rgba(255,255,255,0.94)' : 'rgba(255,255,255,0.10)',
-                    color: on ? weatherTone.card : '#fff',
-                    fontSize: 11,
-                    fontWeight: 900,
-                    fontFamily: T.fontStack,
-                    whiteSpace: 'nowrap',
-                    cursor: 'pointer',
-                  }}>{item.label}</button>
-                );
-              })}
-            </div>
+            <div style={{ marginTop: 12 }}><HeroIllustration weather={homeWeather} place={weatherPlace}/></div>
+            {/* 9가지 날씨를 넘겨보는 칩 줄은 화면기획(프로토타입)에만 둔다.
+                제품에서 사용자가 날씨를 바꾸는 것은 의미가 없다 —
+                현재 날씨는 히어로 이미지 위의 라벨이 이미 보여준다. */}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 22, marginBottom: 10 }}>
@@ -805,13 +817,25 @@ function ExploreRoomCard({ room, onClick, testId }) {
   );
 }
 
-// 서버(GET /api/v1/chat-rooms/search) 응답용 같은 카드.
-// 검색 응답에는 찜 여부·상태 값이 없어 하트와 상태 배지는 표시하지 않는다 (서버 값 없는 요소는 숨김).
+// 서버(GET /api/v1/chat-rooms/search) 응답용 같은 카드. 10 탐색·12 검색이 함께 쓴다.
+// 2026-08-24 서버 패치로 favorite·status·recruitmentDDay 가 오기 시작해 찜 하트와 상태 배지를 되살렸다.
+// 집합 안내·당일 여행 시간은 nullable 이라 값이 없으면 줄 자체를 그리지 않는다 (문구를 지어내지 않는다).
+// 목데이터 카드(ExploreRoomCard)는 캡처 기준이라 높이 94 를 고정으로 두고, 서버 카드만 줄이 늘 수 있게 한다.
 function ExploreServerRoomCard({ room, onClick, testId }) {
+  const statusLabel = window.MoyeoApi.statusLabel(room.status);
+  const dayTripTime = window.MoyeoApi.dayTripTimeText(room);
+  const meetingText = window.MoyeoApi.meetingText(room);
   return (
-    <div data-testid={testId} onClick={onClick} style={{ height: 94, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: 9, display: 'flex', gap: 11, alignItems: 'center', marginBottom: 10, cursor: 'pointer' }}>
+    <div data-testid={testId} onClick={onClick} style={{ minHeight: 94, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: 9, display: 'flex', gap: 11, alignItems: 'center', marginBottom: 10, cursor: 'pointer' }}>
       <div style={{ width: 102, height: 74, borderRadius: 9, overflow: 'hidden', flexShrink: 0, position: 'relative' }}>
-        <RoomThumb src={room.thumbnail} height={74} overlay/>
+        <RoomThumb src={room.thumbnail} height={74} overlay>
+          {statusLabel && (
+            <span data-testid={testId ? `${testId}-status` : undefined} style={{ position: 'absolute', left: 7, bottom: 7, background: T.primary600, color: '#fff', borderRadius: 6, padding: '3px 6px', fontSize: 10, fontWeight: 800 }}>{statusLabel}</span>
+          )}
+          {room.recruitmentDDay != null && (
+            <span data-testid={testId ? `${testId}-dday` : undefined} style={{ position: 'absolute', right: 7, top: 7, background: T.accent500, color: '#fff', borderRadius: 6, padding: '3px 6px', fontSize: 10, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>D-{room.recruitmentDDay}</span>
+          )}
+        </RoomThumb>
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 900, lineHeight: '19px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{room.title}</div>
@@ -819,7 +843,13 @@ function ExploreServerRoomCard({ room, onClick, testId }) {
           {room.courseTitle}{room.tags?.length ? ` · ${room.tags.map((tag) => tag.name).join(', ')}` : ''}
         </div>
         <div style={{ marginTop: 5, fontSize: 12, color: T.text700, fontWeight: 700 }}>{room.participantCount}/{room.maxParticipants}명 · {window.MoyeoApi.formatDate(room.startDate)} 출발</div>
+        {(dayTripTime || meetingText) && (
+          <div data-testid={testId ? `${testId}-meeting` : undefined} style={{ marginTop: 4, fontSize: 11, color: T.text500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontVariantNumeric: 'tabular-nums' }}>
+            {dayTripTime}{dayTripTime && meetingText ? ' · ' : ''}{meetingText ? `${meetingText} 집합` : ''}
+          </div>
+        )}
       </div>
+      <Icon name="heart" size={20} color={room.favorite ? T.accent500 : T.text700}/>
     </div>
   );
 }
@@ -897,6 +927,27 @@ function ScreenExploreMap() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const [liveMap, setLiveMap] = React.useState(false);
   const [selected, setSelected] = React.useState(null);
+  const [selectedRoom, setSelectedRoom] = React.useState(null);
+  // 로그인 상태에서는 검색 응답의 집합 좌표로 모임 마커를 찍는다 (좌표가 둘 다 있는 항목만).
+  // 캡처 모드에서는 live() 가 false 라 아래 관광 샘플 좌표 + SVG 목업이 그대로 남는다.
+  const liveMode = window.MoyeoApi?.live();
+  const [serverRooms, setServerRooms] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.searchRooms()
+      .then((rooms) => { if (active && Array.isArray(rooms)) setServerRooms(rooms); })
+      .catch(() => { /* 실패 시 목데이터 좌표 유지 */ });
+    return () => { active = false; };
+  }, [liveMode]);
+  const roomMarkers = React.useMemo(
+    () => (serverRooms ? window.MoyeoApi.roomMarkers(serverRooms) : []),
+    [serverRooms],
+  );
+  // 서버 마커가 붙으면 하단 카드도 첫 모임으로 맞춘다 — 로그인 상태에서 목데이터 카드가 남지 않게.
+  React.useEffect(() => {
+    if (roomMarkers.length) setSelectedRoom((current) => current || roomMarkers[0].room);
+  }, [roomMarkers]);
   // 좌표는 목데이터(관광 샘플)의 실제 위경도만 쓴다.
   const mapPlaces = React.useMemo(() => (window.MoyeoTourism?.samplePlaces || [])
     .map((place, index) => ({
@@ -906,11 +957,20 @@ function ScreenExploreMap() {
       place,
     }))
     .filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng) && item.lat !== 0), []);
+  // 서버 마커가 하나도 없으면(좌표 미입력 모임뿐이거나 조회 실패) 기존 관광 샘플 마커를 유지한다.
+  const markers = roomMarkers.length ? roomMarkers : mapPlaces;
   const openSelected = () => {
+    if (selectedRoom) {
+      window.MoyeoApi.selectRoom(selectedRoom.roomId);
+      nav.go('detail');
+      return;
+    }
     if (!selected) { nav.go('detail'); return; }
     try { window.sessionStorage?.setItem('moyeo.selectedTourismContentId', selected.contentId); } catch (_) { /* 저장 불가 환경 */ }
     nav.go('place-detail');
   };
+  const roomDayTripTime = selectedRoom ? window.MoyeoApi.dayTripTimeText(selectedRoom) : '';
+  const roomMeetingText = selectedRoom ? window.MoyeoApi.meetingText(selectedRoom) : '';
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0, background: RF.mapGreen }}>
@@ -919,8 +979,12 @@ function ScreenExploreMap() {
           withRoute={false}
           pins={[]}
           level={9}
-          markers={mapPlaces}
-          onMarkerSelect={(item) => setSelected(item.place)}
+          markers={markers}
+          onMarkerSelect={(item) => {
+            if (item.room) { setSelectedRoom(item.room); setSelected(null); return; }
+            setSelectedRoom(null);
+            setSelected(item.place);
+          }}
           onLiveMap={setLiveMap}
         />
         {!liveMap && (
@@ -959,13 +1023,28 @@ function ScreenExploreMap() {
           <Icon name="pin" size={20} color={T.text700}/>
         </div>
         <div onClick={openSelected} data-testid="explore-map-card" style={{ position: 'absolute', left: 18, right: 18, bottom: 94, height: 96, borderRadius: 16, background: RF.card, boxShadow: RF.shadow, padding: 10, display: 'flex', gap: 12, cursor: 'pointer' }}>
-          <div style={{ width: 84, borderRadius: 10, overflow: 'hidden' }}><Photo hue={selected?.hue || 'forest'} height={76} radius={0}/></div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected ? selected.title : '주왕산 & 주산지 힐링 트레킹'}</div>
-            <div style={{ fontSize: 11, color: T.text500, marginTop: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected ? selected.address : '청송 · 자연'}</div>
-            <div style={{ fontSize: 12, color: T.text700, fontWeight: 800, marginTop: 5 }}>{selected ? '장소 상세 보기 →' : '2/5명'}</div>
+          <div style={{ width: 84, borderRadius: 10, overflow: 'hidden' }}>
+            {selectedRoom
+              ? <RoomThumb src={selectedRoom.thumbnail} height={76}/>
+              : <Photo hue={selected?.hue || 'forest'} height={76} radius={0}/>}
           </div>
-          <Icon name="heart" size={20} color={T.text700}/>
+          {selectedRoom ? (
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedRoom.title}</div>
+              {/* 집합 안내가 null 이면 코스 이름만 남긴다 — "미정" 같은 문구를 지어내지 않는다 */}
+              <div style={{ fontSize: 11, color: T.text500, marginTop: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{roomMeetingText ? `${roomMeetingText} 집합` : selectedRoom.courseTitle}</div>
+              <div style={{ fontSize: 12, color: T.text700, fontWeight: 800, marginTop: 5, fontVariantNumeric: 'tabular-nums' }}>
+                {selectedRoom.participantCount}/{selectedRoom.maxParticipants}명{roomDayTripTime ? ` · ${roomDayTripTime}` : ''}
+              </div>
+            </div>
+          ) : (
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected ? selected.title : '주왕산 & 주산지 힐링 트레킹'}</div>
+              <div style={{ fontSize: 11, color: T.text500, marginTop: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected ? selected.address : '청송 · 자연'}</div>
+              <div style={{ fontSize: 12, color: T.text700, fontWeight: 800, marginTop: 5 }}>{selected ? '장소 상세 보기 →' : '2/5명'}</div>
+            </div>
+          )}
+          <Icon name="heart" size={20} color={selectedRoom?.favorite ? T.accent500 : T.text700}/>
         </div>
         <BottomNav active="compass"/>
       </div>
@@ -1126,12 +1205,15 @@ function ScreenGroupDetail() {
   React.useEffect(() => {
     if (!liveMode || !roomId) return undefined;
     let active = true;
+    // 참가 가능 여부는 상세의 canApply 로 온다. 예전 /join-eligibility 는 서버에서 삭제됐다
+    // (실측 404 · code 40402). 모집 상태·마감·기존 신청·성별/나이 제한이 모두 반영된 값이다.
     window.MoyeoApi.roomDetail(roomId)
-      .then((detail) => { if (active && detail?.roomId != null) setRoom(detail); })
+      .then((detail) => {
+        if (!active || detail?.roomId == null) return;
+        setRoom(detail);
+        if (typeof detail.canApply === 'boolean') setCanApply(detail.canApply);
+      })
       .catch(() => { /* 실패 시 목데이터 유지 */ });
-    window.MoyeoApi.joinEligibility(roomId)
-      .then((result) => { if (active && typeof result?.canApply === 'boolean') setCanApply(result.canApply); })
-      .catch(() => {});
     window.MoyeoApi.roomCourse(roomId)
       .then((result) => { if (active && result?.course) setCourse(result.course); })
       .catch(() => {});
@@ -1439,15 +1521,48 @@ function ScreenApplySheet() {
 function ScreenCreateReview() {
   const nav = window.useNav ? window.useNav() : { back: () => {}, go: () => {} };
   const [source, setSource] = React.useState('linked');
-  const [picked, setPicked] = React.useState('주왕산·주산지 힐링 트레킹');
-  const rows = [
+  // 로그인 상태에서는 등록된 코스 목록을 GET travel-courses/public 으로 대체한다 —
+  // 17-5 에서 POST /chat-rooms 에 실제 courseId 를 실어 보내려면 서버 코스여야 한다.
+  const liveMode = window.MoyeoApi?.live();
+  const [serverCourses, setServerCourses] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.publicCourses()
+      .then((courses) => { if (active && Array.isArray(courses) && courses.length) setServerCourses(courses); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    return () => { active = false; };
+  }, [liveMode]);
+  const mockRows = [
     ['주왕산·주산지 힐링 트레킹', '청송 · 당일 6.2km · 방문지 4', 'forest'],
     ['안동 하회마을 하루여행', '안동 · 당일 8.1km · 방문지 5', 'hanok'],
     ['경주 감성 야경 코스', '경주 · 1박 2일 · 방문지 6', 'autumn'],
   ];
+  const rows = serverCourses
+    ? serverCourses.map((course) => [
+      course.title,
+      [course.travelTime, course.distanceKm != null ? `${course.distanceKm}km` : null, `방문지 ${course.places?.length || 0}`].filter(Boolean).join(' · '),
+      'forest',
+      course.courseId,
+    ])
+    : mockRows;
+  const [picked, setPicked] = React.useState('주왕산·주산지 힐링 트레킹');
+  // 서버 코스로 바뀌면 첫 코스를 고른 상태로 맞춘다.
+  React.useEffect(() => {
+    if (serverCourses) setPicked(serverCourses[0].title);
+  }, [serverCourses]);
   const chooseSource = (next) => {
     window.__moyeoCourseSource = next;
     setSource(next);
+  };
+  // 다음 단계로 넘기는 값 — 17-5 요약이 그대로 읽어 요청을 만든다.
+  const rememberCourse = () => {
+    const selectedRow = rows.find((row) => row[0] === picked) || rows[0];
+    window.MoyeoApi?.updateRoomDraft({
+      courseType: source === 'custom' ? 'CUSTOM' : 'PUBLIC',
+      courseId: source === 'custom' ? null : (selectedRow?.[3] ?? null),
+      courseTitle: source === 'custom' ? null : selectedRow?.[0] || null,
+    });
   };
   const SourceCard = ({ id, title, desc, note, icon }) => {
     const selected = source === id;
@@ -1536,6 +1651,7 @@ function ScreenCreateReview() {
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}` }}>
           <Btn variant="primary" full onClick={() => {
             window.__moyeoCourseSource = source;
+            rememberCourse();
             nav.go(source === 'custom' ? 'custom-course' : 'create-schedule');
           }}>{source === 'custom' ? '코스 만들러 가기' : '이 코스로 다음'}</Btn>
         </div>
@@ -1620,22 +1736,124 @@ function ChatRoomBody() {
       </div>
     </div>
   );
+  // 투표 참여·취소 — PUT poll-options/{optionId}/vote · DELETE vote.
+  // 두 응답 모두 갱신된 투표 카드를 그대로 주므로 그 메시지만 교체한다.
+  const [votingMessageId, setVotingMessageId] = React.useState(null);
+  const replaceMessage = (updated) => setMessages((current) => (current || []).map(
+    (message) => (message.messageId === updated.messageId ? updated : message),
+  ));
+  const voteOnPoll = async (message, option) => {
+    if (votingMessageId != null) return;
+    setVotingMessageId(message.messageId);
+    try {
+      // 이미 고른 선택지를 다시 누르면 취소다 (기획 20 투표 카드의 유일한 취소 경로).
+      const updated = option.votedByMe
+        ? await window.MoyeoApi.cancelPollVote(roomId, message.messageId)
+        : await window.MoyeoApi.votePollOption(roomId, message.messageId, option.optionId);
+      if (updated?.messageId != null) replaceMessage(updated);
+    } catch (_) { /* 실패 시 카드를 그대로 둔다 */ }
+    setVotingMessageId(null);
+  };
+  // 20-2 첨부 5종이 만든 특수 메시지 카드. 스타일은 기획 24 카드 스펙 보드(ScreenSpecialMessages)를 따른다.
+  const SpecialCard = ({ message }) => {
+    if (message.imageUrl) {
+      return <img src={message.imageUrl} alt={message.content || ''} style={{ display: 'block', maxWidth: 220, borderRadius: 10 }}/>;
+    }
+    if (message.tourismContent) {
+      const place = message.tourismContent;
+      return (
+        <div data-testid={`chat-card-tourism-${message.messageId}`}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+            <Icon name="pin" size={13} color={T.primary600}/>
+            <span style={{ fontSize: 11, fontWeight: 800, color: T.primary700 }}>장소</span>
+          </div>
+          <div style={{ fontSize: 13.5, fontWeight: 800 }}>{place.title}</div>
+          {place.address && <div style={{ fontSize: 11.5, color: T.text500, marginTop: 3, lineHeight: '17px' }}>{place.address}</div>}
+          {place.thumbnail && <img src={place.thumbnail} alt="" loading="lazy" style={{ display: 'block', width: '100%', height: 80, objectFit: 'cover', borderRadius: 10, marginTop: 8 }}/>}
+        </div>
+      );
+    }
+    if (message.location) {
+      const spot = message.location;
+      return (
+        <div data-testid={`chat-card-location-${message.messageId}`}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+            <Icon name="map" size={13} color={T.accent700}/>
+            <span style={{ fontSize: 11, fontWeight: 800, color: T.accent700 }}>만날 위치</span>
+          </div>
+          <div style={{ fontSize: 13.5, fontWeight: 800 }}>{spot.name || message.content}</div>
+          <div style={{ fontSize: 11, color: T.text500, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{spot.latitude}, {spot.longitude}</div>
+        </div>
+      );
+    }
+    if (message.poll) {
+      const poll = message.poll;
+      const busy = votingMessageId === message.messageId;
+      return (
+        <div data-testid={`chat-card-poll-${message.messageId}`}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+            <Icon name="poll" size={13} color={T.primary600}/>
+            <span style={{ fontSize: 11, fontWeight: 800, color: T.primary700 }}>투표</span>
+          </div>
+          <div style={{ fontSize: 13.5, fontWeight: 800, lineHeight: '19px' }}>{poll.question}</div>
+          <div style={{ display: 'grid', gap: 6, marginTop: 9 }}>
+            {(poll.options || []).map((option) => {
+              const percent = window.MoyeoApi.pollPercent(poll, option);
+              return (
+                <button
+                  key={option.optionId}
+                  type="button"
+                  disabled={busy}
+                  data-testid={`poll-option-${message.messageId}-${option.optionId}`}
+                  onClick={() => voteOnPoll(message, option)}
+                  style={{
+                    position: 'relative', width: '100%', minHeight: 36, padding: '7px 10px', overflow: 'hidden',
+                    borderRadius: 9, border: `1px solid ${option.votedByMe ? T.primary500 : T.line200}`,
+                    background: option.votedByMe ? T.primary50 : RF.card, cursor: busy ? 'default' : 'pointer',
+                    fontFamily: T.fontStack, textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
+                  }}>
+                  <span aria-hidden style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${percent}%`, background: T.primary100, opacity: 0.55 }}/>
+                  <span style={{ position: 'relative', flex: 1, minWidth: 0, fontSize: 12, fontWeight: option.votedByMe ? 800 : 700, color: T.text900 }}>{option.text}</span>
+                  <span style={{ position: 'relative', fontSize: 11, fontWeight: 800, color: T.text500, fontVariantNumeric: 'tabular-nums' }}>{option.voteCount}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 10.5, color: T.text500, marginTop: 7, fontVariantNumeric: 'tabular-nums' }}>
+            {poll.totalVoteCount}명 참여{poll.anonymous ? ' · 익명' : ''}
+          </div>
+        </div>
+      );
+    }
+    if (message.type === 'SETTLEMENT_MEMO') {
+      return (
+        <div data-testid={`chat-card-settlement-${message.messageId}`}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <Icon name="money" size={13} color={T.text700}/>
+            <span style={{ fontSize: 11, fontWeight: 800, color: T.text500 }}>정산 메모 · 송금 아님</span>
+          </div>
+          <div style={{ fontSize: 13, lineHeight: '19px', whiteSpace: 'pre-line' }}>{message.content}</div>
+        </div>
+      );
+    }
+    return message.content;
+  };
   const ServerBubble = ({ message }) => {
     const me = myUserId != null && message.senderId === myUserId;
     const sender = memberList?.members?.find((member) => member.userId === message.senderId);
     const time = window.MoyeoApi.formatClock(message.createdAt);
+    // 카드형 메시지는 일반 버블보다 넓고 흰 표면을 쓴다 — 내 카드도 초록 말풍선에 넣으면 카드가 안 읽힌다.
+    const card = Boolean(message.tourismContent || message.location || message.poll || message.type === 'SETTLEMENT_MEMO');
     return (
       <div style={{ display: 'flex', justifyContent: me ? 'flex-end' : 'flex-start', gap: 8, alignItems: 'flex-end', marginBottom: 14 }}>
         {!me && <ProfileAvatar src={sender?.profileImageUrl} size={30}/>}
-        <div>
+        <div style={card ? { minWidth: 0, flex: '0 1 268px' } : undefined}>
           {!me && <div style={{ fontSize: 10, color: T.text500, margin: '0 0 4px 2px' }}>{message.senderNickname}</div>}
           <div style={{ display: 'flex', flexDirection: me ? 'row-reverse' : 'row', alignItems: 'flex-end', gap: 6 }}>
-            <div style={{ maxWidth: 244, background: me ? 'var(--moyeo-chat-mine)' : RF.card, border: me ? 'none' : `1px solid ${RF.softLine}`, borderRadius: me ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding: '10px 13px', fontSize: 13, lineHeight: '19px', color: T.text900, whiteSpace: 'pre-line' }}>
-              {message.imageUrl
-                ? <img src={message.imageUrl} alt="" style={{ display: 'block', maxWidth: 220, borderRadius: 10 }}/>
-                : message.content}
+            <div style={{ maxWidth: card ? 268 : 244, flex: card ? 1 : undefined, minWidth: 0, background: (me && !card) ? 'var(--moyeo-chat-mine)' : RF.card, border: (me && !card) ? 'none' : `1px solid ${RF.softLine}`, borderRadius: card ? 14 : (me ? '16px 16px 4px 16px' : '16px 16px 16px 4px'), padding: card ? 13 : '10px 13px', fontSize: 13, lineHeight: '19px', color: T.text900, whiteSpace: card ? 'normal' : 'pre-line' }}>
+              <SpecialCard message={message}/>
             </div>
-            {time && <div style={{ fontSize: 10, color: T.text400 }}>{time}</div>}
+            {time && <div style={{ fontSize: 10, color: T.text400, flexShrink: 0 }}>{time}</div>}
           </div>
         </div>
       </div>
@@ -1695,10 +1913,15 @@ function ChatRoomBody() {
             ? <div key={message.messageId} style={{ width: 'fit-content', maxWidth: '90%', margin: '0 auto 14px', background: T.systemMsg, color: T.primary700, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 800, whiteSpace: 'pre-line', textAlign: 'center' }}>{message.content}</div>
             : <ServerBubble key={message.messageId} message={message}/>))}
         </div>
-        {/* 사진·장소·투표·정산 등 특수 메시지는 엔드포인트가 따로여서 아직 열지 않는다 — 첨부 버튼을 두지 않는다 */}
         <div style={{ flexShrink: 0, padding: '10px 14px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}` }}>
           {sendError && <div role="alert" style={{ fontSize: 11.5, color: T.danger, marginBottom: 7 }}>{sendError}</div>}
-          <Composer value={draft} onChange={setDraft} onSend={sendServerMessage} placeholder={sending ? '보내는 중...' : '메시지 입력'} testId="chat-composer"/>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {/* 첨부 진입 — 20-2 시트가 사진·장소·지도 공유를 실제로 보낸다 */}
+            <button type="button" data-testid="chat-attach" onClick={() => nav.go('chat-attach')} style={{ width: 38, height: 38, borderRadius: 999, border: `1px solid ${RF.softLine}`, background: RF.card, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }} aria-label="첨부">
+              <Icon name="plus" size={18} color={T.text700}/>
+            </button>
+            <Composer value={draft} onChange={setDraft} onSend={sendServerMessage} placeholder={sending ? '보내는 중...' : '메시지 입력'} testId="chat-composer"/>
+          </div>
         </div>
       </div>
     );
@@ -1812,10 +2035,15 @@ function ScreenFeed() {
           {serverFeeds && serverFeeds.map((feed) => (
             <div key={feed.feedId} onClick={() => openFeed(feed.feedId)} style={{ borderBottom: `1px solid ${RF.softLine}`, paddingBottom: 18, marginBottom: 18, cursor: 'pointer' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                <ProfileAvatar src={feed.author?.profileImageUrl} size={34}/>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 900 }}>{feed.author?.nickname}</div>
-                  <div style={{ fontSize: 10, color: T.text500, marginTop: 2 }}>{window.MoyeoApi.formatRelative(feed.createdAt)}</div>
+                {/* 작성자를 누르면 프로필 카드(25). 카드 전체는 피드 상세로 가므로 전파를 막는다 */}
+                <div
+                  onClick={(e) => { e.stopPropagation(); if (feed.author?.userId) nav.go('public-profile', { params: { userId: feed.author.userId } }); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 1, cursor: 'pointer' }}>
+                  <ProfileAvatar src={feed.author?.profileImageUrl} size={34}/>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 900 }}>{feed.author?.nickname}</div>
+                    <div style={{ fontSize: 10, color: T.text500, marginTop: 2 }}>{window.MoyeoApi.formatRelative(feed.createdAt)}</div>
+                  </div>
                 </div>
               </div>
               {feed.trip?.courseTitle && <div style={{ fontSize: 15, fontWeight: 900, marginTop: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{feed.trip.courseTitle}</div>}
@@ -1838,10 +2066,14 @@ function ScreenFeed() {
           {!serverFeeds && feedItems.map((item) => (
             <div key={item.title} onClick={() => nav.go('feed-detail')} style={{ borderBottom: `1px solid ${RF.softLine}`, paddingBottom: 18, marginBottom: 18, cursor: 'pointer' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                <AnimalAvatar kind={item.kind} size={34} bg={T.primary50}/>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 900 }}>{item.author}</div>
-                  <div style={{ fontSize: 10, color: T.text500, marginTop: 2 }}>{item.time}</div>
+                <div
+                  onClick={(e) => { e.stopPropagation(); nav.go('public-profile'); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 1, cursor: 'pointer' }}>
+                  <AnimalAvatar kind={item.kind} size={34} bg={T.primary50}/>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 900 }}>{item.author}</div>
+                    <div style={{ fontSize: 10, color: T.text500, marginTop: 2 }}>{item.time}</div>
+                  </div>
                 </div>
                 <Icon name="more" size={18} color={T.text500}/>
               </div>
@@ -1908,10 +2140,14 @@ function ScreenFeedDetail() {
           <Header title="" left onBack={nav.back}/>
           <div style={{ height: 'calc(100% - 98px)', overflow: 'auto', padding: '0 18px 84px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <ProfileAvatar src={feed.author?.profileImageUrl} size={34}/>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 900 }}>{feed.author?.nickname}</div>
-                <div style={{ fontSize: 10, color: T.text500, marginTop: 2 }}>{window.MoyeoApi.formatRelative(feed.createdAt)}</div>
+              <div
+                onClick={() => { if (feed.author?.userId) nav.go('public-profile', { params: { userId: feed.author.userId } }); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 1, cursor: 'pointer' }}>
+                <ProfileAvatar src={feed.author?.profileImageUrl} size={34}/>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 900 }}>{feed.author?.nickname}</div>
+                  <div style={{ fontSize: 10, color: T.text500, marginTop: 2 }}>{window.MoyeoApi.formatRelative(feed.createdAt)}</div>
+                </div>
               </div>
               {visibilityLabel && (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 24, padding: '0 9px', borderRadius: 999, background: T.bgSubtle, border: `1px solid ${RF.softLine}`, color: T.text500, fontSize: 10.5, fontWeight: 800 }}>
@@ -2138,6 +2374,10 @@ function ScreenMyPage() {
   const menuRows = [
     { icon: 'feed', title: '내 피드', subtitle: '내가 기록한 경북 여행', route: 'feed' },
     { icon: 'users', title: '친구 도감', subtitle: serverMode ? `${dexCount ?? 0}마리 · 최근 동행 순` : '12마리 · 최근 동행 순', route: 'dex' },
+    // 25 가 프로필 카드로 바뀌면서 그 안에 있던 '친구 관리'를 여기로 옮겼다.
+    // 옮기지 않으면 27-2 가 어디서도 열리지 않는다.
+    // '내 정보 수정'은 위 프로필 요약을 눌러서, '차단한 사용자'는 설정에서 들어간다(앱과 동일).
+    { icon: 'users', title: '친구 관리', subtitle: '내 친구와 받은/보낸 신청', route: 'friends' },
     { icon: 'chat', title: '고객센터', subtitle: '문의와 신고 내역' },
   ];
   return (
@@ -2148,7 +2388,10 @@ function ScreenMyPage() {
           <button
             type="button"
             data-testid="my-profile-summary"
-            onClick={() => nav.go('public-profile')}
+            // 내 카드로 열지 못한다 — GET /users/me/profile 응답에 userId 가 없어
+            // 공개 프로필 API 를 내 계정으로 호출할 수 없다. BE 에 userId·nicknameColor
+            // 노출을 요청했고, 생기면 여기서 내 카드를 연다.
+            onClick={() => nav.go('profile-edit')}
             style={{ width: '100%', minHeight: 94, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: 12, display: 'flex', alignItems: 'center', gap: 12, color: T.text900, textAlign: 'left', fontFamily: T.fontStack, cursor: 'pointer' }}
           >
             {profile ? <ProfileAvatar src={profile.profileImageUrl} size={58}/> : <AnimalAvatar kind="bear" size={58} bg={T.primary50}/>}
@@ -2230,128 +2473,6 @@ function ScreenMyPage() {
   );
 }
 
-function ScreenPublicProfile() {
-  const nav = window.useNav ? window.useNav() : { go: () => {} };
-  // 로그인 상태에서는 GET users/me/profile 로 대체한다.
-  // 매너 점수·여행/호스트/피드 지표는 서버 응답에 없어 로그인 상태에서는 숨긴다 (보고서 C 참고).
-  const liveMode = window.MoyeoApi?.live();
-  const [profile, setProfile] = React.useState(null);
-  React.useEffect(() => {
-    if (!liveMode) return undefined;
-    let active = true;
-    window.MoyeoApi.myProfile()
-      .then((result) => { if (active && result?.nickname) setProfile(result); })
-      .catch(() => {});
-    return () => { active = false; };
-  }, [liveMode]);
-
-  if (profile) {
-    return (
-      <Phone>
-        <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
-          <div style={{ height: 'calc(100% - 82px)', overflow: 'auto', paddingBottom: 100 }}>
-            <div style={{ height: 188, position: 'relative', background: `linear-gradient(180deg, ${T.coverTop} 0%, ${T.coverBottom} 100%)` }}>
-              <svg width="393" height="188" viewBox="0 0 393 188" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0 }}>
-                <path d="M0 140 Q58 104 109 124 T215 122 T319 125 T393 104 L393 188 L0 188 Z" fill={T.coverHill} opacity="0.55"/>
-              </svg>
-              <div style={{ position: 'absolute', right: 18, top: 14 }}><IconButton name="settings" onClick={() => nav.go('settings')}/></div>
-              <div style={{ position: 'absolute', left: 0, right: 0, bottom: -44, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <ProfileAvatar src={profile.profileImageUrl} size={86}/>
-                <div style={{ fontSize: 19, fontWeight: 900, marginTop: 8 }}>{profile.nickname}</div>
-              </div>
-            </div>
-            <div style={{ padding: '62px 18px 0' }}>
-              {(profile.travelStyles?.length > 0 || profile.interestedRegions?.length > 0) && (
-                <div style={{ borderRadius: 12, border: `1px solid ${RF.softLine}`, padding: 14 }}>
-                  <div style={{ fontSize: 13, fontWeight: 900 }}>여행 취향</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                    {(profile.travelStyles || []).map((style) => <Chip key={`style-${style.id}`} variant="soft">{style.label}</Chip>)}
-                    {(profile.interestedRegions || []).map((region) => <Chip key={`region-${region.id}`} variant="neutral">{region.signguName}</Chip>)}
-                  </div>
-                </div>
-              )}
-              {profile.introduction && (
-                <div style={{ marginTop: 14, borderRadius: 12, border: `1px solid ${RF.softLine}`, padding: 14 }}>
-                  <div style={{ fontSize: 13, fontWeight: 900 }}>소개</div>
-                  <div style={{ fontSize: 12, color: T.text700, lineHeight: '20px', marginTop: 8 }}>{profile.introduction}</div>
-                </div>
-              )}
-              <div style={{ marginTop: 12, borderTop: `1px solid ${RF.softLine}` }}>
-                {[
-                  ['feed', '내 정보 수정', 'profile-edit'],
-                  ['users', '친구 관리', 'dex'],
-                  ['close', '차단한 사용자', 'blocked'],
-                ].map((r) => (
-                  <button key={r[1]} onClick={() => nav.go(r[2])} style={{ height: 54, width: '100%', border: 'none', borderBottom: `1px solid ${RF.softLine}`, background: RF.card, display: 'flex', alignItems: 'center', gap: 12, fontFamily: T.fontStack, cursor: 'pointer' }}>
-                    <Icon name={r[0]} size={19} color={T.text700}/>
-                    <span style={{ flex: 1, textAlign: 'left', fontSize: 13, fontWeight: 800, color: T.text900 }}>{r[1]}</span>
-                    <Icon name="arrow" size={15} color={T.text400}/>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <BottomNav active="my"/>
-        </div>
-      </Phone>
-    );
-  }
-  return (
-    <Phone>
-      <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
-        <div style={{ height: 'calc(100% - 82px)', overflow: 'auto', paddingBottom: 100 }}>
-          <div style={{ height: 188, position: 'relative', background: `linear-gradient(180deg, ${T.coverTop} 0%, ${T.coverBottom} 100%)` }}>
-            <svg width="393" height="188" viewBox="0 0 393 188" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0 }}>
-              <path d="M0 140 Q58 104 109 124 T215 122 T319 125 T393 104 L393 188 L0 188 Z" fill={T.coverHill} opacity="0.55"/>
-            </svg>
-            <div style={{ position: 'absolute', right: 18, top: 14 }}><IconButton name="settings" onClick={() => nav.go('settings')}/></div>
-            <div style={{ position: 'absolute', left: 0, right: 0, bottom: -44, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <AnimalAvatar kind="bear" size={86} bg="#F4E1B8"/>
-              <div style={{ fontSize: 19, fontWeight: 900, marginTop: 8 }}>모여트립이</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, fontSize: 12, color: T.text700, fontWeight: 800 }}>
-                매너 점수 4.7점 <Icon name="star" size={13} color={T.warning}/>
-              </div>
-            </div>
-          </div>
-          <div style={{ padding: '62px 18px 0' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', borderRadius: 14, border: `1px solid ${RF.softLine}`, overflow: 'hidden' }}>
-              {/* 팔로우 개념이 없는 서비스라 지표는 여행·호스트·피드 3개다 (앱과 동일) */}
-              {[
-                ['여행', '12'],
-                ['호스트', '3'],
-                ['피드', '21'],
-              ].map((s, i) => (
-                <div key={s[0]} style={{ padding: '13px 0', textAlign: 'center', borderRight: i < 2 ? `1px solid ${RF.softLine}` : 'none' }}>
-                  <div style={{ fontSize: 11, color: T.text500 }}>{s[0]}</div>
-                  <div style={{ fontSize: 15, fontWeight: 900, marginTop: 3 }}>{s[1]}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ marginTop: 14, borderRadius: 12, border: `1px solid ${RF.softLine}`, padding: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 900 }}>소개</div>
-              <div style={{ fontSize: 12, color: T.text700, lineHeight: '20px', marginTop: 8 }}>자연과 여행을 사랑합니다 🌿<br/>새로운 사람들과 함께하는 여행이 좋아요!</div>
-            </div>
-            <div style={{ marginTop: 12, borderTop: `1px solid ${RF.softLine}` }}>
-              {[
-                ['feed', '내 정보 수정', 'profile-edit'],
-                ['users', '친구 관리', 'dex'],
-                ['close', '차단한 사용자', 'settings'],
-              ].map((r) => (
-                <button key={r[1]} onClick={() => nav.go(r[2])} style={{ height: 54, width: '100%', border: 'none', borderBottom: `1px solid ${RF.softLine}`, background: RF.card, display: 'flex', alignItems: 'center', gap: 12, fontFamily: T.fontStack, cursor: 'pointer' }}>
-                  <Icon name={r[0]} size={19} color={T.text700}/>
-                  <span style={{ flex: 1, textAlign: 'left', fontSize: 13, fontWeight: 800, color: T.text900 }}>{r[1]}</span>
-                  <Icon name="arrow" size={15} color={T.text400}/>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <BottomNav active="my"/>
-      </div>
-    </Phone>
-  );
-}
-
 Object.assign(window, {
   RF,
   Phone,
@@ -2383,5 +2504,4 @@ Object.assign(window, {
   ScreenFeed,
   ScreenFeedDetail,
   ScreenMyPage,
-  ScreenPublicProfile,
 });

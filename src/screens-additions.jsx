@@ -121,6 +121,31 @@ function ScreenCreateSchedule() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const [type, setType] = React.useState('day');
   const day = type === 'day';
+  // 로그인 상태에서는 실제로 등록될 일정(오늘 기준 미래 날짜)을 그대로 보여준다.
+  // 기획 목데이터(5/25)는 지난 날짜라 서버가 거절하므로 보이는 값과 보내는 값을 일치시킨다.
+  // 캡처 모드는 live() 가 false 라 아래 기획 목데이터 문구가 그대로 남는다.
+  const liveMode = window.MoyeoApi?.live();
+  const schedule = React.useMemo(() => (liveMode ? window.MoyeoApi.defaultRoomSchedule() : null), [liveMode]);
+  const dateText = (value) => window.MoyeoApi.formatDate(value);
+  // 17-4 에서 고른 집합 장소가 있으면 그 값을 보여준다 (없거나 캡처면 기획 목데이터 값 그대로).
+  const meetDraft = liveMode ? (window.MoyeoApi?.roomDraft?.() || {}) : {};
+  const meetPoint = {
+    lat: Number.isFinite(Number(meetDraft.meetingLatitude)) ? Number(meetDraft.meetingLatitude) : 36.435612,
+    lng: Number.isFinite(Number(meetDraft.meetingLongitude)) ? Number(meetDraft.meetingLongitude) : 129.057214,
+  };
+  const meetingDetails = meetDraft.meetingDetails || '청송 시외버스터미널 앞';
+  const meetingSummary = `${schedule ? schedule.meetingTime : '07:50'} 집합 · ${meetPoint.lat.toFixed(4)}, ${meetPoint.lng.toFixed(4)}`;
+  const goNext = () => {
+    window.MoyeoApi?.updateRoomDraft({
+      tripType: day ? 'DAY_TRIP' : 'OVERNIGHT',
+      ...(schedule || {}),
+      // 이 화면에 보이는 집합 정보를 그대로 넘긴다 (17-4 에서 바꿨으면 그 값이 이미 들어 있다).
+      meetingDetails,
+      meetingLatitude: meetPoint.lat,
+      meetingLongitude: meetPoint.lng,
+    });
+    nav.go('create-people');
+  };
 
   return (
     <Phone>
@@ -147,7 +172,7 @@ function ScreenCreateSchedule() {
             <div style={{ marginTop: 18, display: 'grid', gap: 16 }}>
               <div>
                 <AddFieldLabel required>여행 날짜</AddFieldLabel>
-                <AddFieldBox icon="calendar" value="2026. 05. 25 (토)"/>
+                <AddFieldBox icon="calendar" value={schedule ? dateText(schedule.startDate) : '2026. 05. 25 (토)'}/>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
@@ -164,7 +189,7 @@ function ScreenCreateSchedule() {
                 borderRadius: 12, background: T.bgSubtle, border: `1px solid ${RF.softLine}`,
               }}>
                 <Chip variant="soft">당일치기</Chip>
-                <span style={{ fontSize: 12, fontWeight: 800, color: T.text700, fontVariantNumeric: 'tabular-nums' }}>5/25(토) 08:00 – 18:00 · 10시간</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: T.text700, fontVariantNumeric: 'tabular-nums' }}>{schedule ? `${dateText(schedule.startDate)} ${schedule.dayTripStartTime} – ${schedule.dayTripEndTime} · 10시간` : '5/25(토) 08:00 – 18:00 · 10시간'}</span>
               </div>
             </div>
           ) : (
@@ -172,11 +197,11 @@ function ScreenCreateSchedule() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
                   <AddFieldLabel required>시작 날짜</AddFieldLabel>
-                  <AddFieldBox icon="calendar" value="05.25 (토)" chevron={false}/>
+                  <AddFieldBox icon="calendar" value={schedule ? dateText(schedule.startDate) : '05.25 (토)'} chevron={false}/>
                 </div>
                 <div>
                   <AddFieldLabel required>종료 날짜</AddFieldLabel>
-                  <AddFieldBox icon="calendar" value="05.26 (일)" chevron={false}/>
+                  <AddFieldBox icon="calendar" value={schedule ? dateText(schedule.endDate) : '05.26 (일)'} chevron={false}/>
                 </div>
               </div>
               <div style={{
@@ -184,7 +209,7 @@ function ScreenCreateSchedule() {
                 borderRadius: 12, background: T.bgSubtle, border: `1px solid ${RF.softLine}`,
               }}>
                 <Chip variant="soft">1박 2일</Chip>
-                <span style={{ fontSize: 12, fontWeight: 800, color: T.text700, fontVariantNumeric: 'tabular-nums' }}>5/25(토) ~ 5/26(일)</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: T.text700, fontVariantNumeric: 'tabular-nums' }}>{schedule ? `${dateText(schedule.startDate)} ~ ${dateText(schedule.endDate)}` : '5/25(토) ~ 5/26(일)'}</span>
               </div>
             </div>
           )}
@@ -195,7 +220,7 @@ function ScreenCreateSchedule() {
             <AddFieldLabel required>모집 마감일</AddFieldLabel>
             <AddFieldBox
               icon="clock"
-              value="2026. 05. 22 (목) 23:59"
+              value={schedule ? `${dateText(schedule.recruitmentDeadlineDate)} 23:59` : '2026. 05. 22 (목) 23:59'}
               caption="출발 3일 전까지만 선택할 수 있어요. 마감일에 최소 인원을 못 채우면 자동으로 소멸돼요."
             />
           </div>
@@ -214,8 +239,8 @@ function ScreenCreateSchedule() {
                 <Icon name="pin" size={18} color={T.primary600}/>
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 800 }}>청송 시외버스터미널 앞</div>
-                <div style={{ fontSize: 11, color: T.text500, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>07:50 집합 · 36.4356, 129.0572</div>
+                <div style={{ fontSize: 13, fontWeight: 800 }}>{meetingDetails}</div>
+                <div style={{ fontSize: 11, color: T.text500, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{meetingSummary}</div>
               </div>
               <Icon name="arrow" size={15} color={T.text400}/>
             </button>
@@ -230,7 +255,7 @@ function ScreenCreateSchedule() {
 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}>
           <Btn variant="ghost" onClick={nav.back}>이전</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={() => nav.go('create-people')}>다음</Btn></div>
+          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={goNext}>다음</Btn></div>
         </div>
       </div>
     </Phone>
@@ -286,6 +311,60 @@ function ScreenCreateMeetPoint() {
     lat: Number((current.lat + 0.000121).toFixed(6)),
     lng: Number((current.lng - 0.000094).toFixed(6)),
   }));
+  // 17-3 · 호스트가 기존 방의 집합 정보를 고치는 진입이면 PUT chat-rooms/{id}/meeting-info 로 저장한다.
+  // 여행 확정 전까지만 허용된다(40913). 모집 만들기(2/5) 진입이면 아래 draft 경로가 그대로 남는다.
+  const liveMode = window.MoyeoApi?.live();
+  const editRoomId = liveMode ? window.MoyeoApi.meetingEditRoomId() : null;
+  const [editRoom, setEditRoom] = React.useState(null);
+  const [saving, setSaving] = React.useState(false);
+  React.useEffect(() => {
+    if (!editRoomId) return undefined;
+    let active = true;
+    window.MoyeoApi.roomDetail(editRoomId)
+      .then((result) => {
+        if (!active || result?.roomId == null) return;
+        setEditRoom(result);
+        if (result.meetingDetails) setDetail(result.meetingDetails);
+        if (result.meetingLatitude != null && result.meetingLongitude != null) {
+          const next = { lat: Number(result.meetingLatitude), lng: Number(result.meetingLongitude) };
+          initialPoint.current = next;
+          setPoint(next);
+        }
+      })
+      .catch(() => { /* 실패 시 기획 목데이터 좌표가 그대로 남는다 */ });
+    return () => { active = false; };
+  }, [editRoomId]);
+  // 17-5 요약이 이어받는 집합 정보. 좌표는 지도 핀이 잡은 값을 그대로 쓴다.
+  const confirmPoint = async () => {
+    if (editRoom) {
+      if (saving) return;
+      setSaving(true);
+      try {
+        // meetingDateTime 은 서버 필수 필드이고 이 화면에 시간 입력 자리가 없어 방의 현재 값을 유지한다.
+        await window.MoyeoApi.updateMeetingInfo(editRoomId, window.MoyeoApi.buildMeetingInfoRequest(editRoom, {
+          meetingDetails: detail,
+          meetingLatitude: point.lat,
+          meetingLongitude: point.lng,
+        }));
+        window.MoyeoApi.selectMeetingEditRoom(null);
+        // 이전 화면(여행 경로)으로 돌아가면 그 화면이 다시 조회해 바뀐 집합 정보를 보여준다
+        nav.back();
+      } catch (_) {
+        setSaving(false); // 실패 시 화면을 유지한다 (기획에 오류 문구 자리가 없다)
+      }
+      return;
+    }
+    window.MoyeoApi?.updateRoomDraft({
+      meetingDetails: detail.trim() || null,
+      meetingLatitude: point.lat,
+      meetingLongitude: point.lng,
+    });
+    nav.back();
+  };
+  const cancelEdit = () => {
+    if (editRoomId) window.MoyeoApi.selectMeetingEditRoom(null);
+    nav.back();
+  };
 
   return (
     <Phone>
@@ -403,8 +482,8 @@ function ScreenCreateMeetPoint() {
         </div>
 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}>
-          <Btn variant="ghost" onClick={nav.back}>이전</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={nav.back}>이 위치로 지정</Btn></div>
+          <Btn variant="ghost" onClick={cancelEdit}>이전</Btn>
+          <div style={{ flex: 1 }}><Btn variant="primary" full disabled={saving} testId="meeting-confirm" onClick={confirmPoint}>이 위치로 지정</Btn></div>
         </div>
       </div>
     </Phone>
@@ -829,6 +908,65 @@ function ScreenCreateSummary({ source }) {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const resolvedSource = source || window.__moyeoCourseSource || 'custom';
   const linked = resolvedSource === 'linked';
+  // 로그인 상태에서는 앞 단계에서 모은 값을 그대로 보여주고, 그대로 POST /chat-rooms 로 보낸다.
+  // 캡처 모드는 live() 가 false 라 아래 기획 목데이터가 그대로 남는다.
+  const liveMode = window.MoyeoApi?.live();
+  const draft = liveMode ? window.MoyeoApi.roomDraft() : null;
+  const payload = draft ? window.MoyeoApi.buildCreateRoomRequest(draft) : null;
+  const [submitting, setSubmitting] = React.useState(false);
+  const [error, setError] = React.useState('');
+  // 직접 만든 코스는 방문지에 서버 contentId 가 없어 customCourse 를 조립할 수 없다 → 생성은 등록 코스만.
+  const canCreate = Boolean(payload && payload.courseType === 'PUBLIC' && payload.courseId != null);
+  const dday = payload
+    ? Math.round((new Date(`${payload.recruitmentDeadlineDate}T00:00:00`) - new Date(new Date().toDateString())) / 86400000)
+    : null;
+  const genderText = { NONE: '성별 제한 없음', MALE_ONLY: '남성만', FEMALE_ONLY: '여성만' }[payload?.genderRestriction] || '성별 제한 없음';
+  const summaryRows = payload
+    ? [
+      ['calendar', '일정', payload.dayTripStartTime
+        ? `${window.MoyeoApi.formatDate(payload.startDate)} 당일치기 · ${payload.dayTripStartTime} – ${payload.dayTripEndTime}`
+        : `${window.MoyeoApi.formatDate(payload.startDate)} ~ ${window.MoyeoApi.formatDate(payload.endDate)}`],
+      payload.meetingDetails
+        ? ['pin', '집합', `${window.MoyeoApi.formatTime(String(payload.meetingDateTime).split('T')[1])} ${payload.meetingDetails}`]
+        : null,
+      payload.meetingLatitude != null && payload.meetingLongitude != null
+        ? ['map', '좌표', `${payload.meetingLatitude}, ${payload.meetingLongitude}`]
+        : null,
+      // 최대 인원은 17-4 에서 고르기 전까지 초안에 없다 — 없으면 'undefined명' 을 찍지 말고 최소 인원만 남긴다.
+      ['users', '인원', payload.maxParticipants != null
+        ? `최소 ${draft.minParticipants || 3}명 · 최대 ${payload.maxParticipants}명`
+        : `최소 ${draft.minParticipants || 3}명`],
+      ['user', '조건', `${payload.minimumAge != null && payload.maximumAge != null ? `${payload.minimumAge}~${payload.maximumAge}세 · ` : ''}${genderText}`],
+      payload.participationFee != null ? ['money', '비용', `1인 ${Number(payload.participationFee).toLocaleString()}원 (예상)`] : null,
+      ['clock', '마감', `${window.MoyeoApi.formatDate(payload.recruitmentDeadlineDate)} 23:59${dday != null ? ` · D-${dday}` : ''}`],
+    ].filter(Boolean)
+    : [
+      ['calendar', '일정', '5/25(토) 당일치기 · 08:00 – 18:00'],
+      ['pin', '집합', '07:50 청송 시외버스터미널 정문 앞'],
+      ['map', '좌표', '36.435612, 129.057214'],
+      ['users', '인원', '최소 3명 · 최대 5명'],
+      ['user', '조건', '25~35세 · 성별 제한 없음'],
+      ['money', '비용', '1인 45,000원 (예상)'],
+      ['clock', '마감', '5/22(목) 23:59 · D-3'],
+    ];
+  // 등록 성공 시 응답의 roomId 로 15 모집 상세로 이동한다.
+  const openRecruitment = async () => {
+    if (!canCreate) { nav.go('host-manage'); return; }
+    if (submitting) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const created = await window.MoyeoApi.createRoom(payload);
+      const roomId = created?.roomId;
+      if (roomId == null) throw new Error('생성된 모집을 찾지 못했어요.');
+      window.MoyeoApi.clearRoomDraft();
+      window.MoyeoApi.selectRoom(roomId);
+      nav.go('detail');
+    } catch (failure) {
+      setError(failure?.message || '모집을 열지 못했어요.');
+      setSubmitting(false);
+    }
+  };
 
   return (
     <Phone>
@@ -842,21 +980,13 @@ function ScreenCreateSummary({ source }) {
 
           <div style={{ marginTop: 14, borderRadius: 14, border: `1px solid ${RF.softLine}`, background: RF.card, overflow: 'hidden' }}>
             <div style={{ padding: 14, borderBottom: `1px solid ${RF.softLine}` }}>
-              <div style={{ fontSize: 14, fontWeight: 900 }}>30대끼리 느긋하게 힐링 여행가요~</div>
+              <div style={{ fontSize: 14, fontWeight: 900 }}>{payload?.title || '30대끼리 느긋하게 힐링 여행가요~'}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 6 }}>
-                <Icon name="map" size={14} color={T.text500}/><span style={{ flex: 1, fontSize: 12, color: T.text700, fontWeight: 800 }}>주왕산 &amp; 주산지 힐링 트레킹</span><CourseSourceBadge source={resolvedSource}/>
+                <Icon name="map" size={14} color={T.text500}/><span style={{ flex: 1, fontSize: 12, color: T.text700, fontWeight: 800 }}>{draft?.courseTitle || '주왕산 & 주산지 힐링 트레킹'}</span><CourseSourceBadge source={resolvedSource}/>
               </div>
             </div>
             <div style={{ padding: 14, display: 'grid', gap: 10 }}>
-              {[
-                ['calendar', '일정', '5/25(토) 당일치기 · 08:00 – 18:00'],
-                ['pin', '집합', '07:50 청송 시외버스터미널 정문 앞'],
-                ['map', '좌표', '36.435612, 129.057214'],
-                ['users', '인원', '최소 3명 · 최대 5명'],
-                ['user', '조건', '25~35세 · 성별 제한 없음'],
-                ['money', '비용', '1인 45,000원 (예상)'],
-                ['clock', '마감', '5/22(목) 23:59 · D-3'],
-              ].map((r) => (
+              {summaryRows.map((r) => (
                 <div key={r[1]} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
                   <Icon name={r[0]} size={16} color={T.text500}/>
                   <span style={{ width: 44, color: T.text500 }}>{r[1]}</span>
@@ -888,7 +1018,10 @@ function ScreenCreateSummary({ source }) {
 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}>
           <Btn variant="ghost" onClick={nav.back}>이전</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={() => nav.go('host-manage')}>모집 열기</Btn></div>
+          <div style={{ flex: 1 }}>
+            {error && <div role="alert" style={{ fontSize: 11.5, color: T.dangerText, marginBottom: 6, lineHeight: '16px' }}>{error}</div>}
+            <Btn variant="primary" full disabled={submitting} testId="create-room-submit" onClick={openRecruitment}>{submitting ? '모집을 여는 중...' : '모집 열기'}</Btn>
+          </div>
         </div>
       </div>
     </Phone>
@@ -929,6 +1062,8 @@ function ScreenCourseEdit({ mode = 'custom' }) {
   const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
   const [serverCourse, setServerCourse] = React.useState(null);
   const [serverRoom, setServerRoom] = React.useState(null);
+  // 집합 정보 수정은 호스트만 가능하다 (멤버 목록의 me·host 로 판정한다).
+  const [isHost, setIsHost] = React.useState(false);
   React.useEffect(() => {
     if (!liveMode || !roomId) return undefined;
     let active = true;
@@ -938,8 +1073,15 @@ function ScreenCourseEdit({ mode = 'custom' }) {
     window.MoyeoApi.roomDetail(roomId)
       .then((result) => { if (active && result?.roomId != null) setServerRoom(result); })
       .catch(() => {});
+    window.MoyeoApi.roomMembers(roomId)
+      .then((result) => { if (active) setIsHost(Boolean((result?.members || []).find((member) => member.me)?.host)); })
+      .catch(() => { /* 미참여자면 호스트가 아니다 */ });
     return () => { active = false; };
   }, [liveMode, roomId]);
+  const openMeetingEdit = () => {
+    window.MoyeoApi.selectMeetingEditRoom(roomId);
+    nav.go('create-meet');
+  };
   const serverPlaces = serverCourse?.places || null;
   // 방문지 이름으로 실좌표를 찾아 순번 마커 + 경로선을 그린다. 못 찾으면 목업 지도가 남는다.
   // 서버 코스가 있으면 서버가 준 좌표를 그대로 쓴다.
@@ -1087,27 +1229,38 @@ function ScreenCourseEdit({ mode = 'custom' }) {
             </button>
           )}
 
-          {(!serverMode || serverRoom?.meetingDetails) && <div style={{ marginTop: 18, fontSize: 13, fontWeight: 900 }}>집합 정보</div>}
-          {(!serverMode || serverRoom?.meetingDetails) && (
-          <div style={{ marginTop: 10, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: 13, display: 'flex', gap: 11, alignItems: 'center' }}>
-            <div style={{ width: 38, height: 38, borderRadius: 11, background: T.primary50, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Icon name="pin" size={18} color={T.primary600}/>
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 800 }}>{serverMode
-                ? `${window.MoyeoApi.formatTime(String(serverRoom.meetingDateTime || '').split('T')[1])} · ${serverRoom.meetingDetails}`
-                : '07:50 · 청송 시외버스터미널 정문 앞'}</div>
-              {(!serverMode || (serverRoom.meetingLatitude != null && serverRoom.meetingLongitude != null)) && (
-                <div style={{ fontSize: 11, color: T.text500, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{serverMode ? `${serverRoom.meetingLatitude}, ${serverRoom.meetingLongitude}` : '36.435612, 129.057214'}</div>
-              )}
-            </div>
-            {serverMode
-              ? <Icon name="lock" size={15} color={T.text400} strokeWidth={2}/>
-              : mode !== 'locked'
-                ? <span style={{ fontSize: 12, fontWeight: 800, color: T.primary600 }}>수정</span>
-                : <Icon name="lock" size={15} color={T.text400} strokeWidth={2}/>}
-          </div>
-          )}
+          {/* 집합 정보 수정(17-3)은 호스트 · 확정 전(RECRUITING)만 열린다 — 확정 뒤엔 서버가 40913 을 준다 */}
+          {(() => {
+            const canEditMeeting = serverMode && isHost && serverRoom?.status === 'RECRUITING';
+            const meetingTime = serverMode ? window.MoyeoApi.formatTime(String(serverRoom?.meetingDateTime || '').split('T')[1]) : '';
+            const meetingLine = serverMode
+              ? [meetingTime, serverRoom?.meetingDetails].filter(Boolean).join(' · ')
+              : '07:50 · 청송 시외버스터미널 정문 앞';
+            if (serverMode && !meetingLine && !canEditMeeting) return null;
+            return (
+              <>
+                <div style={{ marginTop: 18, fontSize: 13, fontWeight: 900 }}>집합 정보</div>
+                <div style={{ marginTop: 10, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: 13, display: 'flex', gap: 11, alignItems: 'center' }}>
+                  <div style={{ width: 38, height: 38, borderRadius: 11, background: T.primary50, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon name="pin" size={18} color={T.primary600}/>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800 }}>{meetingLine}</div>
+                    {(!serverMode || (serverRoom.meetingLatitude != null && serverRoom.meetingLongitude != null)) && (
+                      <div style={{ fontSize: 11, color: T.text500, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{serverMode ? `${serverRoom.meetingLatitude}, ${serverRoom.meetingLongitude}` : '36.435612, 129.057214'}</div>
+                    )}
+                  </div>
+                  {canEditMeeting
+                    ? <button type="button" data-testid="meeting-info-edit" onClick={openMeetingEdit} style={{ border: 0, background: 'transparent', padding: 0, fontSize: 12, fontWeight: 800, color: T.primary600, fontFamily: T.fontStack, cursor: 'pointer' }}>수정</button>
+                    : serverMode
+                      ? <Icon name="lock" size={15} color={T.text400} strokeWidth={2}/>
+                      : mode !== 'locked'
+                        ? <span style={{ fontSize: 12, fontWeight: 800, color: T.primary600 }}>수정</span>
+                        : <Icon name="lock" size={15} color={T.text400} strokeWidth={2}/>}
+                </div>
+              </>
+            );
+          })()}
           {mode === 'linked' && (
             <div style={{ fontSize: 11, color: T.text500, marginTop: 8, lineHeight: '17px' }}>
               등록된 코스여도 집합 장소와 시간은 호스트가 정해요. 마감 전까지 언제든 바꿀 수 있어요.

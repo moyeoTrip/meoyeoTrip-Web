@@ -77,6 +77,7 @@ const routes = [
   "feed-write-4",
   "feed-write-5",
   "profile",
+  "profile-back",
   "my",
   "dex",
   "profile-edit",
@@ -143,7 +144,10 @@ const expectedTexts = {
   search: ["최근 검색어", "인기 검색어", "주왕산", "문경 새재"],
   course: ["코스 상세", "숲속여행자 님이 다녀온 코스", "여행자 코스", "코스 미리보기"],
   // 기획 25는 커버·이름·지표 3칸·소개·메뉴 3줄로 끝난다 — "최근 여행" 섹션은 기획에 없어 삭제했다
-  profile: ["모여트립이", "매너 점수 4.7점", "차단한 사용자"],
+  // 25 는 프로필 카드다. 관리 진입점(차단한 사용자 등)은 마이로 옮겼다.
+  // DM 기획이 없어 프로필 카드에는 "메시지" 버튼을 두지 않는다.
+  profile: ["프로필", "우직한 곰 7821", "회 동행", "매너", "뒤집기", "친구 신청"],
+  "profile-back": ["카드 뒷면", "동행자들이 준 평균", "함께한 여행", "다른 여행자들이 남긴 평가"],
   "auth-methods": ["로그인 방식", "카카오", "Google", "이메일", "Apple"],
   create: ["모집 만들기 (1/5)", "코스 선택", "등록된 코스로 떠나기", "코스 직접 만들기", "이 코스로 다음"],
   "custom-course": ["코스 직접 만들기", "방문지 검색", "최소 2개 · 최대 20개", "여행이 확정되기 전까지"],
@@ -279,7 +283,19 @@ async function staticTests() {
     fileExists("README.md"),
     fileExists(".nojekyll"),
     fileExists(".github/workflows/deploy-pages.yml"),
+    // 라이브 캡처 세션 파일의 형식 예시. 실제 토큰 파일(.local.js)은 gitignore 라 없을 수 있다.
+    fileExists("src/capture-session.example.js"),
   ]);
+
+  // 라이브 캡처 세션 파일은 절대 커밋되지 않아야 한다 (토큰이 리포에 남는다).
+  const gitignore = await read(".gitignore");
+  assertIncludes(gitignore, ["src/runtime-config.local.js", "src/capture-session.local.js"], ".gitignore");
+  const captureSessionExample = await read("src/capture-session.example.js");
+  assertIncludes(captureSessionExample, ["window.MOYEO_CAPTURE_SESSION", "accessToken", "liveData=1"], "capture session example");
+  assert.ok(
+    !/^\s*refreshToken\s*:/m.test(captureSessionExample),
+    "예시 파일은 refreshToken 필드를 넣지 않는다 (refresh 응답이 localStorage 로 새는 경로를 막는다)",
+  );
 
   const [html, mobileApp, refined, additions, additions2, additions3, additions4, shared, cachedImage, pushNotifications, serviceWorker, prototype, onboarding, authApi, tourismApi, extra, extra2, readme, standaloneWorkflow, devServer, observability] = await Promise.all([
     read("index.html"),
@@ -456,7 +472,7 @@ async function staticTests() {
     "KAKAO_REDIRECT_URI",
     "http.server",
   ], "development server");
-  assertIncludes(html, ["react@18.3.1", "@babel/standalone", "firebasejs/12.16.0", "firebase-auth-compat", "firebase-messaging-compat", "push-notifications.js", "kakao_js_sdk/2.8.1", "runtime-config.js", "LINE Seed Sans KR", "LINESeedKR-Rg.woff2", "LINESeedKR-Bd.woff2", "assets/vendor/lucide.js", "observability.js"], "index.html");
+  assertIncludes(html, ["react@18.3.1", "@babel/standalone", "firebasejs/12.16.0", "firebase-auth-compat", "firebase-messaging-compat", "push-notifications.js", "kakao_js_sdk/2.8.1", "runtime-config.js", "src/capture-session.local.js", "LINE Seed Sans KR", "LINESeedKR-Rg.woff2", "LINESeedKR-Bd.woff2", "assets/vendor/lucide.js", "observability.js"], "index.html");
   assertIncludes(authApi, [
     "/api/v1/auth/login",
     "/api/v1/auth/signup",
@@ -486,16 +502,26 @@ async function staticTests() {
     "thumbnailUrl",
     "postalCode",
     "menuImages",
+    "contentImages",
+    "parseHomepage",
+    "totalElements",
     "SCHEMA_MISMATCH",
     "usesDeterministicSamples",
   ], "tourism API client");
   assertIncludes(additions4, [
-    "window.MoyeoTourism.list()",
+    "window.MoyeoTourism.list({ keyword, contentTypeId: typeFilter, size: 30 })",
     "window.MoyeoTourism.detail(selectedId)",
     "예시 장소를 대신 보여드려요",
     "예시 상세를 대신 보여드려요",
     "PlaceImage",
+    // TourAPI 원본 이미지 호스트는 CORS 를 안 줘서 CachedImage(fetch) 로는 못 읽는다
+    "function RemotePlaceImage",
   ], "live tourism screens");
+  // 17-1a 검색은 서버 keyword 로만 거른다 — 클라이언트 제목/주소 재필터는 이중 필터라 금지
+  assert.ok(
+    !additions4.includes("const matchesQuery ="),
+    "place search must not re-filter live results on the client",
+  );
   assertIncludes(extra, [
     "auth-login-${provider}",
     "auth-login-welcome-image",
@@ -595,6 +621,51 @@ async function staticTests() {
     "'oss-license-detail': window.ScreenOssLicenseDetail",
   ], "changeLog17 routes");
   assertIncludes(mobileApp, ["'oss-licenses': 'oss-licenses'", "'oss-license-detail': 'oss-license-detail'"], "changeLog17 route aliases");
+
+  // ── 목데이터 → 실데이터: 20-2 첨부 · 투표 · 방별 알림 · 집합 정보 · 동행자 · 승인/거절 ──
+  assertIncludes(refined, [
+    "chat-card-poll-",
+    "chat-card-location-",
+    "chat-card-tourism-",
+    "chat-card-settlement-",
+    "poll-option-",
+    "MoyeoApi.cancelPollVote(roomId, message.messageId)",
+    "MoyeoApi.votePollOption(roomId, message.messageId, option.optionId)",
+    "MoyeoApi.pollPercent(poll, option)",
+  ], "20 채팅방 특수 메시지 카드·투표 참여");
+  assertIncludes(additions2, [
+    "MoyeoApi.shareRoomImage(roomId, file)",
+    "MoyeoApi.shareRoomTourismContent(roomId, contentId)",
+    "MoyeoApi.shareRoomLocation(roomId)",
+    "chat-attach-image-input",
+    "MoyeoApi.roomNotificationSetting(roomId)",
+    "MoyeoApi.updateRoomNotificationSetting(roomId, next)",
+    "chat-menu-room-alarm",
+    "MoyeoApi.roomCompanions(roomId)",
+    "MoyeoApi.kickRoomMember(roomId, member.userId, reason)",
+    "MoyeoApi.reviewCompanion(roomId, item.userId",
+    "companion-review-",
+  ], "20-2 첨부 전송 · 20-1 방별 알림 · 27-1 동행자");
+  // 투표 개최·정산 메모는 입력 화면이 화면기획에 없어 카드 스펙 보드로 남긴다 (새 화면을 만들지 않는다).
+  assert.ok(
+    additions2.includes("사진: () => fileInputRef.current?.click()")
+      && !additions2.includes("createRoomPoll(")
+      && !additions2.includes("shareRoomSettlementMemo("),
+    "투표·정산은 기획에 입력 자리가 없어 화면에서 호출하지 않는다",
+  );
+  assertIncludes(additions, [
+    "MoyeoApi.meetingEditRoomId()",
+    "MoyeoApi.updateMeetingInfo(editRoomId, window.MoyeoApi.buildMeetingInfoRequest(editRoom",
+    "meeting-info-edit",
+    "MoyeoApi.selectMeetingEditRoom(roomId)",
+  ], "17-3 집합 정보 수정(호스트)");
+  assertIncludes(extra, [
+    "MoyeoApi.roomApplications(roomId)",
+    "MoyeoApi.approveApplication(roomId, applicationId)",
+    "MoyeoApi.rejectApplication(roomId, applicationId)",
+    "host-application-",
+    "MoyeoApi.leaveRoom(roomId)",
+  ], "18 승인·거절 · 20-1 나가기");
 
   for (const route of routes) {
     assert.ok(mobileApp.includes(route), `mobile-app route map should include ${route}`);
@@ -856,38 +927,7 @@ async function pushContractTests() {
 async function tourismContractTests() {
   const source = await read("src/tourism-api.js");
   const requests = [];
-  const responses = [
-    {
-      data: {
-        content: [{
-          contentId: 77,
-          contentType: "RESTAURANT",
-          title: "실제 식당",
-          address: "경상북도 청송군",
-          thumbnailUrl: "https://cdn.example/thumb.webp",
-          latitude: 36.4,
-          longitude: 129.1,
-        }],
-      },
-    },
-    {
-      data: {
-        contentId: 77,
-        contentType: "RESTAURANT",
-        title: "실제 식당",
-        address: "경상북도 청송군",
-        postalCode: "37411",
-        phoneNumber: "054-000-0000",
-        phoneName: "안내소",
-        homepage: "https://example.test",
-        description: "상세 소개",
-        images: [{ imageUrl: "https://cdn.example/a.webp" }],
-        menuImages: ["https://cdn.example/menu.webp"],
-        latitude: 36.4,
-        longitude: 129.1,
-      },
-    },
-  ];
+  const responses = [];
   const window = {
     MOYEO_RUNTIME_CONFIG: { apiBaseUrl: "https://api.example.test" },
     location: { search: "" },
@@ -915,23 +955,540 @@ async function tourismContractTests() {
     Array,
     Object,
   });
+  const tourism = window.MoyeoTourism;
 
-  const list = await window.MoyeoTourism.list();
-  assert.equal(list[0].contentId, "77");
-  assert.equal(list[0].type, "food");
-  assert.equal(list[0].thumbnailUrl, "https://cdn.example/thumb.webp");
-  assert.equal(requests[0].url, "https://api.example.test/api/v1/tourism-contents");
+  // ── 목록: 실제 응답은 { items, page, size, totalElements, totalPages } ──
+  responses.push({
+    items: [{
+      contentId: 77,
+      contentTypeId: 39,
+      title: "실제 식당",
+      address1: "경상북도 청송군",
+      address2: null,
+      thumbnail: "https://cdn.example/thumb.webp",
+      latitude: 36.4,
+      longitude: 129.1,
+    }],
+    page: 0,
+    size: 30,
+    totalElements: 21,
+    totalPages: 1,
+  });
+  const list = await tourism.list({ keyword: "  주왕산  ", contentTypeId: 39, size: 30 });
+  assert.equal(list.items[0].contentId, "77");
+  assert.equal(list.items[0].type, "food");
+  assert.equal(list.items[0].thumbnailUrl, "https://cdn.example/thumb.webp");
+  assert.equal(list.items[0].address, "경상북도 청송군", "address2 가 null 이면 주소를 이어붙이지 않는다");
+  // 건수 표기는 클라가 센 값이 아니라 서버의 totalElements 를 쓴다
+  assert.equal(list.totalElements, 21);
+  assert.equal(list.items.length, 1);
+  // 검색어는 서버로 넘긴다(앞뒤 공백 제거) · contentTypeId 와 함께 보낼 수 있다
+  assert.equal(
+    requests[0].url,
+    "https://api.example.test/api/v1/tourism-contents?keyword=%EC%A3%BC%EC%99%95%EC%82%B0&contentTypeId=39&size=30",
+  );
   assert.equal(requests[0].options.headers.Authorization, "Bearer access-token");
 
-  const detail = await window.MoyeoTourism.detail("77");
-  assert.equal(detail.postalCode, "37411");
-  assert.equal(detail.phoneName, "안내소");
-  assert.equal(detail.images[0], "https://cdn.example/a.webp");
-  assert.equal(detail.menuImages[0], "https://cdn.example/menu.webp");
-  assert.equal(requests[1].url, "https://api.example.test/api/v1/tourism-contents/77");
+  // 검색어가 비면 keyword 파라미터를 아예 보내지 않는다 (= 전체 조회)
+  responses.push({ items: [], page: 0, size: 30, totalElements: 3098, totalPages: 104 });
+  const all = await tourism.list({ keyword: "   ", size: 30 });
+  assert.equal(requests[1].url, "https://api.example.test/api/v1/tourism-contents?size=30");
+  assert.equal(all.totalElements, 3098);
 
+  // totalElements 가 없는 응답이면 받은 건수로 대체한다
+  responses.push({ items: [{ contentId: 5, title: "무제" }] });
+  const noTotal = await tourism.list();
+  assert.equal(noTotal.totalElements, 1);
+  assert.equal(requests[2].url, "https://api.example.test/api/v1/tourism-contents");
+
+  responses.push({ items: "not-an-array" });
+  await assert.rejects(() => tourism.list(), (error) => error.code === "SCHEMA_MISMATCH");
+
+  // ── 상세: zipcode / telephone / homepage / contentImages / menuImages ──
+  responses.push({
+    contentId: 2832919,
+    contentTypeId: 39,
+    title: "청하누",
+    address1: "경상북도 청송군 주왕산로 440",
+    address2: null,
+    zipcode: "37437",
+    telephone: null,
+    telephoneName: null,
+    homepage: '<a href="https://www.instagram.com/cheonghanoo__csyy/" target="_blank" title="새창 : 청하누 인스타그램으로 이동">https://www.instagram.com/cheonghanoo__csyy/</a>',
+    overview: "청하누는 한우구이 전문점이다.",
+    thumbnail: "https://cdn.example/thumb.webp",
+    latitude: 36.38,
+    longitude: 129.1,
+    contentImages: [{ contentId: 2832919, imageName: "외관", originalImageUrl: "https://cdn.example/a.webp", serialNumber: "1", copyrightType: "Type3" }],
+    menuImages: [{ contentId: 2832919, imageName: null, originalImageUrl: "https://cdn.example/menu.webp", serialNumber: "2", copyrightType: "Type3" }],
+  });
+  const detail = await tourism.detail("2832919");
+  assert.equal(requests[4].url, "https://api.example.test/api/v1/tourism-contents/2832919");
+  assert.equal(detail.type, "food", "contentTypeId 39 는 음식점(메뉴판 탭)");
+  assert.equal(detail.postalCode, "37437");
+  assert.equal(detail.description, "청하누는 한우구이 전문점이다.");
+  // null 필드는 지어내지 않고 빈 값으로 남긴다 — 화면이 그 줄을 숨긴다
+  assert.equal(detail.phoneNumber, "");
+  assert.equal(detail.phoneName, "");
+  // homepage 앵커 태그는 URL 만 뽑는다 (마크업이 화면에 노출되면 안 된다)
+  assert.equal(detail.homepage, "https://www.instagram.com/cheonghanoo__csyy/");
+  assert.ok(!detail.homepage.includes("<"));
+  assert.equal(detail.images[0], "https://cdn.example/a.webp", "contentImages 는 originalImageUrl 을 쓴다");
+  assert.equal(detail.menuImages[0], "https://cdn.example/menu.webp");
+
+  // 사진이 하나도 없는 상세도 그대로 빈 배열이다 (자리표시자를 지어내지 않는다)
+  responses.push({
+    contentId: 2899234, contentTypeId: 39, title: "주왕산청솔식당", address1: "경상북도 청송군 주왕산면 공원길 164",
+    address2: null, zipcode: "37437", telephone: null, telephoneName: null, homepage: null,
+    overview: "산채 더덕구이 정식", thumbnail: null, latitude: 36.39, longitude: 129.14,
+    contentImages: [], menuImages: [],
+  });
+  const bare = await tourism.detail(2899234);
+  assert.deepEqual(plain(bare.images), []);
+  assert.deepEqual(plain(bare.menuImages), []);
+  assert.equal(bare.homepage, "");
+  assert.equal(bare.thumbnailUrl, "");
+
+  await assert.rejects(() => tourism.detail(""), (error) => error.code === "CONTENT_ID_REQUIRED");
+
+  // ── homepage 파싱 단위 케이스 ──
+  const homepage = tourism.parseHomepage;
+  assert.equal(homepage(null), null);
+  assert.equal(homepage(""), null);
+  assert.equal(homepage("   "), null);
+  assert.equal(homepage("https://cheongsong.go.kr/tour"), "https://cheongsong.go.kr/tour", "태그 없는 URL 은 그대로");
+  assert.equal(homepage("www.nadrifood.com"), "www.nadrifood.com");
+  // 실제 응답에는 href 뒤 공백이 빠진 것도 있다
+  assert.equal(
+    homepage('<a href="http://instagram.com/goof.ff_sangju_"target="_blank" title="새창 : 구프커피">http://instagram.com/goof.ff_sangju_</a>'),
+    "http://instagram.com/goof.ff_sangju_",
+  );
+  assert.equal(homepage("<a href='http://죽도시장맛집.한국' target='_blank'>http://죽도시장맛집.한국</a>"), "http://죽도시장맛집.한국");
+  assert.equal(
+    homepage('<a href="https://www.instagram.com/gyo_dong/?igsh=MXI0eDk1N2lpbmhveA%3D%3D#" target="_blank">https://www.instagram.com/gyo_dong/</a>'),
+    "https://www.instagram.com/gyo_dong/?igsh=MXI0eDk1N2lpbmhveA%3D%3D#",
+  );
+  assert.equal(homepage("<a href=\"https://a.test/?x=1&amp;y=2\">a</a>"), "https://a.test/?x=1&y=2", "HTML 엔티티는 되돌린다");
+  // href 가 없으면 표시 텍스트에서 URL 을 찾는다
+  assert.equal(homepage("<a>https://only-text.test</a>"), "https://only-text.test");
+  // URL 로 볼 수 없으면 null — 화면은 그 줄을 숨긴다 (문구를 지어내지 않는다)
+  assert.equal(homepage("<a href=\"mailto:a@b.test\">메일</a>"), null);
+  assert.equal(homepage("<a>홈페이지 준비중</a>"), null);
+  assert.equal(homepage("전화문의"), null);
+
+  // ── 캡처 라우트 판정은 그대로다 (약화 금지) ──
   window.location.search = "?mockAuth=1";
-  assert.equal(window.MoyeoTourism.usesDeterministicSamples(), true);
+  assert.equal(tourism.usesDeterministicSamples(), true);
+  window.location.search = "?screen=place-search";
+  assert.equal(tourism.usesDeterministicSamples(), true);
+  window.location.search = "?route=place-detail";
+  assert.equal(tourism.usesDeterministicSamples(), true);
+  window.location.search = "?capture=1";
+  assert.equal(tourism.usesDeterministicSamples(), true);
+  window.location.search = "?uitest=1";
+  assert.equal(tourism.usesDeterministicSamples(), true);
+  window.location.search = "?screen=place-search&liveData=1";
+  assert.equal(tourism.usesDeterministicSamples(), false, "liveData=1 은 개발자용 예외");
+  window.location.search = "";
+  assert.equal(tourism.usesDeterministicSamples(), false);
+}
+
+// 2026-08-24 서버 패치로 검색 응답에 붙은 9필드 파싱 + 17 모집 만들기 요청 조립
+async function moyeoApiContractTests() {
+  const source = await read("src/moyeo-api.js");
+  const requests = [];
+  const searchRows = [
+    {
+      roomId: 1,
+      title: "안동 역사 여행",
+      thumbnail: "https://cdn.example/a.png",
+      tripType: "DAY_TRIP",
+      startDate: "2026-09-12",
+      endDate: null,
+      dayTripStartTime: "09:00:00",
+      dayTripEndTime: "18:00:00",
+      recruitmentDeadlineDate: "2026-09-09",
+      recruitmentDDay: 15,
+      status: "RECRUITING",
+      favorite: true,
+      meetingLatitude: 36.576,
+      meetingLongitude: 128.97,
+      meetingDetails: "안동역 1번 출구 앞",
+      meetingDateTime: "2026-09-12T08:30:00",
+      participantCount: 4,
+      maxParticipants: 5,
+      courseTitle: "안동 역사·야경 코스",
+      tags: [{ tagId: 1, name: "섬" }],
+    },
+    {
+      // 숙박 방 — 당일 여행 시간이 둘 다 null 이고 집합 안내도 미정(null)이다.
+      roomId: 2,
+      title: "울릉도 2박 3일",
+      tripType: "OVERNIGHT",
+      startDate: "2026-10-01",
+      endDate: "2026-10-03",
+      dayTripStartTime: null,
+      dayTripEndTime: null,
+      recruitmentDeadlineDate: "2026-09-28",
+      recruitmentDDay: 0,
+      status: "CONFIRMED",
+      favorite: false,
+      // 좌표가 한쪽만 왔다 → 마커에서 제외된다.
+      meetingLatitude: 37.4844,
+      meetingLongitude: null,
+      meetingDetails: null,
+      meetingDateTime: "2026-10-01T07:00:00",
+      participantCount: 3,
+      maxParticipants: 5,
+      courseTitle: "울릉 해안 코스",
+      tags: [],
+    },
+    {
+      // 문서 포맷(HH:mm)도 그대로 받는다.
+      roomId: 3,
+      title: "문경 새재 단풍",
+      tripType: "DAY_TRIP",
+      startDate: "2026-11-01",
+      dayTripStartTime: "08:30",
+      dayTripEndTime: "17:05",
+      recruitmentDeadlineDate: "2026-10-29",
+      recruitmentDDay: 7,
+      status: "RECRUITING",
+      favorite: false,
+      meetingLatitude: 36.7,
+      meetingLongitude: 128.1,
+      meetingDetails: "   ",
+      meetingDateTime: "2026-11-01T07:40:00",
+      participantCount: 2,
+      maxParticipants: 5,
+      courseTitle: "문경 단풍 코스",
+      tags: [],
+    },
+  ];
+  // 완료 여행 동행자 — mannerRating 은 필드만 있고 값이 null 이다(서버 현황). 빈 한줄평은 null 로 접힌다.
+  const companionRows = [
+    {
+      companionRecordId: 44,
+      userId: 61,
+      nickname: "따스한 사슴 3492",
+      profileImageUrl: null,
+      mannerRating: null,
+      mannerScore: 5,
+      oneLineReview: "약속 시간을 잘 지켜요",
+      reviewed: true,
+    },
+    {
+      companionRecordId: 45,
+      userId: 62,
+      nickname: "잔잔한 거북이 9032",
+      profileImageUrl: "https://cdn.example/b.png",
+      mannerRating: "4.8",
+      mannerScore: null,
+      oneLineReview: "   ",
+      reviewed: false,
+    },
+  ];
+  const window = {
+    location: { search: "" },
+    localStorage: { getItem: () => JSON.stringify({ accessToken: "access-token" }) },
+    sessionStorage: (() => {
+      const values = new Map();
+      return {
+        getItem: (key) => values.get(key) ?? null,
+        setItem: (key, value) => values.set(key, value),
+        removeItem: (key) => values.delete(key),
+      };
+    })(),
+    MoyeoAuth: {
+      request: async (path, options) => {
+        requests.push({ path, options });
+        if (path.startsWith("/api/v1/chat-rooms/search")) return searchRows;
+        if (path === "/api/v1/chat-rooms") return { roomId: 41 };
+        if (path === "/api/v1/chat-rooms/21/companions") return companionRows;
+        if (path === "/api/v1/notifications/settings/chat-rooms/21") {
+          return { roomId: 21, enabled: options?.method === "PUT" ? options.body.enabled : true };
+        }
+        return {};
+      },
+      getSession: () => ({ accessToken: "access-token" }),
+      getConfig: () => ({ mockBackend: false }),
+    },
+    FormData: class {
+      constructor() { this.parts = []; }
+      append(name, value) { this.parts.push([name, value]); }
+    },
+    Blob: class {
+      constructor(chunks, options) { this.chunks = chunks; this.type = options?.type; }
+    },
+  };
+  vm.runInNewContext(source, {
+    window,
+    URLSearchParams,
+    JSON,
+    String,
+    Number,
+    Boolean,
+    Array,
+    Object,
+    Date,
+    Math,
+    RegExp,
+    Error,
+  });
+  const api = window.MoyeoApi;
+
+  // 9필드 파싱 — 배열 응답이 그대로 오고 항목마다 정규화된다.
+  const rooms = await api.searchRooms({ keyword: "안동" });
+  assert.equal(requests[0].path, "/api/v1/chat-rooms/search?keyword=%EC%95%88%EB%8F%99");
+  assert.equal(requests[0].options.authenticated, true);
+  assert.equal(rooms.length, 3);
+  assert.equal(rooms[0].favorite, true);
+  assert.equal(rooms[0].recruitmentDDay, 15);
+  assert.equal(rooms[0].status, "RECRUITING");
+  assert.equal(JSON.stringify(rooms[0].meetingCoord), '{"lat":36.576,"lng":128.97}');
+  assert.equal(rooms[0].meetingDetails, "안동역 1번 출구 앞");
+
+  // 'HH:mm:ss'(실제 응답) 과 'HH:mm'(문서) 두 포맷 모두 'HH:mm' 로 표시한다.
+  assert.equal(rooms[0].dayTripStartTime, "09:00");
+  assert.equal(rooms[0].dayTripEndTime, "18:00");
+  assert.equal(api.dayTripTimeText(rooms[0]), "09:00 - 18:00");
+  assert.equal(rooms[2].dayTripStartTime, "08:30");
+  assert.equal(api.dayTripTimeText(rooms[2]), "08:30 - 17:05");
+  assert.equal(api.formatTime("09:00:00"), "09:00");
+  assert.equal(api.formatTime("09:00"), "09:00");
+  assert.equal(api.formatTime("9:05:30"), "09:05");
+  assert.equal(api.formatTime(null), "");
+
+  // null 처리 — 숙박 방은 당일 여행 시간이 없고 집합 안내가 미정이면 표기가 비어야 한다.
+  assert.equal(rooms[1].dayTripStartTime, null);
+  assert.equal(rooms[1].dayTripEndTime, null);
+  assert.equal(api.dayTripTimeText(rooms[1]), "");
+  assert.equal(rooms[1].meetingDetails, null);
+  assert.equal(api.meetingText(rooms[1]), "");
+  assert.equal(rooms[2].meetingDetails, null, "빈 문자열 집합 안내도 null 로 접힌다");
+  assert.equal(api.meetingText(rooms[2]), "");
+  assert.equal(api.meetingText(rooms[0]), "08:30 안동역 1번 출구 앞");
+  assert.equal(rooms[1].recruitmentDDay, 0, "D-0 은 null 이 아니다");
+
+  // 좌표가 한쪽만 있으면 마커에서 제외한다.
+  assert.equal(rooms[1].meetingCoord, null);
+  assert.equal(rooms[1].meetingLongitude, null);
+  const markers = api.roomMarkers(rooms);
+  assert.equal(markers.length, 2, "좌표가 한쪽만 있는 항목은 마커에서 빠진다");
+  assert.equal([...markers].map((marker) => marker.room.roomId).join(","), "1,3");
+  assert.equal(markers[0].lat, 36.576);
+  assert.equal(markers[0].lng, 128.97);
+  assert.equal(markers[0].label, "4", "마커 라벨은 기획 11 처럼 모집 인원이다");
+  assert.equal(markers[0].room.roomId, 1);
+  assert.equal(api.roomMarkers([{ meetingLatitude: 36.5, meetingLongitude: null }]).length, 0);
+  assert.equal(api.roomMarkers([{ meetingLatitude: null, meetingLongitude: 128.9 }]).length, 0);
+  assert.equal(api.roomMarkers([{ meetingLatitude: 0, meetingLongitude: 0 }]).length, 0);
+  assert.equal(api.roomMarkers(null).length, 0);
+
+  // 상태 배지 — 15 모집 상세와 같은 표를 쓰고 모르는 값은 표기하지 않는다.
+  assert.equal(api.statusLabel("RECRUITING"), "진행중");
+  assert.equal(api.statusLabel("CONFIRMED"), "확정");
+  assert.equal(api.statusLabel("CANCELLED"), "취소됨");
+  assert.equal(api.statusLabel(null), "");
+
+  // 17 모집 만들기 — 당일치기는 endDate 없이 시간 필드를, 숙박은 endDate 만 보낸다 (에러코드 40008).
+  const dayTrip = api.buildCreateRoomRequest({
+    courseType: "PUBLIC",
+    courseId: 21,
+    tripType: "DAY_TRIP",
+    startDate: "2026-09-08",
+    endDate: "2026-09-09",
+    recruitmentDeadlineDate: "2026-09-05",
+    meetingTime: "07:50",
+    dayTripStartTime: "08:00",
+    dayTripEndTime: "18:00",
+    title: "30대끼리 느긋하게 힐링 여행가요~",
+    maxParticipants: 5,
+    meetingDetails: "터미널 정문 앞",
+    meetingLatitude: 36.435612,
+    meetingLongitude: 129.057214,
+    joinApprovalMode: "MANUAL",
+  });
+  assert.equal(dayTrip.tripType, "DAY_TRIP");
+  assert.equal(dayTrip.endDate, undefined);
+  assert.equal(dayTrip.dayTripStartTime, "08:00");
+  assert.equal(dayTrip.dayTripEndTime, "18:00");
+  assert.equal(dayTrip.meetingDateTime, "2026-09-08T07:50:00");
+  assert.equal(dayTrip.courseType, "PUBLIC");
+  assert.equal(dayTrip.courseId, 21);
+  assert.equal(dayTrip.customCourse, undefined);
+  assert.equal(dayTrip.joinApprovalMode, "MANUAL");
+
+  const overnight = api.buildCreateRoomRequest({
+    courseType: "PUBLIC",
+    courseId: 21,
+    tripType: "OVERNIGHT",
+    startDate: "2026-09-08",
+    endDate: "2026-09-09",
+    recruitmentDeadlineDate: "2026-09-05",
+    title: "울릉도 2박 3일",
+    maxParticipants: 5,
+  });
+  assert.equal(overnight.endDate, "2026-09-09");
+  assert.equal(overnight.dayTripStartTime, undefined);
+  assert.equal(overnight.dayTripEndTime, undefined);
+  assert.equal(overnight.genderRestriction, "NONE");
+  assert.equal(overnight.joinApprovalMode, "AUTO");
+
+  // 서버가 안 주는/사용자가 안 넣은 값은 null 로 보낸다 (빈 문구를 지어내지 않는다).
+  assert.equal(overnight.meetingDetails, null);
+  assert.equal(overnight.meetingLatitude, null);
+  assert.equal(overnight.participationFee, null);
+
+  // 기본 일정은 오늘 기준 미래 날짜다 — 기획 목데이터(지난 날짜)로는 서버가 방을 만들어주지 않는다.
+  const schedule = api.defaultRoomSchedule(new Date(2026, 7, 25));
+  assert.equal(schedule.startDate, "2026-09-08");
+  assert.equal(schedule.endDate, "2026-09-09");
+  assert.equal(schedule.recruitmentDeadlineDate, "2026-09-05");
+
+  // 요청은 multipart 다: request 파트가 application/json.
+  const created = await api.createRoom(dayTrip);
+  assert.equal(created.roomId, 41);
+  const createCall = requests.find((entry) => entry.path === "/api/v1/chat-rooms");
+  assert.equal(createCall.options.method, "POST");
+  assert.equal(createCall.options.body.parts[0][0], "request");
+  assert.equal(createCall.options.body.parts[0][1].type, "application/json");
+  assert.equal(JSON.parse(createCall.options.body.parts[0][1].chunks[0]).courseId, 21);
+
+  // 5단계가 이어받는 입력값은 세션에 쌓인다.
+  api.updateRoomDraft({ courseType: "PUBLIC", courseId: 21 });
+  api.updateRoomDraft({ maxParticipants: 6 });
+  assert.equal(JSON.stringify(api.roomDraft()), '{"courseType":"PUBLIC","courseId":21,"maxParticipants":6}');
+  api.clearRoomDraft();
+  assert.equal(JSON.stringify(api.roomDraft()), "{}");
+
+  // ── 20-2 첨부 5종 · 엔드포인트가 갈려 있고 본문 규칙이 서로 다르다 ──
+  const call = (path, method) => requests.find((entry) => entry.path === path && (!method || entry.options.method === method));
+
+  // 사진만 multipart 다. 캡션이 비면 파트를 아예 넣지 않는다.
+  await api.shareRoomImage(21, { name: "photo.jpg" });
+  const imageCall = call("/api/v1/chat-rooms/21/messages/images", "POST");
+  assert.equal(imageCall.options.body.parts.length, 1, "캡션이 없으면 image 파트만 보낸다");
+  assert.equal(imageCall.options.body.parts[0][0], "image");
+  await api.shareRoomImage(21, { name: "photo.jpg" }, "  주산지 물안개  ");
+  const captionParts = requests.filter((entry) => entry.path === "/api/v1/chat-rooms/21/messages/images").pop().options.body.parts;
+  assert.equal(captionParts.length, 2);
+  assert.equal(captionParts[1][0], "caption");
+  assert.equal(captionParts[1][1], "주산지 물안개", "캡션은 트림해서 보낸다");
+
+  // 집합 위치 공유는 본문이 없다 — 서버가 방에 저장된 좌표를 카드로 만든다.
+  await api.shareRoomLocation(21);
+  const locationCall = call("/api/v1/chat-rooms/21/messages/locations", "POST");
+  assert.equal(locationCall.options.body, undefined, "locations 는 본문을 보내지 않는다");
+
+  await api.shareRoomTourismContent(21, "126508");
+  assert.equal(call("/api/v1/chat-rooms/21/messages/tourism-contents").options.body.contentId, 126508);
+
+  // 질문 필드명은 title 이 아니라 question 이고, 익명이 기본값이다.
+  await api.createRoomPoll(21, { question: " 점심 메뉴는? ", options: ["한식", "카페"] });
+  const pollCall = call("/api/v1/chat-rooms/21/messages/polls");
+  assert.equal(pollCall.options.body.question, "점심 메뉴는?");
+  assert.equal(pollCall.options.body.options.join(","), "한식,카페");
+  assert.equal(pollCall.options.body.anonymous, true);
+
+  await api.shareRoomSettlementMemo(21, " 점심 45,000원 / 5명 ");
+  assert.equal(call("/api/v1/chat-rooms/21/messages/settlement-memos").options.body.memo, "점심 45,000원 / 5명");
+
+  // 투표 참여·취소
+  await api.votePollOption(21, 1024, 23);
+  assert.equal(call("/api/v1/chat-rooms/21/messages/1024/poll-options/23/vote").options.method, "PUT");
+  await api.cancelPollVote(21, 1024);
+  assert.equal(call("/api/v1/chat-rooms/21/messages/1024/vote").options.method, "DELETE");
+
+  // 투표 카드 비율 — 서버는 표 수만 준다. 아무도 안 골랐으면 0 이고 나눗셈이 터지지 않는다.
+  const poll = { totalVoteCount: 4, options: [{ optionId: 1, voteCount: 3, votedByMe: true }, { optionId: 2, voteCount: 1, votedByMe: false }] };
+  assert.equal(api.pollPercent(poll, poll.options[0]), 75);
+  assert.equal(api.pollPercent(poll, poll.options[1]), 25);
+  assert.equal(api.pollPercent({ totalVoteCount: 0, options: [] }, { voteCount: 0 }), 0);
+  assert.equal(api.pollPercent(null, null), 0);
+  assert.equal(api.myPollOptionId(poll), 1);
+  assert.equal(api.myPollOptionId({ options: [{ optionId: 9, votedByMe: false }] }), null);
+  assert.equal(api.myPollOptionId(null), null);
+
+  // 방별 알림 설정 — 별도 설정이 없으면 서버 기본값이 켜짐이다.
+  assert.equal((await api.roomNotificationSetting(21)).enabled, true);
+  assert.equal((await api.updateRoomNotificationSetting(21, false)).enabled, false);
+  assert.equal(call("/api/v1/notifications/settings/chat-rooms/21", "PUT").options.body.enabled, false);
+
+  // 17-3 집합 정보 수정 — meetingDateTime 은 필수라 화면에 시간 입력 자리가 없으면 방의 현재 값을 유지한다.
+  const meetingRoom = {
+    meetingLatitude: 36.576,
+    meetingLongitude: 128.97,
+    meetingDetails: "안동역 1번 출구 앞",
+    meetingDateTime: "2026-09-12T08:30:00",
+  };
+  const movedMeeting = api.buildMeetingInfoRequest(meetingRoom, { meetingLatitude: 36.4, meetingLongitude: 129.05, meetingDetails: " 터미널 정문 앞 " });
+  assert.equal(movedMeeting.meetingLatitude, 36.4);
+  assert.equal(movedMeeting.meetingLongitude, 129.05);
+  assert.equal(movedMeeting.meetingDetails, "터미널 정문 앞");
+  assert.equal(movedMeeting.meetingDateTime, "2026-09-12T08:30:00", "집합 시각은 방의 현재 값을 그대로 유지한다");
+  // 사용자가 상세 안내를 지우면 null 로 보낸다 (빈 문구를 지어내지 않는다).
+  assert.equal(api.buildMeetingInfoRequest(meetingRoom, { meetingDetails: "   " }).meetingDetails, null);
+  // 좌표가 없는 방은 null 을 그대로 보낸다.
+  assert.equal(api.buildMeetingInfoRequest({ meetingDateTime: "2026-09-12T08:30:00" }).meetingLatitude, null);
+  await api.updateMeetingInfo(21, movedMeeting);
+  assert.equal(call("/api/v1/chat-rooms/21/meeting-info").options.method, "PUT");
+
+  // 동행자 — 배열 응답이고 mannerRating 은 값이 없으면 null 이다(표기를 숨긴다).
+  const companions = await api.roomCompanions(21);
+  assert.equal(companions.length, 2);
+  assert.equal(companions[0].mannerRating, null, "값 없는 매너 점수는 null 로 접힌다");
+  assert.equal(companions[0].mannerScore, 5);
+  assert.equal(companions[0].oneLineReview, "약속 시간을 잘 지켜요");
+  assert.equal(companions[0].reviewed, true);
+  assert.equal(companions[1].mannerRating, 4.8, "문자열 매너 점수는 숫자로 정규화된다");
+  assert.equal(companions[1].oneLineReview, null, "빈 한줄평은 null 이다");
+  assert.equal(companions[1].reviewed, false);
+
+  // "아직 여행 전"은 권한 오류가 아니다 — 배포 서버 409 40915 · 로컬 소스 403 을 모두 같게 본다.
+  assert.equal(api.isBeforeTripError({ status: 409, code: 40915 }), true);
+  assert.equal(api.isBeforeTripError({ status: 409, code: "40915" }), true);
+  assert.equal(api.isBeforeTripError({ status: 403 }), true);
+  assert.equal(api.isBeforeTripError({ status: 500 }), false);
+  assert.equal(api.isBeforeTripError(null), false);
+
+  // 동행자 평가 — 경로 변수는 companionRecordId 가 아니라 상대 userId 다.
+  await api.reviewCompanion(21, 61, { mannerScore: 5, oneLineReview: "  " });
+  const reviewCall = call("/api/v1/chat-rooms/21/companions/61/review");
+  assert.equal(reviewCall.options.method, "PUT");
+  assert.equal(reviewCall.options.body.mannerScore, 5);
+  assert.equal(reviewCall.options.body.oneLineReview, null);
+
+  // 18 승인·거절 — 거절은 DELETE applications/{id} 다 (별도 reject 경로가 아니다).
+  await api.approveApplication(21, 30);
+  assert.equal(call("/api/v1/chat-rooms/21/applications/30/approve").options.method, "POST");
+  await api.rejectApplication(21, 30);
+  assert.equal(call("/api/v1/chat-rooms/21/applications/30", "DELETE").options.method, "DELETE");
+
+  // 나가기·내보내기 (파괴적 — 실호출 검증은 하지 않았다). 강퇴는 본문에 사유가 필수다.
+  await api.leaveRoom(21);
+  assert.equal(call("/api/v1/chat-rooms/21/members/me").options.method, "DELETE");
+  await api.kickRoomMember(21, 62, "  반복적인 약속 불이행  ");
+  const kickCall = call("/api/v1/chat-rooms/21/members/62");
+  assert.equal(kickCall.options.method, "DELETE");
+  assert.equal(kickCall.options.body.reason, "반복적인 약속 불이행");
+
+  // 17-3 진입 컨텍스트 — 모집 만들기(2/5)와 같은 화면을 쓰므로 세션 값으로 구분한다.
+  assert.equal(api.meetingEditRoomId(), null);
+  api.selectMeetingEditRoom(21);
+  assert.equal(api.meetingEditRoomId(), "21");
+  api.selectMeetingEditRoom(null);
+  assert.equal(api.meetingEditRoomId(), null);
+
+  // 캡처 라우트는 절대 네트워크를 타지 않는다 (deterministicParams 판정 유지).
+  for (const search of ["?screen=explore", "?route=explore", "?capture=1", "?uitest=1", "?mockAuth=1"]) {
+    window.location.search = search;
+    assert.equal(api.deterministicParams(), true, `${search} must stay deterministic`);
+    assert.equal(api.live(), false, `${search} must not use live data`);
+  }
+  window.location.search = "?screen=explore&liveData=1";
+  assert.equal(api.deterministicParams(), false, "?liveData=1 은 개발자용 예외다");
+  assert.equal(api.live(), true);
 }
 
 async function authContractTests() {
@@ -945,7 +1502,7 @@ async function authContractTests() {
       removeItem: (key) => values.delete(key),
     };
   };
-  const createWindow = ({ search = "", fetchImpl = fetch, mock = false } = {}) => {
+  const createWindow = ({ search = "", fetchImpl = fetch, mock = false, captureSession } = {}) => {
     const localStorage = makeStorage();
     const sessionStorage = makeStorage();
     const window = {
@@ -956,6 +1513,7 @@ async function authContractTests() {
       sessionStorage,
       MOYEO_MOCK_IDENTITY: mock,
       MOYEO_MOCK_AUTH_BACKEND: mock,
+      MOYEO_CAPTURE_SESSION: captureSession,
       AbortController,
     };
     vm.runInNewContext(source, { window, URL, URLSearchParams, fetch: fetchImpl, Response, Error, JSON, Math, String, Promise, Date, Uint8Array });
@@ -1072,6 +1630,60 @@ async function authContractTests() {
   assert.deepEqual(requests[3].body, { refreshToken: "refresh-1" });
   assert.equal(requests[4].options.headers.Authorization, "Bearer access-2");
   assert.equal(realWindow.MoyeoAuth.getSession().refreshToken, "refresh-2");
+
+  // ── 라이브 캡처 세션 주입 (src/capture-session.local.js) ──
+  // 계약: ?liveData=1 일 때만 쓰고, 토큰은 URL·localStorage 에 남기지 않는다.
+  const captureToken = { accessToken: "live-capture-access-token" };
+
+  // 플래그가 없으면 파일이 있어도 무시한다 — 목 캡처 경로가 100% 그대로여야 한다.
+  for (const search of ["", "?screen=home", "?screen=home&theme=dark&capture=1", "?mockAuth=1"]) {
+    const ignored = createWindow({ search, captureSession: captureToken });
+    assert.equal(ignored.MoyeoAuth.getSession(), null, `${search || "(no query)"} 에서는 주입 세션을 쓰지 않는다`);
+  }
+
+  // 파일이 없거나 토큰이 비면 라이브 모드로 들어가지 않는다.
+  for (const injected of [undefined, {}, { accessToken: "" }, { accessToken: "   " }]) {
+    const noToken = createWindow({ search: "?screen=home&liveData=1", captureSession: injected });
+    assert.equal(noToken.MoyeoAuth.getSession(), null, "빈 토큰은 세션을 세우지 않는다");
+  }
+
+  // ?liveData=1 + 토큰 → 세션이 선다. signupState 기본값은 SIGNUP_COMPLETE 다.
+  const liveRequests = [];
+  const liveWindow = createWindow({
+    search: "?screen=home&theme=dark&capture=1&liveData=1",
+    captureSession: { accessToken: "  live-capture-access-token  " },
+    fetchImpl: async (url, options = {}) => {
+      liveRequests.push({ url: String(url), options });
+      return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+    },
+  });
+  assert.equal(liveWindow.MoyeoAuth.getSession().accessToken, "live-capture-access-token", "주입 토큰은 트림해서 쓴다");
+  assert.equal(liveWindow.MoyeoAuth.getSession().signupState, "SIGNUP_COMPLETE");
+  assert.equal(liveWindow.MoyeoAuth.getSession().refreshToken, undefined, "refreshToken 은 주입하지 않는다");
+  await liveWindow.MoyeoAuth.request("/api/v1/chat-rooms/my", { authenticated: true });
+  assert.equal(liveRequests[0].options.headers.Authorization, "Bearer live-capture-access-token");
+  // 토큰이 브라우저 저장소로 새지 않는다.
+  assert.equal(liveWindow.localStorage.values.size, 0, "라이브 캡처 세션은 localStorage 에 남지 않는다");
+
+  // 401 이어도 refresh 를 시도하지 않는다(refreshToken 이 없다) — 조용히 실패하고 저장소도 건드리지 않는다.
+  const expiredWindow = createWindow({
+    search: "?screen=home&liveData=1",
+    captureSession: captureToken,
+    fetchImpl: async () => new Response(JSON.stringify({ errorMessage: "만료됨", code: "UNAUTHORIZED" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    }),
+  });
+  await assert.rejects(() => expiredWindow.MoyeoAuth.request("/api/v1/chat-rooms/my", { authenticated: true }));
+  assert.equal(expiredWindow.localStorage.values.size, 0, "401 이어도 저장소에 쓰지 않는다");
+  expiredWindow.MoyeoAuth.clearSession();
+  assert.equal(expiredWindow.MoyeoAuth.getSession(), null);
+  assert.equal(expiredWindow.localStorage.values.size, 0);
+
+  // 주입 세션은 localStorage 의 기존 세션보다 우선한다 (캡처 프로필에 남은 값에 흔들리지 않는다).
+  const overriding = createWindow({ search: "?screen=home&liveData=1", captureSession: captureToken });
+  overriding.localStorage.setItem("moyeo.auth.session", JSON.stringify({ accessToken: "stale", refreshToken: "stale" }));
+  assert.equal(overriding.MoyeoAuth.getSession().accessToken, "live-capture-access-token");
 }
 
 function contentType(filePath) {
@@ -1499,6 +2111,7 @@ async function main() {
   await clientPrefsTests();
   await ossLicenseTests();
   await authContractTests();
+  await moyeoApiContractTests();
   await pushContractTests();
   await tourismContractTests();
   if (!process.env.MOYEO_SKIP_BROWSER_TESTS) {

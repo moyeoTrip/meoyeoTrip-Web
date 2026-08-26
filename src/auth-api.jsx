@@ -44,17 +44,59 @@
     };
   }
 
+  // ── 라이브 캡처 세션 (?liveData=1 + src/capture-session.local.js) ──
+  // 캡처 도구가 gitignore 파일 src/capture-session.local.js 에 토큰을 써 두고,
+  // ?liveData=1 일 때만 그 토큰으로 세션을 세운다. 라이브 캡처는 "라우팅은 캡처처럼,
+  // 데이터 차단만 해제" 구조라 캡처 라우트(?screen=)를 그대로 쓰면서 실서버를 타야 한다.
+  //
+  // 지키는 규칙:
+  //  · 토큰을 URL 에 넣지 않는다 (쿼리스트링은 로그·리퍼러·캡처 파일명에 남는다).
+  //  · localStorage 에도 쓰지 않는다 — 이 세션은 메모리 전용이라 브라우저 프로필에 남지 않는다.
+  //  · 파일이 없거나 accessToken 이 비면 null 이라 기존 동작(목데이터)이 그대로 유지된다.
+  //  · refreshToken 은 일부러 받지 않는다. 401 이면 조용히 실패해야 하고,
+  //    refresh 응답을 saveSession 이 localStorage 에 쓰는 경로를 아예 막는다.
+  // 주입 토큰이 유효한 라이브 캡처 실행인지. 한 번 켜지면 이 문서 안에서는 계속 메모리 세션만 쓴다.
+  function captureSessionActive() {
+    if (!queryFlag('liveData')) return false;
+    return Boolean(captureSessionToken());
+  }
+
+  function captureSessionToken() {
+    const injected = window.MOYEO_CAPTURE_SESSION;
+    const accessToken = typeof injected?.accessToken === 'string' ? injected.accessToken.trim() : '';
+    return accessToken || '';
+  }
+
+  let memorySession;
+  function captureSession() {
+    if (!captureSessionActive()) return null;
+    if (memorySession === undefined) {
+      memorySession = { accessToken: captureSessionToken(), signupState: window.MOYEO_CAPTURE_SESSION.signupState || 'SIGNUP_COMPLETE' };
+    }
+    return memorySession;
+  }
+
   function readSession() {
+    if (captureSessionActive()) return memorySession === null ? null : captureSession();
     return readJson(localStore(), SESSION_KEY);
   }
 
   function saveSession(tokens) {
     const session = { ...(readSession() || {}), ...tokens };
+    // 라이브 캡처 세션은 메모리에만 둔다 — 주입 토큰이 브라우저 프로필로 새지 않게 한다.
+    if (captureSessionActive()) {
+      memorySession = session;
+      return session;
+    }
     localStore().setItem(SESSION_KEY, JSON.stringify(session));
     return session;
   }
 
   function clearServiceSession() {
+    if (captureSessionActive()) {
+      memorySession = null;
+      return;
+    }
     localStore().removeItem(SESSION_KEY);
   }
 
@@ -113,8 +155,11 @@
   }
 
   async function rawRequest(path, { method = 'GET', body, accessToken, timeoutMs } = {}) {
+    // multipart 요청(17 모집 만들기의 POST /chat-rooms)은 FormData 를 그대로 보낸다 —
+    // Content-Type 을 직접 넣으면 boundary 가 빠져 서버가 파트를 읽지 못한다.
+    const multipart = typeof window.FormData === 'function' && body instanceof window.FormData;
     const headers = { Accept: 'application/json' };
-    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json';
     if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
     const controller = timeoutMs && window.AbortController ? new window.AbortController() : null;
     const timeout = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
@@ -122,7 +167,7 @@
       const response = await fetch(`${getConfig().baseUrl}${path}`, {
         method,
         headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: body === undefined ? undefined : (multipart ? body : JSON.stringify(body)),
         signal: controller?.signal,
       });
       return await parseResponse(response);

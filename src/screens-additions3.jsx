@@ -6,10 +6,61 @@
 // (4) 시스템 화면 3종 (업데이트·점검·오류)     — 06 §6.9
 // (5) 피드 댓글 전체 보기                      — 05 §5.2
 
+// 확정된 여행 카드의 3행. 서버가 주지 않는 값(집합 안내·최소 인원)은 줄째로 빼거나 표기를 줄인다 —
+// 문구를 지어내지 않는다.
+function confirmedRows(room) {
+  const dayTripTime = window.MoyeoApi.dayTripTimeText(room);
+  const meeting = window.MoyeoApi.meetingText(room);
+  return [
+    ['calendar', `${window.MoyeoApi.formatDate(room.startDate)} ${window.MoyeoApi.tripTypeLabel(room)}${dayTripTime ? ` · ${dayTripTime}` : ''}`],
+    meeting ? ['pin', meeting] : null,
+    // '충족' 은 실제로 최소 인원을 넘겼을 때만 붙인다 — 미달인 방에 붙이면 화면이 사실과 다른 말을 한다.
+    ['users', `${room.participantCount}명${room.minimumParticipants != null
+      ? ` · 최소 ${room.minimumParticipants}명${room.participantCount >= room.minimumParticipants ? ' 충족' : ''}`
+      : ''}`],
+  ].filter(Boolean);
+}
+
+// 참여자 아바타 스택. 서버는 프로필 이미지만 주므로(캐릭터 종류가 없다) 4명까지 얼굴을 겹치고 나머지는 +N 이다.
+function ParticipantStack({ participants = [], size = 30 }) {
+  const shown = participants.slice(0, 4);
+  const more = participants.length - shown.length;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center' }}>
+      {shown.map((participant, index) => (
+        <div key={participant.userId ?? index} style={{ marginLeft: index ? -8 : 0, border: '2px solid #fff', borderRadius: 999, overflow: 'hidden', display: 'flex' }}>
+          <ProfileAvatar src={participant.profileImageUrl} size={size}/>
+        </div>
+      ))}
+      {more > 0 && (
+        <div style={{
+          marginLeft: -8, width: size, height: size, borderRadius: 999, border: '2px solid #fff',
+          background: T.line100, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: T.text500, fontSize: 11, fontWeight: 800,
+        }}>+{more}</div>
+      )}
+    </div>
+  );
+}
+
 // ───────── 34 · 여행 확정 모먼트 ─────────
 // 마감일에 인원이 충족된 순간. 서비스에서 confetti를 쓰는 유일한 자리.
 function ScreenTripConfirmed() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 로그인 상태에서는 GET chat-rooms/{id} 로 확정된 방의 값을 그대로 보여준다.
+  // 확정 모먼트 화면이라 status 가 CONFIRMED 인 방에서만 대체한다 — 모집 중인 방의 값으로
+  // "여행이 확정됐어요!" 를 그리면 화면이 거짓말을 한다. 캡처 모드는 live() 가 false 라 목데이터가 남는다.
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  const [room, setRoom] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode || !roomId) return undefined;
+    let active = true;
+    window.MoyeoApi.roomDetail(roomId)
+      .then((result) => { if (active && result?.status === 'CONFIRMED') setRoom(result); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    return () => { active = false; };
+  }, [liveMode, roomId]);
   const [themeMode, setThemeMode] = React.useState(
     () => document.documentElement.dataset.moyeoTheme === 'dark' ? 'dark' : 'light'
   );
@@ -32,7 +83,7 @@ function ScreenTripConfirmed() {
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative', overflow: 'hidden' }}>
-        <Header title="주왕산 & 주산지 힐링 트레킹" left center onBack={nav.back}/>
+        <Header title={room ? (room.courseTitle || room.title) : '주왕산 & 주산지 힐링 트레킹'} left center onBack={nav.back}/>
 
         {/* confetti — prefers-reduced-motion에서는 페이드만 (디자인 시스템 §7-3) */}
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
@@ -59,7 +110,9 @@ function ScreenTripConfirmed() {
           </div>
           <div style={{ fontSize: 22, fontWeight: 900, lineHeight: '31px', marginTop: 18 }}>여행이 확정됐어요!</div>
           <div style={{ fontSize: 13, color: T.text500, marginTop: 8, lineHeight: '20px' }}>
-            5월 22일 마감까지 <b style={{ color: T.primary600 }}>5명</b>이 모였어요.<br/>이제 함께 떠나기만 하면 돼요.
+            {room
+              ? <>{room.recruitmentDeadlineDate ? `${window.MoyeoApi.formatDate(room.recruitmentDeadlineDate)} 마감까지 ` : ''}<b style={{ color: T.primary600 }}>{room.participantCount}명</b>이 모였어요.<br/>이제 함께 떠나기만 하면 돼요.</>
+              : <>5월 22일 마감까지 <b style={{ color: T.primary600 }}>5명</b>이 모였어요.<br/>이제 함께 떠나기만 하면 돼요.</>}
           </div>
 
           <div style={{
@@ -74,17 +127,19 @@ function ScreenTripConfirmed() {
               <span style={{ width: 8, height: 8, borderRadius: 999, background: T.primary500 }}/>
               <div style={{ fontSize: 12, fontWeight: 900, color: T.primary500 }}>확정된 여행</div>
             </div>
-            {[
+            {(room ? confirmedRows(room) : [
               ['calendar', '5/25(토) 당일치기 · 08:00 – 18:00'],
               ['pin', '07:50 청송 시외버스터미널 정문 앞'],
               ['users', '3명 · 최소 3명 충족'],
-            ].map((r) => (
+            ]).map((r) => (
               <div key={r[1]} style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 8, fontSize: 12.5, color: T.text900, fontWeight: 700 }}>
                 <Icon name={r[0]} size={15} color={T.primary600}/>{r[1]}
               </div>
             ))}
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 14 }}>
-              <MemberStack size={30} members={['bear','deer','rabbit','turtle']} more={1}/>
+              {room
+                ? <ParticipantStack participants={room.participants} size={30}/>
+                : <MemberStack size={30} members={['bear','deer','rabbit','turtle']} more={1}/>}
             </div>
           </div>
 

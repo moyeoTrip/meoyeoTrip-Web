@@ -241,6 +241,25 @@ html, body {
 :root[data-moyeo-theme="dark"] .moyeo-login-welcome-dark {
   display: block;
 }
+/* ── 프로필 카드 홀로그램 (25) ──
+   각도와 배경 위치를 CSS 변수로 두고 @property 로 타입을 등록한다.
+   등록하지 않으면 커스텀 속성은 보간되지 않아, 각도를 포인터에 따라 바꾸는 순간
+   손을 뗄 때 광택이 "툭" 끊긴다(그라디언트 이미지가 통째로 교체되기 때문). */
+@property --moyeo-holo-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 105deg;
+}
+@property --moyeo-holo-bx {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 50%;
+}
+@property --moyeo-holo-by {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 50%;
+}
 `;
 
 if (typeof document !== 'undefined' && !document.getElementById('moyeo-theme-styles')) {

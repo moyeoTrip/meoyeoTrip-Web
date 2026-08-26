@@ -110,6 +110,9 @@
     'feed-write-5': 'feed-write-5',
     profile: 'public-profile',
     'public-profile': 'public-profile',
+    // 25-1 · 카드 뒷면 (캡처 전용 진입 — 실사용 기본값은 앞면)
+    'profile-back': 'public-profile-back',
+    'public-profile-back': 'public-profile-back',
     my: 'my',
     dex: 'dex',
     'profile-edit': 'profile-edit',

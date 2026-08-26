@@ -669,6 +669,55 @@ function ScreenCreateReview() {
 // ───────── 18 · 호스트 관리 ─────────
 function ScreenHostManage() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
+  // 호스트로 로그인한 상태면 GET {id} 상세 · {id}/applications · {id}/members 로 대체하고,
+  // 승인은 POST applications/{id}/approve, 거절은 DELETE applications/{id} 로 보낸다.
+  // 호스트가 아니면 서버가 403 이라 아래 목데이터가 그대로 남는다.
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  const [room, setRoom] = React.useState(null);
+  const [course, setCourse] = React.useState(null);
+  const [applications, setApplications] = React.useState(null);
+  const [memberList, setMemberList] = React.useState(null);
+  const [busyId, setBusyId] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode || !roomId) return undefined;
+    let active = true;
+    window.MoyeoApi.roomDetail(roomId)
+      .then((result) => { if (active && result?.roomId != null) setRoom(result); })
+      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    // 여행 경로 요약(방문지 수·코스 출처)은 방 상세에 없다 — 15 모집 상세와 같은 엔드포인트를 쓴다.
+    window.MoyeoApi.roomCourse(roomId)
+      .then((result) => { if (active && result?.course) setCourse(result.course); })
+      .catch(() => {});
+    window.MoyeoApi.roomApplications(roomId)
+      .then((result) => { if (active && Array.isArray(result)) setApplications(result); })
+      .catch(() => { /* 호스트가 아니면 403 — 목데이터 유지 */ });
+    window.MoyeoApi.roomMembers(roomId)
+      .then((result) => { if (active && Array.isArray(result?.members)) setMemberList(result); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode, roomId]);
+  const serverMode = Boolean(room && applications);
+  // 승인은 정원이 차 있으면 대기열로 간다 — 응답의 result(JOINED/WAITLISTED)를 그대로 따른다.
+  const answerApplication = async (applicationId, approve) => {
+    if (busyId != null) return;
+    setBusyId(applicationId);
+    try {
+      if (approve) await window.MoyeoApi.approveApplication(roomId, applicationId);
+      else await window.MoyeoApi.rejectApplication(roomId, applicationId);
+      setApplications((current) => (current || []).filter((item) => item.applicationId !== applicationId));
+      if (approve) {
+        const refreshed = await window.MoyeoApi.roomMembers(roomId).catch(() => null);
+        if (Array.isArray(refreshed?.members)) setMemberList(refreshed);
+      }
+    } catch (_) { /* 실패 시 목록을 유지한다 */ }
+    setBusyId(null);
+  };
+  // 프로필 요약 — 서버는 나이·성별만 준다. 매너 점수·여행 횟수는 신청 응답에 없어 표기하지 않는다.
+  const applicantSummary = (applicant) => [
+    applicant.age != null ? `${applicant.age}세` : null,
+    { M: '남성', F: '여성', MALE: '남성', FEMALE: '여성' }[applicant.gender] || null,
+  ].filter(Boolean).join(' · ');
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0, paddingTop: 60, background: T.bgSubtle }}>
@@ -679,11 +728,11 @@ function ScreenHostManage() {
           <span aria-hidden="true" style={{ width: 24, height: 24 }}/>
         </div>
         <div style={{ padding: 20, background: T.bgBase, borderBottom: `1px solid ${T.line100}` }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>경주 단풍·야경 1박 2일</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{serverMode ? room.title : '경주 단풍·야경 1박 2일'}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 13, color: T.text500, fontVariantNumeric: 'tabular-nums' }}>
-            <span>4 / 8명</span>
+            <span>{serverMode ? `${room.participantCount} / ${room.maxParticipants}명` : '4 / 8명'}</span>
             <span style={{ color: T.line300 }}>·</span>
-            <Chip variant="accent">D-3</Chip>
+            <Chip variant="accent">D-{serverMode ? room.recruitmentDDay : 3}</Chip>
           </div>
           <button type="button" data-testid="host-course-edit" onClick={() => nav.go('course-edit')} style={{
             width: '100%', marginTop: 14, borderRadius: 12, border: `1px solid ${T.primary100}`, background: T.primary50,
@@ -691,17 +740,48 @@ function ScreenHostManage() {
           }}>
             <Icon name="map" size={18} color={T.primary600}/>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: T.primary700 }}>여행 경로 · 방문지 4곳</div>
-              <div style={{ fontSize: 11, color: T.primary600, marginTop: 3 }}>확정 전(D-3)까지 수정할 수 있어요 · 호스트 직접 코스</div>
+              {/* 서버 모드에서는 방문지 수·코스 출처·마감 D-day 를 모두 방의 값으로 쓴다.
+                  D-day 는 확정·취소된 방에서 null 로 오므로 그럴 땐 D 표기 없이 문장만 남긴다. */}
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.primary700 }}>{serverMode && course ? `여행 경로 · 방문지 ${course.places?.length || 0}곳` : '여행 경로 · 방문지 4곳'}</div>
+              <div style={{ fontSize: 11, color: T.primary600, marginTop: 3 }}>
+                {serverMode && course
+                  ? `확정 전${room.recruitmentDDay != null ? `(D-${room.recruitmentDDay})` : ''}까지 수정할 수 있어요 · ${course.type === 'CUSTOM' ? '호스트 직접 코스' : '등록된 코스'}`
+                  : '확정 전(D-3)까지 수정할 수 있어요 · 호스트 직접 코스'}
+              </div>
             </div>
             <Icon name="arrow" size={16} color={T.primary600}/>
           </button>
         </div>
         <div style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: T.text700 }}>승인 대기 (2)</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: T.text700 }}>승인 대기 ({serverMode ? applications.length : 2})</div>
             <div style={{ fontSize: 11, color: T.text500 }}>48시간 후 자동 거절</div>
           </div>
+          {serverMode && applications.length === 0 && (
+            <div style={{ background: T.bgBase, borderRadius: 16, padding: 20, marginBottom: 12, border: `1px solid ${T.line100}`, textAlign: 'center', fontSize: 13, color: T.text500 }}>승인 대기 중인 신청이 없어요.</div>
+          )}
+          {serverMode && applications.map((item) => (
+            <div key={item.applicationId} data-testid={`host-application-${item.applicationId}`} style={{ background: T.bgBase, borderRadius: 16, padding: 16, marginBottom: 12, border: `1px solid ${T.line100}` }}>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <ProfileAvatar src={item.applicant?.profileImageUrl} size={48}/>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{item.applicant?.nickname}</div>
+                  {applicantSummary(item.applicant || {}) && (
+                    <div style={{ fontSize: 12, color: T.text500, marginTop: 2 }}>{applicantSummary(item.applicant)}</div>
+                  )}
+                  {item.applicationMessage && (
+                    <div style={{ fontSize: 12, color: T.text700, marginTop: 8, padding: 10, background: T.bgSubtle, borderRadius: 10, lineHeight: 1.5 }}>{item.applicationMessage}</div>
+                  )}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                <button type="button" disabled={busyId != null} data-testid={`host-reject-${item.applicationId}`} onClick={() => answerApplication(item.applicationId, false)} style={{ flex: 1, height: 40, borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', fontSize: 13, fontWeight: 600, color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>거절</button>
+                <button type="button" disabled={busyId != null} data-testid={`host-approve-${item.applicationId}`} onClick={() => answerApplication(item.applicationId, true)} style={{ flex: 1, height: 40, borderRadius: 10, border: 'none', background: T.primary500, fontSize: 13, fontWeight: 600, color: '#fff', fontFamily: T.fontStack, cursor: 'pointer' }}>승인</button>
+              </div>
+            </div>
+          ))}
+          {!serverMode && (
+          <>
           <div style={{ background: T.bgBase, borderRadius: 16, padding: 16, marginBottom: 12, border: `1px solid ${T.line100}` }}>
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
               <AnimalAvatar kind="bear" size={48} bg={T.primary50}/>
@@ -729,6 +809,25 @@ function ScreenHostManage() {
             </div>
             <Icon name="arrow" size={16} color={T.text400}/>
           </div>
+          </>
+          )}
+          {serverMode && memberList && (
+            <>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.text700, marginTop: 24, marginBottom: 12 }}>승인된 동행자 ({memberList.participantCount})</div>
+              <div style={{ background: T.bgBase, borderRadius: 16, padding: 16, border: `1px solid ${T.line100}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex' }}>
+                  {memberList.members.slice(0, 4).map((member, index) => (
+                    <div key={member.userId} style={{ marginLeft: index === 0 ? 0 : -10, border: `2px solid ${T.bgBase}`, borderRadius: 999 }}>
+                      <ProfileAvatar src={member.profileImageUrl} size={36}/>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 12, color: T.text500 }}>본인 외 {Math.max(0, memberList.participantCount - 1)}명</div>
+              </div>
+            </>
+          )}
+          {!serverMode && (
+          <>
           <div style={{ fontSize: 13, fontWeight: 600, color: T.text700, marginTop: 24, marginBottom: 12 }}>승인된 동행자 (4)</div>
           <div style={{ background: T.bgBase, borderRadius: 16, padding: 16, border: `1px solid ${T.line100}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex' }}>
@@ -740,9 +839,11 @@ function ScreenHostManage() {
             </div>
             <div style={{ fontSize: 12, color: T.text500 }}>본인 외 3명</div>
           </div>
+          </>
+          )}
         </div>
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '12px 20px 32px', background: T.bgBase, borderTop: `1px solid ${T.line100}` }}>
-          <Btn variant="primary" full icon="chat">채팅방 들어가기</Btn>
+          <Btn variant="primary" full icon="chat" onClick={() => nav.go('chat')}>채팅방 들어가기</Btn>
         </div>
       </div>
     </Phone>
@@ -1537,6 +1638,25 @@ function ScreenSpecialMessages() {
 
 // ───────── 25 · 모임 나가기 Alert ─────────
 function ScreenLeaveAlert() {
+  const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // ⚠️ 파괴적 호출이라 QA 방에서 실행해 검증하지 않았다 — 배선만 해 둔다.
+  // DELETE chat-rooms/{roomId}/members/me. 본문은 없다 — 팝업의 "나가는 이유"는 기획 문구이고
+  // 서버가 사유를 받지 않아 전송하지 않는다.
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  const [busy, setBusy] = React.useState(false);
+  const leave = async () => {
+    if (!roomId) { nav.go('chat-list'); return; }
+    if (busy) return;
+    setBusy(true);
+    try {
+      await window.MoyeoApi.leaveRoom(roomId);
+      window.MoyeoApi.selectRoom(null);
+      nav.go('chat-list');
+    } catch (_) {
+      setBusy(false); // 실패 시 팝업을 닫지 않는다 (기획에 오류 문구 자리가 없다)
+    }
+  };
   return (
     <div style={{ width: 393, height: 852, borderRadius: 24, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.fontStack, overflow: 'hidden' }}>
       {/* 이전 화면(20-1 모임 정보)이 딤 아래에 그대로 깔려 있어야 팝업이 "위에 떠 있다"고 읽힌다 (changeLog14) */}
@@ -1552,8 +1672,8 @@ function ScreenLeaveAlert() {
           <div style={{ fontSize: 13 }}>일정 변동으로 어렵게 됐어요...</div>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-          <button style={{ flex: 1, height: 44, borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', fontSize: 14, fontWeight: 600, color: T.text900, fontFamily: T.fontStack }}>취소</button>
-          <button style={{ flex: 1, height: 44, borderRadius: 10, border: 'none', background: T.danger, color: '#fff', fontSize: 14, fontWeight: 600, fontFamily: T.fontStack }}>모임 종료</button>
+          <button type="button" data-testid="leave-cancel" onClick={() => nav.back()} style={{ flex: 1, height: 44, borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', fontSize: 14, fontWeight: 600, color: T.text900, fontFamily: T.fontStack, cursor: 'pointer' }}>취소</button>
+          <button type="button" data-testid="leave-confirm" disabled={busy} onClick={leave} style={{ flex: 1, height: 44, borderRadius: 10, border: 'none', background: T.danger, color: '#fff', fontSize: 14, fontWeight: 600, fontFamily: T.fontStack, cursor: 'pointer' }}>모임 종료</button>
         </div>
       </div>
     </div>

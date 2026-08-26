@@ -86,9 +86,34 @@
     return fallback;
   }
 
+  // 상세 응답의 contentImages / menuImages 는 {originalImageUrl, imageName, serialNumber, ...} 객체 배열이다.
   function stringArray(value) {
     if (!Array.isArray(value)) return [];
-    return value.map((item) => typeof item === 'string' ? item : firstValue(item, ['url', 'imageUrl', 'originalUrl', 'thumbnailUrl'])).filter(Boolean);
+    return value.map((item) => typeof item === 'string' ? item : firstValue(item, ['url', 'imageUrl', 'originalImageUrl', 'originalUrl', 'thumbnailUrl'])).filter(Boolean);
+  }
+
+  const HTML_ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'", '&nbsp;': ' ' };
+  function decodeEntities(text) {
+    return String(text).replace(/&(?:amp|lt|gt|quot|#39|apos|nbsp);/g, (match) => HTML_ENTITIES[match] || match);
+  }
+
+  // homepage 는 TourAPI 원본이라 앵커 태그가 통째로 온다 —
+  //   <a href="https://..." target="_blank" title="새창 : …">https://…</a>
+  // 태그를 그대로 그리면 화면에 마크업이 노출되므로 href(없으면 표시 텍스트)만 뽑는다.
+  // URL 로 보이지 않으면 null 을 돌려주고, 화면은 그 줄을 숨긴다 (문구를 지어내지 않는다).
+  function parseHomepage(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return null;
+    const isUrl = (text) => /^(https?:\/\/|www\.)\S+$/i.test(text);
+    if (raw.includes('<')) {
+      const href = /href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(raw);
+      const candidate = decodeEntities(href?.[1] ?? href?.[2] ?? href?.[3] ?? '').trim();
+      if (isUrl(candidate)) return candidate;
+      // href 가 없거나 URL 이 아니면 태그를 걷어낸 표시 텍스트를 본다
+      const text = decodeEntities(raw.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
+      return isUrl(text) ? text : null;
+    }
+    return isUrl(raw) ? raw : null;
   }
 
   function normalizeListItem(item = {}, index = 0) {
@@ -107,13 +132,23 @@
     };
   }
 
-  function listItems(payload) {
+  // 목록 응답: { items, page, size, totalElements, totalPages }.
+  // totalElements 는 페이지가 아니라 검색 전체 건수라 화면 건수 표기는 이 값을 쓴다
+  // (클라가 센 값은 한 페이지 분량뿐이다).
+  function normalizeList(payload) {
     const data = payload?.data ?? payload;
     const items = Array.isArray(data)
       ? data
-      : data?.content || data?.items || data?.results || payload?.content || payload?.items || [];
+      : data?.items || data?.content || data?.results || payload?.items || payload?.content || [];
     if (!Array.isArray(items)) throw new TourismApiError('관광 목록 응답 형식을 확인할 수 없어요.', 200, 'SCHEMA_MISMATCH');
-    return items.map(normalizeListItem);
+    const total = Number(firstValue(data, ['totalElements', 'totalCount', 'total'], items.length));
+    return {
+      items: items.map(normalizeListItem),
+      totalElements: Number.isFinite(total) ? total : items.length,
+      page: Number(firstValue(data, ['page', 'number'], 0)) || 0,
+      size: Number(firstValue(data, ['size'], items.length)) || items.length,
+      totalPages: Number(firstValue(data, ['totalPages'], 1)) || 1,
+    };
   }
 
   function normalizeDetail(payload) {
@@ -121,14 +156,16 @@
     if (!item || Array.isArray(item) || typeof item !== 'object') {
       throw new TourismApiError('관광 상세 응답 형식을 확인할 수 없어요.', 200, 'SCHEMA_MISMATCH');
     }
+    // 서버가 null 로 주는 값(대부분의 항목에서 telephone·telephoneName·homepage)은 '' 로 남겨
+    // 화면이 그 줄 자체를 숨긴다 — 안내 문구로 채우지 않는다.
     return {
       ...normalizeListItem(item),
-      postalCode: String(firstValue(item, ['postalCode', 'zipCode', 'zipcode'])),
-      phoneNumber: String(firstValue(item, ['phoneNumber', 'telephone', 'tel'])),
-      phoneName: String(firstValue(item, ['phoneName', 'contactName', 'telephoneName', 'telName'])),
-      homepage: String(firstValue(item, ['homepage', 'homepageUrl', 'website'])),
-      description: String(firstValue(item, ['description', 'overview', 'introduction', 'detail'])),
-      images: stringArray(firstValue(item, ['images', 'generalImages', 'imageUrls'], [])),
+      postalCode: String(firstValue(item, ['postalCode', 'zipCode', 'zipcode'])).trim(),
+      phoneNumber: String(firstValue(item, ['phoneNumber', 'telephone', 'tel'])).trim(),
+      phoneName: String(firstValue(item, ['phoneName', 'contactName', 'telephoneName', 'telName'])).trim(),
+      homepage: parseHomepage(firstValue(item, ['homepage', 'homepageUrl', 'website'])) || '',
+      description: String(firstValue(item, ['description', 'overview', 'introduction', 'detail'])).trim(),
+      images: stringArray(firstValue(item, ['contentImages', 'images', 'generalImages', 'imageUrls'], [])),
       menuImages: stringArray(firstValue(item, ['menuImages', 'menuImageUrls'], [])),
     };
   }
@@ -153,8 +190,11 @@
     return text ? `?${text}` : '';
   }
 
-  async function list({ contentTypeId, page, size } = {}) {
-    return listItems(await request(`/api/v1/tourism-contents${query({ contentTypeId, page, size })}`));
+  // 2026-08-25 서버 패치로 keyword 검색이 생겼다 — 제목·기본주소·상세주소를 서버가 매칭한다.
+  // 클라이언트에서 다시 거르지 않는다(이중 필터 금지). 빈 검색어는 파라미터를 아예 보내지 않아
+  // 전체 조회가 된다. contentTypeId 와 함께 보낼 수 있다.
+  async function list({ keyword, contentTypeId, page, size } = {}) {
+    return normalizeList(await request(`/api/v1/tourism-contents${query({ keyword: String(keyword ?? '').trim(), contentTypeId, page, size })}`));
   }
 
   // GET /api/v1/tourism-contents/types — 17-1a 유형 필터 후보 (관광지·문화시설·축제공연행사·레포츠·숙박·쇼핑·음식점)
@@ -180,7 +220,9 @@
     detail,
     list,
     normalizeDetail,
+    normalizeList,
     normalizeListItem,
+    parseHomepage,
     sampleDetail: SAMPLE_DETAIL,
     samplePlaces: SAMPLE_PLACES,
     types,

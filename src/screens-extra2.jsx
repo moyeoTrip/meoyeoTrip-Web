@@ -249,7 +249,10 @@ function ScreenDex() {
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
                 {companions.map((companion) => (
-                  <div key={companion.userId} style={{ background: T.bgBase, borderRadius: 14, padding: 10, border: `1px solid ${T.line100}`, position: 'relative' }}>
+                  <div
+                    key={companion.userId}
+                    onClick={() => nav.go('public-profile', { params: { userId: companion.userId, dex: companion } })}
+                    style={{ background: T.bgBase, borderRadius: 14, padding: 10, border: `1px solid ${T.line100}`, position: 'relative', cursor: 'pointer' }}>
                     {companion.tripCount >= 2 && <div style={{ position: 'absolute', top: 6, right: 6, padding: '1px 5px', borderRadius: 4, background: T.primary100, color: T.primary700, fontSize: 9, fontWeight: 700 }}>{companion.tripCount}×</div>}
                     <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0' }}>
                       {companion.profileImageUrl
@@ -307,7 +310,7 @@ function ScreenDex() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             {friends.map((f, i) => (
               <div key={i}
-                onClick={() => !f.me && nav.openModal && nav.openModal('friend', f)}
+                onClick={() => !f.me && nav.go('public-profile')}
                 style={{ background: T.bgBase, borderRadius: 14, padding: 10, border: f.me ? `1.5px solid ${T.primary500}` : `1px solid ${T.line100}`, position: 'relative', cursor: f.me ? 'default' : 'pointer', transition: 'transform 120ms ease, box-shadow 120ms ease' }}
                 onMouseEnter={(e) => { if (!f.me) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = T.l1; } }}
                 onMouseLeave={(e) => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}>
@@ -836,71 +839,470 @@ function ScreenAuthMethods() {
   );
 }
 
-// ───────── 30 · 공개 프로필 ─────────
-function ScreenPublicProfile() {
-  const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
-  const recentTrips = [
-    { hue: 'autumn', n: '경주 1박2일', d: '2026.04', meta: '첨성대 · 월정교' },
-    { hue: 'coast', n: '포항 동해 드라이브', d: '2026.02', meta: '영일대 · 호미곶' },
-    { hue: 'forest', n: '주왕산 단풍 트레킹', d: '2025.10', meta: '주왕산 · 주산지' },
-    { hue: 'hanok', n: '안동 하회마을 산책', d: '2025.09', meta: '하회마을 · 부용대' },
-    { hue: 'coast', n: '울릉도 섬 여행', d: '2025.07', meta: '도동항 · 해안 산책로' },
-    { hue: 'forest', n: '울진 금강송 숲길', d: '2025.05', meta: '금강송 · 왕피천' },
-    { hue: 'autumn', n: '문경 새재 고갯길', d: '2024.11', meta: '제1관문 · 오픈세트장' },
-    { hue: 'coast', n: '영주 부석사 눈꽃', d: '2024.12', meta: '부석사 · 소백산' },
-  ];
+// ───────── 유저 색상 팔레트 ─────────
+//
+// 서버 NicknameCandidate.color 의 10가지 값.
+// 공개 프로필(PublicProfileResponse.nicknameColor)과 받은 평가
+// (ReceivedTravelReviewResponse.reviewerNicknameColor)로 내려온다.
+// 도감·멤버·동행자 목록 응답에는 없으므로 목록에서는 색을 쓰지 않는다.
+const MOYEO_USER_COLORS = {
+  RED: '#D9534F', ORANGE: '#E8853A', YELLOW: '#D9A81C', GREEN: '#2D8F5A', BLUE: '#3B7DD8',
+  NAVY: '#2F4A86', PURPLE: '#7E5BC4', PINK: '#DE5D97', SKY_BLUE: '#3FA9D6', MINT: '#2FB79A',
+};
+
+// 지정색을 그대로 쓰면 프로필 이미지 배경과 붙어버린다. 테마 토큰과 섞어
+// 진한 톤(테두리) > 중간 톤(프레임) > 흐린 톤(배경) 3단으로 벌린다.
+// 두 번째 색이 테마 변수라 라이트/다크가 자동으로 따라온다.
+function userCardPalette(color) {
+  const base = MOYEO_USER_COLORS[color] || T.primary500;
+  return {
+    base,
+    border: `color-mix(in oklab, ${base} 76%, ${T.line200})`,
+    frame: `color-mix(in oklab, ${base} 44%, ${T.bgRaised})`,
+    bgFrom: `color-mix(in oklab, ${base} 22%, ${T.bgRaised})`,
+    plate: `color-mix(in oklab, ${base} 10%, ${T.bgRaised})`,
+    chipBg: `color-mix(in oklab, ${base} 14%, ${T.bgRaised})`,
+    chipText: `color-mix(in oklab, ${base} 66%, ${T.text900})`,
+    glow: `color-mix(in oklab, ${base} 52%, transparent)`,
+  };
+}
+
+// 카드의 세 단계별 트랜지션.
+//   rest   손을 뗀 뒤 제자리로 — 천천히(900ms)
+//   enter  평평한 상태에서 포인터 위치까지 — 짧게(260ms). 없으면 처음 올릴 때 각도가 튄다.
+//   follow 포인터를 따라가는 중 — 트랜지션 없음. 짧게라도 걸면 계속 뒤따라오고,
+//          손을 멈춘 뒤에야 남은 보간이 재생되는 것처럼 보인다.
+const CARD_MOTION = {
+  rest: '900ms cubic-bezier(0.16, 1, 0.3, 1)',
+  enter: '260ms cubic-bezier(0.22, 1, 0.36, 1)',
+};
+function cardMotion(phase, props) {
+  if (phase === 'follow') return 'none';
+  return props.map((prop) => `${prop} ${CARD_MOTION[phase] || CARD_MOTION.rest}`).join(', ');
+}
+
+// 포인터 위치를 CSS 변수로 넘긴다. tokens.jsx 에서 @property 로 타입을 등록해 두었기 때문에
+// 각도까지 보간된다 — 등록하지 않으면 손을 떼는 순간 광택만 "툭" 끊긴다.
+function holoVars(x, y, phase) {
+  return {
+    '--moyeo-holo-angle': `${105 + (x - 0.5) * 90}deg`,
+    '--moyeo-holo-bx': `${20 + x * 60}%`,
+    '--moyeo-holo-by': `${20 + y * 60}%`,
+    transition: cardMotion(phase, ['--moyeo-holo-angle', '--moyeo-holo-bx', '--moyeo-holo-by', 'opacity']),
+  };
+}
+
+// 홀로 포일 — 무지개 띠. 프로필 이미지 "위"에 얹는다.
+//
+// 뒤에 깔아봤는데, 실제 프로필 이미지가 있으면 이미지가 정사각형을 꽉 채워
+// 홀로그램이 완전히 가려졌다(실서버 이미지로 확인). 그래서 위로 올린다.
+//
+// 블렌드 모드로는 안 된다. 실제 프로필 이미지가 밝은 파스텔 톤이라
+// soft-light·overlay·color-dodge 모두 — 참조 구현의 대비 부스트를 넣어도 — 거의 보이지 않았다.
+// 그래서 색을 실제로 얹고 알파로 세기를 잡는다. 그림의 형태는 알파가 낮아 그대로 읽힌다.
+function ProfileCardFoil({ x = 0.5, y = 0.5, shine = 0.62, phase = 'rest' }) {
+  return (
+    <div aria-hidden="true" style={{
+      ...holoVars(x, y, phase),
+      // 곡률을 직접 주지 않는다. 프레임이 2px 보더를 가져서 안쪽 곡률은 12 가 아니라 10 이고,
+      // 12 를 주면 모서리가 더 깎여 보더와 사이에 이격이 생긴다.
+      // 부모가 overflow: hidden 이라 안쪽 곡선에 정확히 맞춰 잘린다.
+      position: 'absolute', inset: 0, pointerEvents: 'none',
+      backgroundImage:
+        'repeating-linear-gradient(var(--moyeo-holo-angle),'
+        + ' rgba(255,119,115,0.34) 4%, rgba(255,237,140,0.30) 12%, rgba(168,255,150,0.28) 20%,'
+        + ' rgba(131,240,247,0.30) 28%, rgba(140,160,255,0.32) 36%, rgba(216,140,255,0.30) 44%,'
+        + ' rgba(255,255,255,0.22) 50%, rgba(255,119,115,0.34) 56%)',
+      backgroundSize: '320% 320%',
+      backgroundPosition: 'var(--moyeo-holo-bx) var(--moyeo-holo-by)',
+      filter: 'saturate(1.15)',
+      opacity: shine * 0.65,
+    }}/>
+  );
+}
+
+// ───────── 25 · 프로필 (포켓몬 카드형) ─────────
+//
+// 카드 자체가 그 유저의 프로필이다. 도감·피드 작성자·멤버 시트·친구 목록 등
+// "유저를 눌러 자세히 보는" 모든 진입점이 이 화면으로 온다.
+//
+// 진입점마다 서버가 주는 필드가 다르다. 카드는 받은 값만 채우고 없는 슬롯은 지운다.
+//   GET /users/{userId}/profile        닉네임·이미지·색상·소개·취향·평균 매너
+//   GET /users/{userId}/travel-reviews 다른 여행자들이 남긴 평가 (여행 제목·시각 없음)
+//   nav.params.dex                     도감에서 들어온 경우의 동행 횟수·함께한 여행
+// 전체 여행/호스트/피드 횟수는 어떤 응답에도 없다 — 칸을 지운다(지어내지 않는다).
+// 프로필 이미지가 없을 때의 아바타. 닉네임의 동물을 따른다 —
+// 목데이터의 동물을 그대로 두면 "따스한 기린 2334" 카드에 곰이 뜬다(라이브 캡처에서 발견).
+// 일러스트가 있는 6종은 그림으로, 나머지는 온보딩과 같은 이모지로 그린다.
+function ProfileCardAvatar({ nickname, fallbackKind = 'bear' }) {
+  const avatar = window.MoyeoApi?.avatarForNickname?.(nickname);
+  if (avatar?.emoji) {
+    return (
+      <div aria-hidden="true" style={{ fontSize: 150, lineHeight: 1, userSelect: 'none' }}>{avatar.emoji}</div>
+    );
+  }
+  return <AnimalAvatar kind={avatar?.kind || fallbackKind} size={236} bg="transparent"/>;
+}
+
+function ScreenPublicProfile({ initialFlipped = false }) {
+  const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {}, params: {} });
+  const params = nav.params || {};
+  // 인앱 진입은 nav 파라미터, 화면 직접 진입(라이브 캡처·QA)은 ?userId= 로 대상을 받는다.
+  const userId = params.userId || window.MoyeoApi?.selectedUserId?.() || null;
+  const liveMode = window.MoyeoApi?.live();
+
+  const [profile, setProfile] = React.useState(null);
+  const [reviews, setReviews] = React.useState([]);
+  React.useEffect(() => {
+    if (!liveMode || !userId) return undefined;
+    let active = true;
+    window.MoyeoApi.publicProfile(userId)
+      .then((r) => { if (active && r?.nickname) setProfile(r); })
+      .catch(() => {});
+    window.MoyeoApi.receivedTravelReviews(userId)
+      .then((r) => { if (active && Array.isArray(r)) setReviews(r); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode, userId]);
+
+  // 캡처(결정적 파라미터)에서는 기획과 같은 값을 쓴다. 라이브에서는 서버 값만 쓴다.
+  const mock = {
+    kind: 'bear', nickname: '우직한 곰 7821', nicknameColor: 'ORANGE',
+    profileImageUrl: null, mannerRating: 4.8,
+    introduction: '사진 찍는 걸 좋아해요. 천천히 걷는 여행을 좋아합니다.',
+    travelStyles: ['사진', '자연'],
+    // 여행·호스트·피드 횟수는 어떤 서버 응답에도 없다. 캡처 모드에서도 만들지 않는다 —
+    // 목데이터라도 지어낸 숫자를 앱 화면에 띄우지 않는다. 기획(25)에는 정의가 남아 있어
+    // 그 세 칸에서 기획 캡처와 다른 것은 정상이다.
+    tripCount: 2, latestTripTitle: '경주 단풍·야경 모임', latestTripDate: '2026.08.23',
+    memories: [
+      { tripTitle: '경주 단풍·야경 모임', tripDate: '2026.08.23', oneLineReview: '사진 정말 잘 찍어주셨어요!' },
+      { tripTitle: '주왕산 힐링 트레킹', tripDate: '2026.06.14', oneLineReview: null },
+    ],
+    receivedReviews: [
+      { reviewerNickname: '고요한 두루미 1130', reviewerNicknameColor: 'SKY_BLUE', content: '약속 시간을 정확히 지키고 사진도 많이 남겨주셨어요.' },
+      { reviewerNickname: '잔잔한 거북이 9032', reviewerNicknameColor: 'MINT', content: '걷는 속도를 계속 맞춰줘서 편했습니다.' },
+    ],
+  };
+
+  // 목데이터로 떨어지는 것은 서버가 없을 때(캡처·목킹 모드)뿐이다.
+  // 로그인 상태에서 조회가 실패했는데 목데이터를 보여주면 남의 프로필을 지어내는 셈이 된다.
+  const captureMode = !liveMode || !userId;
+  const dex = params.dex || null;
+  const subject = profile ? {
+    kind: 'bear',
+    nickname: profile.nickname,
+    nicknameColor: profile.nicknameColor,
+    profileImageUrl: profile.profileImageUrl,
+    mannerRating: profile.mannerRating,
+    introduction: profile.introduction,
+    travelStyles: (profile.travelStyles || []).map((v) => v.label || v.name || v),
+    // 서버가 주지 않는 값은 넣지 않는다 → 칸이 만들어지지 않는다
+    completedTripCount: undefined, hostedTripCount: undefined, feedCount: undefined,
+    tripCount: dex?.tripCount ?? null,
+    latestTripTitle: dex?.latestTripTitle || null,
+    latestTripDate: dex?.latestTripDate || null,
+    memories: dex?.memories || [],
+    receivedReviews: reviews.map((r) => ({
+      reviewerNickname: r.reviewerNickname,
+      reviewerNicknameColor: r.reviewerNicknameColor,
+      content: r.content,
+    })),
+  } : (captureMode ? mock : null);
+
+  const pal = userCardPalette(subject?.nicknameColor);
+
+  // 매너 점수는 스트립에 넣지 않는다. 단위가 다르고(점 vs 회), 실제로 매너만 내려오는
+  // 진입점(도감·동행자)에서는 한 칸짜리 전체폭 스트립이 남아 어색했다.
+  const stats = subject ? [
+    subject.completedTripCount != null && ['여행', `${subject.completedTripCount}`],
+    subject.hostedTripCount != null && ['호스트', `${subject.hostedTripCount}`],
+    subject.feedCount != null && ['피드', `${subject.feedCount}`],
+  ].filter(Boolean) : [];
+
+  const REST = { rx: 0, ry: 0, x: 0.5, y: 0.5, scale: 1, shine: 0.62, lift: 0 };
+  const [tilt, setTilt] = React.useState({ ...REST, phase: 'rest' });
+  const enterTimer = React.useRef(null);
+  const [flipped, setFlipped] = React.useState(initialFlipped);
+  const cardRef = React.useRef(null);
+  const swipeStart = React.useRef(null);
+
+  const onSwipeStart = (x, y) => { swipeStart.current = { x, y }; };
+  const onSwipeEnd = (x, y) => {
+    const s0 = swipeStart.current;
+    swipeStart.current = null;
+    if (!s0) return;
+    const dx = x - s0.x;
+    const dy = y - s0.y;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) setFlipped((v) => !v);
+  };
+
+  const onMove = (clientX, clientY) => {
+    const el = cardRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const x = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+    const y = Math.min(1, Math.max(0, (clientY - r.top) / r.height));
+    const next = { rx: (0.5 - y) * 20, ry: (x - 0.5) * 20, x, y, scale: 1.02, shine: 0.9, lift: 1 };
+    setTilt((t) => {
+      if (t.phase !== 'rest') return { ...next, phase: t.phase };
+      // 평평한 상태에서 처음 올린 순간이다. 값을 지금 바꾸면 각도가 튄다 —
+      // 이 커밋에서는 트랜지션만 260ms 로 바꾸고, 값은 다음 프레임에 넘긴다(reset 과 같은 이유).
+      requestAnimationFrame(() => setTilt((cur) => (cur.phase === 'enter' ? { ...next, phase: 'enter' } : cur)));
+      clearTimeout(enterTimer.current);
+      enterTimer.current = setTimeout(() => {
+        setTilt((cur) => (cur.phase === 'enter' ? { ...cur, phase: 'follow' } : cur));
+      }, 280);
+      return { ...t, phase: 'enter' };
+    });
+  };
+
+  // 트랜지션과 값을 한 커밋에서 같이 바꾸면 크롬이 "변경 전" 트랜지션으로 처리한다.
+  // 따라가는 중에는 트랜지션이 없으니 결과가 즉시 튄다 — 카드도 광택도 "띡" 돌아갔다.
+  // 한 프레임 동안 트랜지션만 900ms 로 바꾸고, 다음 프레임에 값을 원위치로 보낸다.
+  const reset = () => {
+    clearTimeout(enterTimer.current);
+    setTilt((t) => ({ ...t, phase: 'rest' }));
+    requestAnimationFrame(() => setTilt({ ...REST, phase: 'rest' }));
+  };
+  React.useEffect(() => () => clearTimeout(enterTimer.current), []);
+
+  const metaRow = (label, value) => (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <div style={{ fontSize: 10.5, color: T.text500, fontWeight: 700, minWidth: 52 }}>{label}</div>
+      <div style={{ fontSize: 11.5, color: T.text900, fontWeight: 700, flex: 1 }}>{value}</div>
+    </div>
+  );
+
+  const faceShadow = {
+    boxShadow: tilt.lift ? '0 22px 44px rgba(0,0,0,0.28)' : '0 10px 26px rgba(0,0,0,0.16)',
+    transition: cardMotion(tilt.phase, ['box-shadow']),
+  };
+
+  if (!subject) {
+    // 라이브에서 아직 못 받았거나 실패한 상태. 값을 지어내지 않고 비워 둔다.
+    return (
+      <Phone>
+        <div style={{ position: 'absolute', inset: 0, paddingTop: 46, background: T.bgSubtle, display: 'flex', flexDirection: 'column' }}>
+          <Header title="프로필" left center onBack={nav.back}/>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: T.text500 }}>
+            프로필을 불러오지 못했어요
+          </div>
+        </div>
+      </Phone>
+    );
+  }
+
   return (
     <Phone>
-      <div style={{ position: 'absolute', inset: 0, paddingTop: 60, background: T.bgSubtle, overflow: 'auto' }}>
-        <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: T.bgBase }}>
-          <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
-          <Icon name="more" size={24}/>
-        </div>
-        <div style={{ background: T.bgBase, padding: '24px 20px 28px', display: 'flex', flexDirection: 'column', alignItems: 'center', borderBottom: `1px solid ${T.line100}` }}>
-          <AnimalAvatar kind="bear" size={96} bg={T.primary100}/>
-          <div style={{ fontSize: 19, fontWeight: 700, marginTop: 12, letterSpacing: '-0.3px' }}>우직한 곰 7821</div>
-          <div style={{ fontSize: 13, color: T.text500, marginTop: 4 }}>30대 초반 · 남성</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 16, padding: '12px 20px', background: T.bgSubtle, borderRadius: 12 }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Icon name="star" size={14} color={T.warning}/>
-                <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>4.9</div>
-              </div>
-              <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>매너점수</div>
-            </div>
-            <div style={{ width: 1, height: 28, background: T.line200 }}/>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>8</div>
-              <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>여행 횟수</div>
-            </div>
-            <div style={{ width: 1, height: 28, background: T.line200 }}/>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>6</div>
-              <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>친구</div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 16, width: '100%' }}>
-            <button style={{ flex: 1, height: 44, borderRadius: 12, border: `1px solid ${T.line200}`, background: 'transparent', fontSize: 14, fontWeight: 600, fontFamily: T.fontStack }}>친구 신청</button>
-            <button style={{ flex: 1, height: 44, borderRadius: 12, border: 'none', background: T.primary500, color: '#fff', fontSize: 14, fontWeight: 600, fontFamily: T.fontStack, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <Icon name="chat" size={16} color="#fff"/> 메시지
-            </button>
-          </div>
-        </div>
-        <div style={{ padding: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>한 줄 소개</div>
-          <div style={{ fontSize: 14, color: T.text700, lineHeight: 1.6, padding: 14, background: T.bgBase, borderRadius: 12 }}>"여행에서 만나는 작은 우연을 좋아합니다. 사진 잘 찍어드릴 수 있어요."</div>
-          <div style={{ fontSize: 13, fontWeight: 600, marginTop: 24, marginBottom: 10 }}>최근 여행 ({recentTrips.length})</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {recentTrips.map((t, i) => (
-              <div key={i} style={{ background: T.bgBase, borderRadius: 12, padding: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 56, height: 56, borderRadius: 12, overflow: 'hidden' }}><ImgPlaceholder height={56} hue={t.hue} radius={12}/></div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>{t.n}</div>
-                  <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>{t.d} · {t.meta}</div>
+      <div style={{ position: 'absolute', inset: 0, paddingTop: 46, background: T.bgSubtle, display: 'flex', flexDirection: 'column' }}>
+        <Header title="프로필" left center onBack={nav.back}/>
+
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px 20px 12px', perspective: 900 }}>
+          <div
+            ref={cardRef}
+            onMouseMove={(e) => onMove(e.clientX, e.clientY)}
+            onMouseLeave={reset}
+            onMouseDown={(e) => onSwipeStart(e.clientX, e.clientY)}
+            onMouseUp={(e) => onSwipeEnd(e.clientX, e.clientY)}
+            onTouchStart={(e) => { const t = e.touches[0]; if (t) onSwipeStart(t.clientX, t.clientY); }}
+            onTouchMove={(e) => { const t = e.touches[0]; if (t) onMove(t.clientX, t.clientY); }}
+            onTouchEnd={(e) => { const t = e.changedTouches[0]; if (t) onSwipeEnd(t.clientX, t.clientY); reset(); }}
+            style={{
+              position: 'relative', width: 318, transformStyle: 'preserve-3d',
+              transform: `rotateX(${tilt.rx}deg) rotateY(${tilt.ry}deg) scale(${tilt.scale})`,
+              transition: cardMotion(tilt.phase, ['transform']),
+              cursor: 'pointer',
+            }}
+          >
+            <div aria-hidden="true" style={{
+              position: 'absolute', inset: -8, borderRadius: 26, background: pal.glow,
+              filter: 'blur(22px)', opacity: 0.28 + tilt.lift * 0.22,
+              transition: cardMotion(tilt.phase, ['opacity']),
+              pointerEvents: 'none',
+            }}/>
+
+            {/* 뒤집기 레이어에 filter 를 걸면 3D 컨텍스트가 평면으로 눌려
+                backface-visibility 가 무시된다 — 뒷면 대신 앞면이 거울상으로 보인다.
+                그림자는 각 면의 box-shadow 로 준다. */}
+            <div style={{
+              position: 'relative', transformStyle: 'preserve-3d',
+              transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+              transition: 'transform 700ms cubic-bezier(0.16, 1, 0.3, 1)',
+            }}>
+              {/* ─── 앞면 ─── */}
+              <div style={{
+                borderRadius: 18, overflow: 'hidden', backfaceVisibility: 'hidden',
+                background: `linear-gradient(160deg, ${pal.bgFrom} 0%, ${RF.card} 46%, ${RF.card} 100%)`,
+                border: `2px solid ${pal.border}`, ...faceShadow,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px 7px' }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 900, color: T.text900, flex: 1, letterSpacing: '-0.2px' }}>
+                    {subject.nickname}
+                  </div>
+                  {subject.tripCount != null && (
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'baseline', gap: 2, height: 22, padding: '0 9px',
+                      borderRadius: 999, background: pal.chipBg, border: `1px solid ${pal.frame}`,
+                    }}>
+                      <span style={{ fontSize: 14, fontWeight: 900, color: pal.chipText, fontVariantNumeric: 'tabular-nums' }}>
+                        {subject.tripCount}
+                      </span>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, color: pal.chipText }}>회 동행</span>
+                    </div>
+                  )}
                 </div>
-                <Icon name="arrow" size={16} color={T.text400}/>
+
+                {/* 프로필 이미지는 1:1 이므로 정사각형 프레임에 꽉 채운다 */}
+                <div style={{
+                  position: 'relative', margin: '0 12px', aspectRatio: '1 / 1', borderRadius: 12, overflow: 'hidden',
+                  border: `2px solid ${pal.frame}`, background: pal.plate,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {subject.profileImageUrl
+                    ? <img src={subject.profileImageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
+                    : <ProfileCardAvatar nickname={subject.nickname} fallbackKind={subject.kind}/>}
+                  <ProfileCardFoil x={tilt.x} y={tilt.y} shine={tilt.shine} phase={tilt.phase}/>
+                </div>
+
+                <div style={{ padding: '10px 14px 13px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {subject.mannerRating != null && metaRow('매너 점수', `${subject.mannerRating}점`)}
+                  {stats.length > 0 && (
+                    <div style={{
+                      display: 'grid', gridTemplateColumns: `repeat(${stats.length}, 1fr)`,
+                      borderRadius: 10, overflow: 'hidden',
+                      border: `1px solid ${pal.frame}`, background: pal.plate,
+                    }}>
+                      {stats.map((st, i) => (
+                        <div key={st[0]} style={{
+                          padding: '6px 0', textAlign: 'center',
+                          borderRight: i < stats.length - 1 ? `1px solid ${pal.frame}` : 'none',
+                        }}>
+                          <div style={{ fontSize: 9, color: T.text500, fontWeight: 800 }}>{st[0]}</div>
+                          <div style={{ fontSize: 13, fontWeight: 900, marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>{st[1]}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {subject.latestTripTitle && metaRow('최근 동행', `${subject.latestTripTitle} · ${subject.latestTripDate}`)}
+
+                  {subject.introduction && (
+                    <div style={{
+                      marginTop: 1, padding: '8px 10px', borderRadius: 9, background: T.bgSubtle,
+                      border: `1px solid ${RF.softLine}`, fontSize: 11, lineHeight: '17px', color: T.text700,
+                    }}>{subject.introduction}</div>
+                  )}
+
+                  {subject.travelStyles.length > 0 && (
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      {subject.travelStyles.map((st) => (
+                        <span key={st} style={{
+                          height: 21, padding: '0 8px', borderRadius: 999, display: 'inline-flex', alignItems: 'center',
+                          background: pal.chipBg, color: pal.chipText, border: `1px solid ${pal.frame}`,
+                          fontSize: 10, fontWeight: 800,
+                        }}>{st}</span>
+                      ))}
+                    </div>
+                  )}
+
+                  {(subject.memories.length > 0 || subject.receivedReviews.length > 0) && (
+                    <div style={{
+                      marginTop: 2, paddingTop: 8, borderTop: `1px solid ${RF.softLine}`,
+                      display: 'flex', alignItems: 'center', gap: 5,
+                      fontSize: 10, fontWeight: 800, color: T.text500,
+                    }}>
+                      <Icon name="arrow" size={12} color={T.text400}/>
+                      옆으로 밀면 함께한 여행과 평가를 볼 수 있어요
+                    </div>
+                  )}
+                </div>
               </div>
-            ))}
+
+              {/* ─── 뒷면 ─── */}
+              <div style={{
+                position: 'absolute', inset: 0, borderRadius: 18, overflow: 'hidden',
+                backfaceVisibility: 'hidden', transform: 'rotateY(180deg)',
+                background: `linear-gradient(200deg, ${pal.bgFrom} 0%, ${RF.card} 50%, ${RF.card} 100%)`,
+                border: `2px solid ${pal.border}`, ...faceShadow,
+                display: 'flex', flexDirection: 'column',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px 7px' }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 900, color: T.text900, flex: 1, letterSpacing: '-0.2px' }}>
+                    {subject.nickname}
+                  </div>
+                  <div style={{ fontSize: 9.5, fontWeight: 800, color: T.text500 }}>카드 뒷면</div>
+                </div>
+
+                <div style={{ flex: 1, overflow: 'auto', padding: '0 14px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+                  {subject.mannerRating != null && (
+                    <div style={{
+                      display: 'flex', alignItems: 'baseline', gap: 6, padding: '9px 11px', borderRadius: 10,
+                      background: pal.chipBg, border: `1px solid ${pal.frame}`,
+                    }}>
+                      <div style={{ fontSize: 19, fontWeight: 900, color: pal.chipText, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                        {subject.mannerRating}
+                      </div>
+                      <div style={{ fontSize: 10.5, fontWeight: 800, color: pal.chipText }}>점</div>
+                      <div style={{ fontSize: 10, color: T.text500, fontWeight: 700, marginLeft: 'auto' }}>동행자들이 준 평균</div>
+                    </div>
+                  )}
+
+                  {subject.memories.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: T.text500, marginBottom: 5 }}>함께한 여행</div>
+                      {subject.memories.map((m) => (
+                        <div key={m.tripTitle} style={{
+                          marginBottom: 6, padding: '8px 10px', borderRadius: 9,
+                          background: T.bgSubtle, border: `1px solid ${RF.softLine}`,
+                        }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: T.text900 }}>
+                            {m.tripTitle} <span style={{ color: T.text500, fontWeight: 600 }}>· {m.tripDate}</span>
+                          </div>
+                          {m.oneLineReview
+                            ? <div style={{ fontSize: 10.5, lineHeight: '16px', color: T.text700, marginTop: 3 }}>내 메시지 "{m.oneLineReview}"</div>
+                            : <div style={{ fontSize: 10, color: T.text500, marginTop: 3 }}>메시지를 남기지 않았어요</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 받은 게 없으면 섹션을 만들지 않는다.
+                      도감의 oneLineReview 는 "내가 남긴" 값이라 여기 섞으면 안 된다. */}
+                  {subject.receivedReviews.length > 0 && (
+                    <div style={{ paddingTop: 9, borderTop: `1px solid ${RF.softLine}` }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: T.text500, marginBottom: 6 }}>
+                        다른 여행자들이 남긴 평가
+                      </div>
+                      {subject.receivedReviews.map((r) => (
+                        <div key={r.reviewerNickname + r.content} style={{ marginBottom: 8, display: 'flex', gap: 7 }}>
+                          {/* 강조선은 남긴 사람의 색 — 카드 주인 색과 헷갈리지 않게 */}
+                          <div style={{
+                            width: 3, borderRadius: 2, flexShrink: 0,
+                            background: userCardPalette(r.reviewerNicknameColor).border,
+                          }}/>
+                          <div>
+                            <div style={{ fontSize: 11, lineHeight: '17px', color: T.text700 }}>"{r.content}"</div>
+                            <div style={{ fontSize: 9.5, color: T.text500, marginTop: 2, fontWeight: 700 }}>
+                              {r.reviewerNickname}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 스와이프로도 뒤집히지만, 뒤집을 수 있다는 걸 알 방법이 필요해 버튼도 둔다 */}
+        <div style={{ padding: '0 20px 28px', display: 'flex', gap: 8 }}>
+          <Btn variant="ghost" onClick={() => setFlipped((v) => !v)}>{flipped ? '앞면' : '뒤집기'}</Btn>
+          {/* DM 기획이 없다 — 여기서 할 수 있는 행동은 친구 신청뿐이다.
+              (차단·신고는 20-1a 멤버 액션처럼 대상이 확실한 경로에서만 연다) */}
+          <div style={{ flex: 1 }}>
+            <Btn variant="primary" full>친구 신청</Btn>
           </div>
         </div>
       </div>
@@ -908,9 +1310,11 @@ function ScreenPublicProfile() {
   );
 }
 
+
 Object.assign(window, {
   ScreenFeedWrite, ScreenFeedWriteStep1, ScreenFeedWriteStep2, ScreenFeedWriteStep3, ScreenFeedWriteStep4, ScreenFeedWriteStep5,
   ScreenDex, ScreenProfileEdit, ProfileEditBody, ScreenProfileTasteEdit, ScreenSettings, ScreenAuthMethods, ScreenPublicProfile,
+  MOYEO_USER_COLORS, userCardPalette,
 });
 
 // ─── window export ───

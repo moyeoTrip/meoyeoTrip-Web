@@ -18,22 +18,44 @@ function PlaceTypeBadge({ type, label }) {
   return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 22, padding: '0 8px', borderRadius: 999, background: T.bgSubtle, border: `1px solid ${RF.softLine}`, color: T.text700, fontSize: 10.5, fontWeight: 800 }}><Icon name={current[1]} size={11} color={T.text500}/>{label || current[0]}</span>;
 }
 
+// TourAPI 원본 이미지(tong.visitkorea.or.kr)는 CORS 헤더를 주지 않아
+// CachedImage 의 fetch+Cache 방식으로는 읽을 수 없다. 외부 호스트 이미지는 <img> 로 바로 띄우고
+// 실패하면 기존 자리표시자로 돌아간다 (앱 자체 에셋은 그대로 CachedImage 를 쓴다).
+function RemotePlaceImage({ src, fallback, style }) {
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => { setFailed(false); }, [src]);
+  if (failed) return fallback;
+  return <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} style={style}/>;
+}
+
 function PlaceImage({ src, hue = 'forest', height, radius = 0, overlay = false }) {
   const fallback = <Photo hue={hue} height={height} radius={radius} overlay={overlay}/>;
   if (!src) return fallback;
-  return <CachedImage src={src} alt="" fallback={fallback} style={{ display: 'block', width: '100%', height, objectFit: 'cover', borderRadius: radius }}/>; 
+  const style = { display: 'block', width: '100%', height, objectFit: 'cover', borderRadius: radius };
+  const external = /^https?:\/\//i.test(src) && !src.startsWith(`${window.location.origin}/`);
+  if (external) return <RemotePlaceImage src={src} fallback={fallback} style={style}/>;
+  return <CachedImage src={src} alt="" fallback={fallback} style={style}/>;
 }
 
 function ScreenPlaceSearch() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const [type, setType] = React.useState('all');
   const deterministic = window.MoyeoTourism.usesDeterministicSamples();
-  // 서버 목록에는 키워드 검색 파라미터가 없다 — 검색어는 받아 온 페이지 안에서만 걸러진다.
-  // 그래서 라이브에서는 기본 검색어를 비워 첫 페이지가 그대로 보이게 한다 (샘플 모드는 기존 '청송' 유지).
+  // 2026-08-25 서버 패치로 GET /tourism-contents 가 keyword 검색을 지원한다 —
+  // 검색어를 서버로 넘기고 클라이언트 필터는 쓰지 않는다(이중 필터 금지).
+  // 캡처·목데이터 모드는 네트워크를 타지 않으므로 기존처럼 '청송' 으로 표본을 거른다.
   const [query, setQuery] = React.useState(deterministic ? '청송' : '');
+  const [keyword, setKeyword] = React.useState(deterministic ? '청송' : '');
   const [places, setPlaces] = React.useState(deterministic ? window.MoyeoTourism.samplePlaces : []);
+  const [total, setTotal] = React.useState(null);
   const [source, setSource] = React.useState(deterministic ? 'sample' : 'loading');
   const [error, setError] = React.useState('');
+  // 타자 한 글자마다 요청하지 않도록 입력이 멈춘 뒤에 검색어를 확정한다.
+  React.useEffect(() => {
+    if (deterministic) return undefined;
+    const timer = window.setTimeout(() => setKeyword(query.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [deterministic, query]);
   // GET tourism-contents/types — 유형 후보는 서버 값(7종)을 쓴다. 실패하면 기존 3종 칩이 남는다.
   const [serverTypes, setServerTypes] = React.useState(null);
   React.useEffect(() => {
@@ -50,18 +72,18 @@ function ScreenPlaceSearch() {
     setSource('loading');
     setError('');
     try {
-      // 서버 유형이 있으면 contentTypeId 로 서버에서 걸러 받는다.
-      const response = typeFilter
-        ? await window.MoyeoTourism.list({ contentTypeId: typeFilter, size: 30 })
-        : await window.MoyeoTourism.list();
-      setPlaces(response);
+      // 검색어와 유형(contentTypeId)을 함께 서버로 보낸다. 검색어가 비면 파라미터가 빠져 전체 조회다.
+      const response = await window.MoyeoTourism.list({ keyword, contentTypeId: typeFilter, size: 30 });
+      setPlaces(response.items);
+      setTotal(response.totalElements);
       setSource('live');
     } catch (requestError) {
       setPlaces(window.MoyeoTourism.samplePlaces);
+      setTotal(null);
       setSource('fallback');
       setError(requestError?.message || '관광 정보에 연결할 수 없어요.');
     }
-  }, [deterministic, typeFilter]);
+  }, [deterministic, keyword, typeFilter]);
   React.useEffect(() => { loadPlaces(); }, [loadPlaces]);
   const typeNames = React.useMemo(() => {
     const map = new Map();
@@ -71,13 +93,15 @@ function ScreenPlaceSearch() {
   const typeChips = serverTypes
     ? [['all', '전체'], ...serverTypes.map((item) => [item.contentTypeId, item.contentTypeName])]
     : PLACE_TYPES;
+  // 라이브에서는 서버가 keyword·contentTypeId 로 이미 걸러 준 목록이라 그대로 그린다.
+  // 목데이터 모드에서만 표본을 유형·검색어로 거른다.
   const normalizedQuery = query.trim().toLowerCase();
-  const visible = places.filter((place) => {
-    // 서버 유형 모드에서는 이미 서버가 걸러 준 목록이다
-    const matchesType = serverTypes ? true : (type === 'all' || place.type === type);
-    const matchesQuery = !normalizedQuery || `${place.title} ${place.address}`.toLowerCase().includes(normalizedQuery);
-    return matchesType && matchesQuery;
-  });
+  const visible = deterministic
+    ? places.filter((place) => (type === 'all' || place.type === type)
+      && (!normalizedQuery || `${place.title} ${place.address}`.toLowerCase().includes(normalizedQuery)))
+    : places;
+  // 건수는 서버가 준 totalElements 를 쓴다(클라가 센 값은 현재 페이지 분량뿐이다).
+  const visibleCount = deterministic || total === null ? visible.length : total;
   const openDetail = (contentId) => {
     window.sessionStorage?.setItem('moyeo.selectedTourismContentId', contentId);
     nav.go('place-detail');
@@ -99,7 +123,7 @@ function ScreenPlaceSearch() {
           {source === 'loading' && <div role="status" style={{ margin: '0 20px 10px', padding: '9px 11px', borderRadius: 10, background: T.bgSubtle, color: T.text500, fontSize: 11.5 }}>실시간 관광 정보를 불러오고 있어요.</div>}
           {source === 'fallback' && <div role="status" style={{ margin: '0 20px 10px', padding: '9px 11px', borderRadius: 10, background: T.warningBg, color: T.warningText, fontSize: 11.5, lineHeight: '17px' }}>{error}<br/>예시 장소를 대신 보여드려요. <button type="button" onClick={loadPlaces} style={{ padding: 0, border: 0, background: 'transparent', color: 'inherit', fontWeight: 900, textDecoration: 'underline', cursor: 'pointer' }}>다시 시도</button></div>}
           {/* 서버 목록은 정렬 기준(근처순 등)을 내려주지 않아 라이브에서는 건수만 적는다 */}
-          <div style={{ padding: '0 20px 6px', fontSize: 11.5, color: T.text500 }}>{visible.length}곳{serverTypes ? '' : ' · 주왕산 코스 근처순'}</div>
+          <div style={{ padding: '0 20px 6px', fontSize: 11.5, color: T.text500 }}>{visibleCount}곳{deterministic ? ' · 주왕산 코스 근처순' : ''}</div>
           {visible.map((place) => <div key={place.contentId} style={{ width: '100%', display: 'flex', alignItems: 'stretch', borderBottom: `1px solid ${RF.softLine}`, paddingRight: 20 }}>
             <button type="button" onClick={() => openDetail(place.contentId)} style={{ flex: 1, minWidth: 0, display: 'flex', gap: 12, padding: '12px 10px 12px 20px', border: 0, background: 'transparent', color: T.text900, textAlign: 'left', fontFamily: T.fontStack, cursor: 'pointer' }}>
               <span style={{ width: 76, height: 68, borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}><PlaceImage src={place.thumbnailUrl} hue={place.hue} height={68}/></span>
@@ -142,8 +166,19 @@ function ScreenPlaceDetail() {
     phoneNumber: '', phoneName: '', homepage: '', description: '', images: [], menuImages: [],
     latitude: 0, longitude: 0, hue: 'forest',
   };
-  const photoImages = current.images?.length ? current.images : [null, null, null, null, null, null];
+  // 사진 자리표시자는 목데이터·로딩 중에만 쓴다. 서버가 사진을 안 준 장소를 빈 칸으로 채우지 않는다.
+  const photoImages = current.images?.length
+    ? current.images
+    : (source === 'live' ? [] : [null, null, null, null, null, null]);
   const menuImages = current.menuImages || [];
+  // 서버가 null 로 주는 줄(우편번호·전화번호·홈페이지)은 표기를 숨긴다 — 안내 문구로 채우지 않는다.
+  // homepage 는 TourAPI 앵커 태그라 tourism-api 가 URL 만 뽑아 준다(파싱 실패 시 빈 값 → 숨김).
+  const infoRows = [
+    current.address ? ['pin', current.address, current.postalCode ? `우편번호 ${current.postalCode}` : ''] : null,
+    current.phoneNumber ? ['phone', current.phoneNumber, current.phoneName || ''] : null,
+    ['map', `${current.latitude}, ${current.longitude}`, '지도에서 열기'],
+    current.homepage ? ['share', current.homepage, '홈페이지'] : null,
+  ].filter(Boolean);
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, position: 'relative' }}>
@@ -153,12 +188,7 @@ function ScreenPlaceDetail() {
           {source === 'loading' && <div role="status" style={{ marginTop: 12, fontSize: 11.5, color: T.text500 }}>실시간 상세 정보를 불러오고 있어요.</div>}
           {source === 'fallback' && <div role="status" style={{ marginTop: 12, padding: '9px 11px', borderRadius: 10, background: T.warningBg, color: T.warningText, fontSize: 11.5, lineHeight: '17px' }}>{error}<br/>예시 상세를 대신 보여드려요. <button type="button" onClick={loadDetail} style={{ padding: 0, border: 0, background: 'transparent', color: 'inherit', fontWeight: 900, textDecoration: 'underline', cursor: 'pointer' }}>다시 시도</button></div>}
           <div style={{ marginTop: 14, padding: 14, display: 'grid', gap: 11, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card }}>
-            {[
-              ['pin', current.address || '주소 정보 없음', current.postalCode ? `우편번호 ${current.postalCode}` : '우편번호 정보 없음'],
-              ['phone', current.phoneNumber || '전화번호 정보 없음', current.phoneName || '안내명 정보 없음'],
-              ['map', `${current.latitude}, ${current.longitude}`, '지도에서 열기'],
-              ['share', current.homepage || '홈페이지 정보 없음', '홈페이지'],
-            ].map((row) => <div key={`${row[0]}-${row[1]}`} style={{ display: 'flex', gap: 10 }}><Icon name={row[0]} size={16} color={T.text500}/><span><b style={{ display: 'block', fontSize: 12.5, wordBreak: 'break-all' }}>{row[1]}</b><span style={{ display: 'block', marginTop: 2, fontSize: 10.5, color: T.text500 }}>{row[2]}</span></span></div>)}
+            {infoRows.map((row) => <div key={`${row[0]}-${row[1]}`} style={{ display: 'flex', gap: 10 }}><Icon name={row[0]} size={16} color={T.text500}/><span><b style={{ display: 'block', fontSize: 12.5, wordBreak: 'break-all' }}>{row[1]}</b>{row[2] ? <span style={{ display: 'block', marginTop: 2, fontSize: 10.5, color: T.text500 }}>{row[2]}</span> : null}</span></div>)}
           </div>
           <h2 style={{ margin: '20px 0 8px', fontSize: 13 }}>소개</h2><p style={{ margin: 0, fontSize: 12.5, lineHeight: '20px', color: T.text700 }}>{current.description || '상세 소개가 제공되지 않았어요.'}</p>
           <div role="tablist" aria-label="장소 이미지" style={{ display: 'flex', gap: 18, marginTop: 20, borderBottom: `1px solid ${RF.softLine}` }}>{[

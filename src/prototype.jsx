@@ -71,6 +71,8 @@
       'feed-write-4': window.ScreenFeedWriteStep4,   // 24-4 공개 설정
       'feed-write-5': window.ScreenFeedWriteStep5,   // 24-5 최종 확인
       'public-profile': window.ScreenPublicProfile,
+      // 25-1 캡처용 — 뒤집힌 상태로 진입한다 (실사용 기본값은 앞면)
+      'public-profile-back': () => React.createElement(window.ScreenPublicProfile, { initialFlipped: true }),
       my: window.ScreenMyPage,
       dex: window.ScreenDex,
       friends: window.ScreenFriends,
@@ -132,8 +134,14 @@
       return () => { cancelled = true; };
     }, [bootstrapAuth]);
 
+    const [params, setParams] = useState({});
+
+    // 라우트는 문자열 하나뿐이라 화면에 값을 넘길 방법이 없었다.
+    // 프로필 카드처럼 "누구의" 화면인지가 필요한 경우를 위해 opts.params 를 실어 보낸다.
+    // 다음 go 까지만 유효하다(프로필은 말단 화면이라 충분하다).
     const go = useCallback((next, opts = {}) => {
       if (!next || next === route) return;
+      setParams(opts.params || {});
       setTransition(opts.transition || 'forward');
       setStack((s) => (opts.replace ? [...s.slice(0, -1), next] : [...s, next]));
       setTimeout(() => setTransition(null), 320);
@@ -161,9 +169,9 @@
     const isLiked = useCallback((id, fallback = false) => (id in likes ? likes[id] : fallback), [likes]);
 
     const value = useMemo(() => ({
-      route, stack, go, back, replace, openModal, closeModal, modal,
+      route, stack, params, go, back, replace, openModal, closeModal, modal,
       toggleLike, isLiked, transition,
-    }), [route, stack, go, back, replace, openModal, closeModal, modal, toggleLike, isLiked, transition]);
+    }), [route, stack, params, go, back, replace, openModal, closeModal, modal, toggleLike, isLiked, transition]);
 
     return (
       <NavCtx.Provider value={value}>
@@ -175,6 +183,7 @@
   function useNav() {
     return useContext(NavCtx) || {
       route: null,
+      params: {},
       go: () => {},
       back: () => {},
       replace: () => {},

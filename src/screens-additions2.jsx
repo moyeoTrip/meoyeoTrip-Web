@@ -14,6 +14,17 @@ function ScreenCreatePeople() {
   const [min, setMin] = React.useState(3);
   const [max, setMax] = React.useState(5);
   const [gender, setGender] = React.useState('all');
+  // 17-5 요약이 이어받는 값. 서버 요청에는 최소 인원 필드가 없어 최대 인원·성별 제한만 보낸다.
+  const goNext = () => {
+    window.MoyeoApi?.updateRoomDraft({
+      minParticipants: min,
+      maxParticipants: max,
+      genderRestriction: { all: 'NONE', female: 'FEMALE_ONLY', male: 'MALE_ONLY' }[gender] || 'NONE',
+      minimumAge: 25,
+      maximumAge: 35,
+    });
+    nav.go('create-detail');
+  };
 
   const mood = max <= 4
     ? { text: '말 트기 좋은 작은 그룹이에요', tone: 'ok' }
@@ -117,7 +128,7 @@ function ScreenCreatePeople() {
 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}>
           <Btn variant="ghost" onClick={nav.back}>이전</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={() => nav.go('create-detail')}>다음</Btn></div>
+          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={goNext}>다음</Btn></div>
         </div>
       </div>
     </Phone>
@@ -130,6 +141,20 @@ function ScreenCreateDetail() {
   const [approval, setApproval] = React.useState('auto');
   // 키워드 추천 칩은 스펙아웃 — 자동 추출 근거가 없어 화면기획에서 삭제됐다
   const [intro] = React.useState('느긋하게 걷고 사진 많이 찍는 여행이에요. 처음이셔도 편하게 오세요!');
+  const roomTitle = '30대끼리 느긋하게 힐링 여행가요~';
+  // Step 1 에서 고른 코스 이름. 로그인 상태에서는 서버 코스 제목이 들어온다.
+  const liveMode = window.MoyeoApi?.live();
+  const courseTitle = (liveMode && window.MoyeoApi.roomDraft().courseTitle) || '주왕산 & 주산지 힐링 트레킹';
+  // 17-5 요약이 이어받는 값. 이 화면에 보이는 문구·금액을 그대로 요청에 싣는다.
+  const goNext = () => {
+    window.MoyeoApi?.updateRoomDraft({
+      title: roomTitle,
+      description: intro,
+      participationFee: 45000,
+      joinApprovalMode: approval === 'manual' ? 'MANUAL' : 'AUTO',
+    });
+    nav.go((window.__moyeoCourseSource || 'custom') === 'linked' ? 'create-summary-linked' : 'create-summary');
+  };
 
   return (
     <Phone>
@@ -145,7 +170,7 @@ function ScreenCreateDetail() {
             <AddFieldLabel>코스</AddFieldLabel>
             <div style={{ height: 48, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: T.bgSubtle, display: 'flex', alignItems: 'center', gap: 9, padding: '0 13px' }}>
               <Icon name="map" size={17} color={T.text400}/>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 800, color: T.text500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>주왕산 &amp; 주산지 힐링 트레킹</span>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 800, color: T.text500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{courseTitle}</span>
               <Icon name="lock" size={14} color={T.text400}/>
             </div>
             <div style={{ fontSize: 11, color: T.text500, marginTop: 6 }}>Step 1에서 고른 코스 이름이에요. 여기서는 바꿀 수 없어요.</div>
@@ -153,7 +178,7 @@ function ScreenCreateDetail() {
 
           <div style={{ marginTop: 20 }}>
             <AddFieldLabel required>모집 이름 (채팅방 이름)</AddFieldLabel>
-            <AddFieldBox icon="users" value="30대끼리 느긋하게 힐링 여행가요~" chevron={false} caption="어떤 사람들과 어떻게 가고 싶은지를 담아요. 채팅방 이름으로도 쓰여요."/>
+            <AddFieldBox icon="users" value={roomTitle} chevron={false} caption="어떤 사람들과 어떻게 가고 싶은지를 담아요. 채팅방 이름으로도 쓰여요."/>
           </div>
 
           <div style={{ marginTop: 20 }}>
@@ -216,7 +241,7 @@ function ScreenCreateDetail() {
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}>
           <Btn variant="ghost" onClick={nav.back}>이전</Btn>
           {/* 등록된 코스로 만든 모집은 링크된 요약(17-7)으로 간다 */}
-          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={() => nav.go((window.__moyeoCourseSource || 'custom') === 'linked' ? 'create-summary-linked' : 'create-summary')}>다음</Btn></div>
+          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={goNext}>다음</Btn></div>
         </div>
       </div>
     </Phone>
@@ -243,6 +268,10 @@ function ChatMenuBody() {
   const [memberList, setMemberList] = React.useState(null);
   const [notices, setNotices] = React.useState(null);
   const [course, setCourse] = React.useState(null);
+  // 방별 알림 설정 · 동행자 매너 점수 — 서버가 값을 안 주면 null 로 남겨 표기를 숨긴다.
+  const [roomAlarm, setRoomAlarm] = React.useState(null);
+  const [companions, setCompanions] = React.useState(null);
+  const [alarmBusy, setAlarmBusy] = React.useState(false);
   React.useEffect(() => {
     if (!liveMode || !roomId) return undefined;
     let active = true;
@@ -258,9 +287,54 @@ function ChatMenuBody() {
     window.MoyeoApi.roomCourse(roomId)
       .then((result) => { if (active && result?.course) setCourse(result.course); })
       .catch(() => { /* 코스가 없으면 코스 줄을 숨긴다 */ });
+    // 이 모임의 알림만 끄기 — 별도 설정이 없으면 서버 기본값이 켜짐이다.
+    window.MoyeoApi.roomNotificationSetting(roomId)
+      .then((result) => { if (active && typeof result?.enabled === 'boolean') setRoomAlarm(result.enabled); })
+      .catch(() => { /* 실패 시 토글을 숨긴다 (근거 없는 상태를 그리지 않는다) */ });
+    // 동행자 매너 점수는 멤버 목록에 없고 완료 여행의 companions 에만 있다.
+    // 여행 전 방은 "아직 여행 전"(40915/403)이라 조용히 건너뛴다 — 권한 오류가 아니다.
+    window.MoyeoApi.roomCompanions(roomId)
+      .then((result) => { if (active && Array.isArray(result)) setCompanions(result); })
+      .catch((error) => {
+        // "아직 여행 전"은 오류가 아니다 — 매너 표기만 빠진다. 그 외 실패는 관측에 남긴다.
+        if (!window.MoyeoApi.isBeforeTripError(error)) window.MoyeoObservability?.captureException?.(error);
+      });
     return () => { active = false; };
   }, [liveMode, roomId]);
   const serverMode = Boolean(room && memberList);
+  const toggleRoomAlarm = async () => {
+    if (roomAlarm === null || alarmBusy) return;
+    const next = !roomAlarm;
+    setAlarmBusy(true);
+    setRoomAlarm(next);
+    try {
+      const result = await window.MoyeoApi.updateRoomNotificationSetting(roomId, next);
+      if (typeof result?.enabled === 'boolean') setRoomAlarm(result.enabled);
+    } catch (_) {
+      setRoomAlarm(!next); // 저장 실패 시 이전 상태로 되돌린다
+    }
+    setAlarmBusy(false);
+  };
+  const mannerByUserId = React.useMemo(() => {
+    const map = new Map();
+    (companions || []).forEach((item) => { if (item?.mannerRating != null) map.set(item.userId, item.mannerRating); });
+    return map;
+  }, [companions]);
+  const RoomAlarmToggle = () => (
+    <button
+      type="button"
+      data-testid="chat-menu-room-alarm"
+      aria-label="이 모임 알림"
+      aria-pressed={Boolean(roomAlarm)}
+      onClick={(event) => { event.stopPropagation(); toggleRoomAlarm(); }}
+      style={{
+        width: 40, height: 24, borderRadius: 999, border: 0, padding: 2, flexShrink: 0, cursor: 'pointer',
+        background: roomAlarm ? T.primary500 : T.line200,
+        display: 'flex', alignItems: 'center', justifyContent: roomAlarm ? 'flex-end' : 'flex-start',
+      }}>
+      <span style={{ width: 20, height: 20, borderRadius: 999, background: '#fff' }}/>
+    </button>
+  );
   const openMemberActions = (member) => {
     window.MoyeoApi.selectMember({ userId: member.userId, nickname: member.nickname, profileImageUrl: member.profileImageUrl });
     nav.go('member-actions');
@@ -272,21 +346,26 @@ function ChatMenuBody() {
     { k: 'turtle', n: '잔잔한 거북이 9032', role: null },
     { k: 'raccoon', n: '호기심 많은 너구리 9027', role: null },
   ];
-  const Row = ({ icon, label, sub, onClick, danger, right }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        width: '100%', height: 52, border: 'none', background: 'transparent', cursor: 'pointer',
-        display: 'flex', alignItems: 'center', gap: 11, padding: '0 20px', fontFamily: T.fontStack, textAlign: 'left',
-      }}>
-      <Icon name={icon} size={19} color={danger ? T.danger : T.text700}/>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: danger ? T.danger : T.text900 }}>{label}</div>
-        {sub && <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>{sub}</div>}
-      </div>
-      {right || <Icon name="arrow" size={15} color={T.text400}/>}
-    </button>
+  // rightAction 은 행과 별개로 눌리는 컨트롤(방별 알림 토글)이다 —
+  // 버튼 안에 버튼을 넣으면 마크업이 깨지므로 행 위에 겹쳐 놓는다.
+  const Row = ({ icon, label, sub, onClick, danger, right, rightAction }) => (
+    <div style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={onClick}
+        style={{
+          width: '100%', height: 52, border: 'none', background: 'transparent', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: 11, padding: '0 20px', fontFamily: T.fontStack, textAlign: 'left',
+        }}>
+        <Icon name={icon} size={19} color={danger ? T.danger : T.text700}/>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: danger ? T.danger : T.text900 }}>{label}</div>
+          {sub && <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>{sub}</div>}
+        </div>
+        {rightAction ? <span aria-hidden style={{ width: 40, height: 24, flexShrink: 0 }}/> : (right || <Icon name="arrow" size={15} color={T.text400}/>)}
+      </button>
+      {rightAction && <div style={{ position: 'absolute', right: 20, top: 14 }}>{rightAction}</div>}
+    </div>
   );
 
   if (serverMode) {
@@ -338,8 +417,11 @@ function ChatMenuBody() {
                   : <span style={{ width: 38, height: 38, borderRadius: 999, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={19} color={T.primary600}/></span>}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{member.nickname}</div>
-                  {/* 서버가 주는 값은 완료 여행 횟수뿐이다 — 매너 점수는 없으므로 표시하지 않는다 */}
-                  <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>여행 {member.completedTripCount}회</div>
+                  {/* 멤버 목록에는 매너 점수가 없다 — 완료 여행이면 companions 의 mannerRating 으로 채우고,
+                      값이 null 이면(현재 서버 상태) 여행 횟수만 적는다 */}
+                  <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>
+                    {mannerByUserId.has(member.userId) ? `매너 ${mannerByUserId.get(member.userId)} · ` : ''}여행 {member.completedTripCount}회
+                  </div>
                 </div>
                 {member.host
                   ? <Chip variant="soft">호스트</Chip>
@@ -353,7 +435,9 @@ function ChatMenuBody() {
           <div style={{ height: 8, background: T.bgSubtle, margin: '16px 0 8px' }}/>
 
           <Row icon="note" label="공지" sub={notices ? `고정 ${pinnedCount}개 · 전체 ${noticeCount}개` : null} onClick={() => nav.go('notice-history')}/>
-          <Row icon="bell" label="알림 설정" sub="이 모임의 알림만 끄기" onClick={() => nav.go('notif-detail')}/>
+          {/* 토글은 이 방의 알림만 끈다 (PUT notifications/settings/chat-rooms/{roomId}).
+              행 자체는 전역 채팅 알림(20-1 → 29-3)으로 이어진다. 서버 값을 못 읽으면 토글을 숨긴다. */}
+          <Row icon="bell" label="알림 설정" sub="이 모임의 알림만 끄기" onClick={() => nav.go('notif-detail')} rightAction={roomAlarm === null ? null : <RoomAlarmToggle/>}/>
           {/* 대상이 정해지지 않은 신고 진입이라 이전에 고른 멤버를 지운다 — 엉뚱한 사람이 차단되면 안 된다 */}
           <Row icon="flag" label="신고 · 차단" sub="부적절한 대화나 멤버를 신고해요" onClick={() => { window.MoyeoApi.selectMember(null); nav.go('report'); }}/>
 
@@ -423,6 +507,26 @@ function ChatMenuBody() {
   );
 }
 
+// 20-1a·20-1b 가 대상 멤버를 정하는 방법.
+// 기본은 20-1 사이드 메뉴에서 고른 멤버(sessionStorage)이고, 그 컨텍스트 없이 바로 들어온
+// 딥링크·라이브 캡처에서는 ?roomId=&memberId= 로 지정한 멤버를 방 멤버 목록에서 찾는다.
+// 둘 다 없으면 null 이라 화면기획 목데이터가 그대로 남는다 — 임의의 멤버를 골라주지 않는다.
+function useTargetRoomMember(liveMode) {
+  const selected = liveMode ? window.MoyeoApi.selectedMember() : null;
+  const [resolved, setResolved] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode || selected?.userId) return undefined;
+    const roomId = window.MoyeoApi.selectedRoomId();
+    const memberId = window.MoyeoApi.selectedMemberId();
+    if (!roomId || !memberId) return undefined;
+    let active = true;
+    window.MoyeoApi.findRoomMember(roomId, memberId)
+      .then((member) => { if (active && member) setResolved(member); });
+    return () => { active = false; };
+  }, [liveMode, selected?.userId]);
+  return selected?.userId ? selected : resolved;
+}
+
 // ───────── 20-1a · 멤버 액션 (친구 요청 · 내보내기) ─────────
 // 20-1 사이드 메뉴의 멤버 ⋯ 를 탭하면 열린다. 누구나 친구 요청을 보낼 수 있고,
 // 내보내기는 호스트에게만 보인다. 내보내기를 고르면 20-1b 사유 입력 시트로 이어진다. (changeLog14)
@@ -430,7 +534,7 @@ function ScreenMemberActions() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   // 20-1에서 고른 멤버가 있으면 그 멤버에게 POST users/me/friend-requests/{userId} 를 보낸다.
   const liveMode = window.MoyeoApi?.live();
-  const member = liveMode ? window.MoyeoApi.selectedMember() : null;
+  const member = useTargetRoomMember(liveMode);
   const [requestState, setRequestState] = React.useState('idle');
   const [requestError, setRequestError] = React.useState('');
   const sendFriendRequest = async () => {
@@ -507,7 +611,24 @@ function ScreenMemberActions() {
 function ScreenMemberRemove() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const [reason, setReason] = React.useState('');
-  const canSubmit = reason.trim().length >= 10;
+  // ⚠️ 파괴적 호출이라 QA 방에서 실행해 검증하지 않았다 — 배선만 해 둔다.
+  // DELETE chat-rooms/{roomId}/members/{memberId} 는 본문에 사유(1~500자)가 필수다.
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  const member = useTargetRoomMember(liveMode);
+  const [busy, setBusy] = React.useState(false);
+  const canSubmit = reason.trim().length >= 10 && !busy;
+  const submit = async () => {
+    if (!roomId || !member?.userId) { nav.back(); return; }
+    setBusy(true);
+    try {
+      await window.MoyeoApi.kickRoomMember(roomId, member.userId, reason);
+      window.MoyeoApi.selectMember(null);
+      nav.go('chat-menu');
+    } catch (_) {
+      setBusy(false); // 실패 시 시트를 닫지 않는다 (기획에 오류 문구 자리가 없다)
+    }
+  };
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
@@ -520,10 +641,13 @@ function ScreenMemberRemove() {
           <div style={{ fontSize: 12, color: T.text500, marginTop: 4 }}>내보낸 자리는 대기 큐에서 자동으로 채워져요.</div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginTop: 16, padding: 12, borderRadius: 12, background: T.bgSubtle }}>
-            <AnimalAvatar kind="raccoon" size={40} bg={T.primary50}/>
+            {member?.userId
+              ? <ProfileAvatar src={member.profileImageUrl} size={40}/>
+              : <AnimalAvatar kind="raccoon" size={40} bg={T.primary50}/>}
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700 }}>호기심 많은 너구리 9027</div>
-              <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>매너 4.8 · 여행 8회 · 어제 합류</div>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>{member?.nickname || '호기심 많은 너구리 9027'}</div>
+              {/* 매너 점수·합류 시각은 서버 멤버 목록에 없다 — 서버 모드에서는 표기하지 않는다 */}
+              {!member?.userId && <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>매너 4.8 · 여행 8회 · 어제 합류</div>}
             </div>
           </div>
 
@@ -554,7 +678,7 @@ function ScreenMemberRemove() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 18 }}>
             <button type="button" data-testid="member-remove-cancel" onClick={() => nav.back()} style={{ width: 72, height: 52, border: 0, background: 'transparent', fontSize: 14, fontWeight: 600, color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>취소</button>
             {/* 진입 상태는 사유가 비어 있으므로 비활성이다 (changeLog12 진입 상태 원칙) */}
-            <div style={{ flex: 1 }}><Btn variant="danger" full disabled={!canSubmit} testId="member-remove-submit" onClick={() => nav.back()}>내보내기</Btn></div>
+            <div style={{ flex: 1 }}><Btn variant="danger" full disabled={!canSubmit} testId="member-remove-submit" onClick={submit}>내보내기</Btn></div>
           </div>
         </div>
       </div>
@@ -565,6 +689,44 @@ function ScreenMemberRemove() {
 // ───────── 20-4 · 첨부 메뉴 (특수 메시지 진입) ─────────
 function ScreenChatAttach() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 로그인 상태에서는 시트의 각 항목이 실제 전송 엔드포인트로 이어진다 (엔드포인트가 5종으로 갈려 있다).
+  //  · 사진 → POST messages/images (multipart · OS 파일 선택기)
+  //  · 장소 → POST messages/tourism-contents (17-1a/17-1b 에서 고른 방문지 contentId)
+  //  · 지도 → POST messages/locations (본문 없음 — 방에 저장된 집합 좌표를 서버가 카드로 만든다)
+  //  · 투표·정산 → 질문·선택지·메모를 받을 입력 화면이 화면기획에 없어 카드 스펙 보드(24)로 남긴다.
+  //    (테마 선택 시트와 같은 판단 — 기획에 자리가 없으면 만들지 않는다. docs/alignment/클라이언트-전용-기능.md §2)
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  const canSend = Boolean(liveMode && roomId);
+  const fileInputRef = React.useRef(null);
+  const [busy, setBusy] = React.useState(false);
+  const send = async (task) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await task();
+      nav.go('chat');
+    } catch (_) {
+      // 전송 실패 시 시트를 닫지 않는다 — 기획에 오류 문구 자리가 없어 새 문구를 만들지 않는다.
+      setBusy(false);
+    }
+  };
+  const shareImage = (file) => {
+    if (!file) return;
+    send(() => window.MoyeoApi.shareRoomImage(roomId, file));
+  };
+  // 관광 장소는 17-1a·17-1b 가 세션에 남긴 contentId 를 쓴다. 고른 방문지가 없으면 방문지 검색으로 보낸다.
+  const shareTourismContent = () => {
+    const raw = window.sessionStorage?.getItem('moyeo.selectedTourismContentId');
+    const contentId = Number(raw);
+    if (!raw || !Number.isFinite(contentId)) { nav.go('place-search'); return; }
+    send(() => window.MoyeoApi.shareRoomTourismContent(roomId, contentId));
+  };
+  const liveActions = {
+    사진: () => fileInputRef.current?.click(),
+    장소: shareTourismContent,
+    지도: () => send(() => window.MoyeoApi.shareRoomLocation(roomId)),
+  };
   const items = [
     { icon: 'camera', label: '사진', desc: '최대 20MB · 1장씩 전송' },
     { icon: 'pin', label: '장소', desc: 'TourAPI 장소 카드' },
@@ -589,12 +751,23 @@ function ScreenChatAttach() {
           <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 4 }}>무엇을 공유할까요?</div>
           <div style={{ fontSize: 11.5, color: T.text500 }}>일반 메시지와 달리 카드로 크게 보여요.</div>
 
+          {/* OS 파일 선택기 — 화면에 새 UI 를 만들지 않고 사진 항목이 직접 연다 */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            data-testid="chat-attach-image-input"
+            onChange={(event) => { shareImage(event.target.files?.[0]); event.target.value = ''; }}
+            style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+          />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 16 }}>
             {items.map((it) => (
               <button
                 key={it.label}
                 type="button"
-                onClick={() => nav.go('msgs')}
+                disabled={busy}
+                data-testid={`chat-attach-${it.label}`}
+                onClick={() => ((canSend && liveActions[it.label]) ? liveActions[it.label]() : nav.go('msgs'))}
                 style={{
                   height: 104, borderRadius: 14, border: `1px solid ${RF.softLine}`, background: RF.bg,
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 7,
@@ -849,6 +1022,48 @@ function ScreenTripMessage() {
     { k: 'turtle', n: '잔잔한 거북이 9032', done: false, msg: '' },
   ];
   const presets = ['덕분에 즐거웠어요', '사진 고마워요!', '다음에도 잘 부탁드려요'];
+  // 완료한 여행이면 GET chat-rooms/{id}/companions 로 동행자·이미 남긴 한줄평을 대체한다.
+  // 여행 전 방은 "아직 여행 전"(40915/403)이라 기획 목데이터를 그대로 남긴다 — 권한 오류가 아니다.
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  const [companions, setCompanions] = React.useState(null);
+  const [drafts, setDrafts] = React.useState({});
+  const [saving, setSaving] = React.useState(false);
+  React.useEffect(() => {
+    if (!liveMode || !roomId) return undefined;
+    let active = true;
+    window.MoyeoApi.roomCompanions(roomId)
+      .then((result) => {
+        if (!active || !Array.isArray(result)) return;
+        setCompanions(result);
+        setDrafts(Object.fromEntries(result.map((item) => [item.userId, item.oneLineReview || ''])));
+      })
+      .catch((error) => {
+        if (!window.MoyeoApi.isBeforeTripError(error)) window.MoyeoObservability?.captureException?.(error);
+      });
+    return () => { active = false; };
+  }, [liveMode, roomId]);
+  const serverMode = Array.isArray(companions) && companions.length > 0;
+  // ⚠️ PUT companions/{userId}/review 는 mannerScore(1~5)를 **필수**로 받는데
+  // 기획 27-1 에는 점수 입력 자리가 없다. 그래서 이미 점수가 있는 동행자(재편집)만 저장하고,
+  // 첫 평가는 화면에만 남긴다. 점수 입력 UI 는 기획 추가가 먼저다
+  // (docs/alignment/클라이언트-전용-기능.md §2 테마 시트와 같은 판단).
+  const saveReviews = async () => {
+    if (!serverMode || saving) { nav.go('dex'); return; }
+    setSaving(true);
+    const savable = companions.filter((item) => item.mannerScore != null
+      && (drafts[item.userId] || '') !== (item.oneLineReview || ''));
+    for (const item of savable) {
+      try {
+        await window.MoyeoApi.reviewCompanion(roomId, item.userId, {
+          mannerScore: item.mannerScore,
+          oneLineReview: drafts[item.userId] || null,
+        });
+      } catch (_) { /* 실패한 동행자는 건너뛴다 */ }
+    }
+    setSaving(false);
+    nav.go('dex');
+  };
 
   return (
     <Phone>
@@ -861,6 +1076,60 @@ function ScreenTripMessage() {
             남긴 메시지는 상대방의 <b>도감 카드 뒷면</b>에 적혀요. 안 남겨도 카드는 그대로 모여요.
           </div>
 
+          {serverMode && (
+          <div data-testid="trip-message-live" style={{ marginTop: 16, display: 'grid', gap: 10 }}>
+            {companions.map((mate) => {
+              const draft = drafts[mate.userId] || '';
+              const done = mate.reviewed && draft === (mate.oneLineReview || '');
+              return (
+                <div key={mate.userId} style={{
+                  borderRadius: 14, border: `1px solid ${done ? T.primary100 : RF.softLine}`,
+                  background: done ? T.primary50 : RF.card, padding: 13,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <ProfileAvatar src={mate.profileImageUrl} size={40}/>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{mate.nickname}</div>
+                      <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>{mate.reviewed ? '메시지를 남겼어요' : '아직 안 남겼어요'}</div>
+                    </div>
+                    {done && <Icon name="check" size={17} color={T.primary600} strokeWidth={3}/>}
+                  </div>
+                  <textarea
+                    value={draft}
+                    maxLength={40}
+                    data-testid={`companion-review-${mate.userId}`}
+                    onChange={(event) => setDrafts((current) => ({ ...current, [mate.userId]: event.target.value }))}
+                    placeholder="한 줄 메시지를 남겨주세요 (최대 40자)"
+                    aria-label={`${mate.nickname} 한 줄 메시지`}
+                    style={{
+                      width: '100%', marginTop: 10, minHeight: 44, resize: 'none', boxSizing: 'border-box',
+                      borderRadius: 10, padding: '11px 12px',
+                      border: `1px solid ${done ? T.primary100 : T.line200}`,
+                      background: done ? RF.card : T.bgSubtle,
+                      fontSize: 12.5, lineHeight: '18px', color: T.text900, fontFamily: T.fontStack,
+                    }}
+                  />
+                  {!draft && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                      {presets.map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setDrafts((current) => ({ ...current, [mate.userId]: preset }))}
+                          style={{
+                            height: 28, padding: '0 10px', borderRadius: 999, display: 'inline-flex', alignItems: 'center',
+                            border: `1px solid ${T.line200}`, background: RF.card, color: T.text700, fontSize: 11.5, fontWeight: 700,
+                            fontFamily: T.fontStack, cursor: 'pointer',
+                          }}>{preset}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          )}
+          {!serverMode && (
           <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
             {mates.map((m) => (
               <div key={m.n} style={{
@@ -895,6 +1164,7 @@ function ScreenTripMessage() {
               </div>
             ))}
           </div>
+          )}
 
           <div style={{ marginTop: 16 }}>
             <AddInfoBanner>
@@ -926,7 +1196,7 @@ function ScreenTripMessage() {
 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}>
           <Btn variant="ghost" onClick={() => nav.go('dex')}>나중에</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={() => nav.go('dex')}>메시지 남기고 도감 보기</Btn></div>
+          <div style={{ flex: 1 }}><Btn variant="primary" full disabled={saving} testId="trip-message-save" onClick={saveReviews}>메시지 남기고 도감 보기</Btn></div>
         </div>
       </div>
     </Phone>

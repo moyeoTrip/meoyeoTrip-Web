@@ -66,6 +66,28 @@ http://127.0.0.1:5174/?screen=create-meet&theme=light&mockAuth=1&liveMap=1
 http://127.0.0.1:5174/?screen=search&liveData=1
 ```
 
+### 라이브 캡처 (`?liveData=1` + 주입 세션)
+
+번호별 캡처를 **실제 API 데이터로도** 찍을 때 쓰는 경로입니다. 라우팅은 캡처와 똑같이 두고(화면 직접 진입 ·
+강제 테마 · 스플래시 스킵 · 지도는 목업) 데이터 차단만 풉니다.
+
+```txt
+http://127.0.0.1:5174/?screen=chat&theme=light&capture=1&liveData=1&roomId=22
+```
+
+- `mockAuth=1`은 **붙이지 않습니다**. 붙이면 `MoyeoAuth`가 목 백엔드가 되어 `MoyeoApi.live()`가 false입니다.
+- 세션은 URL이 아니라 파일로 넘깁니다. 캡처 도구가 `src/capture-session.local.js`(gitignore, 0600)에
+  `window.MOYEO_CAPTURE_SESSION = { accessToken: "…" }`를 써 두면 `?liveData=1`일 때만 `src/auth-api.jsx`가
+  그 토큰으로 세션을 세웁니다. 형식은 `src/capture-session.example.js`를 참고하세요.
+  **파일이 없거나 토큰이 비면 라이브 모드로 들어가지 않고 기존 목데이터 화면이 그대로 나옵니다.**
+- 토큰은 메모리에만 둡니다 — `localStorage`에 쓰지 않고 `refreshToken`도 받지 않습니다(401이면 조용히 실패).
+- 화면 직접 진입은 앞 화면의 선택 컨텍스트가 없으므로 대상을 쿼리로 지정합니다:
+  `roomId` · `courseId` · `feedId` · `contentId` · `memberId`(20-1a·20-1b). 지정하지 않으면 그 화면은
+  목데이터를 유지합니다(임의의 대상을 골라주지 않습니다).
+- 서버 왕복이 있으므로 캡처 도구의 대기 시간(헤드리스 `--virtual-time-budget`)을 목 캡처보다 넉넉히 줘야
+  합니다. 3초대에서는 늦게 도착한 응답(예: 09 홈의 코스 태그, 08-C 약관 원문)이 화면에 못 올라옵니다.
+
+
 ## 오픈소스 라이선스 화면 (29-4 · 29-4a)
 
 `설정 › 정보 › 오픈소스 라이선스`에서 들어갑니다. 데이터는 서버 호출 없이 `src/oss-licenses.js`에 내장돼 오프라인에서도
