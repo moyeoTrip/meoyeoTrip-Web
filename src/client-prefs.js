@@ -42,9 +42,7 @@
 
   function writeRecentSearches(list) {
     const next = normalizeRecentSearches(list);
-    // 캡처 모드에서는 절대 저장하지 않는다 — 화면(ScreenSearch)이 이미 저장소를 우회하지만,
-    // 나중에 다른 화면이 이 API를 그냥 호출해도 번호별 캡처가 오염되지 않게 여기서도 막는다.
-    const store = captureMode() ? null : storage();
+    const store = storage();
     if (store) {
       try { store.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next)); } catch (_) { /* storage unavailable */ }
     }
@@ -66,7 +64,7 @@
   }
 
   function clearRecentSearches() {
-    const store = captureMode() ? null : storage();
+    const store = storage();
     if (store) {
       try { store.removeItem(RECENT_SEARCHES_KEY); } catch (_) { /* storage unavailable */ }
     }
@@ -166,24 +164,25 @@
   }
 
   // ───────── 앱 버전 ─────────
-  // package.json 의 version 과 같아야 한다 (tests/run-tests.mjs 가 두 값을 비교한다).
-  // 배포 워크플로가 다시 만드는 파일은 runtime-config.js 뿐이라 이 값은 여기에 둔다.
-  const APP_VERSION = '0.1.0';
-  // 화면기획 29 의 목데이터. 캡처 모드에서는 이 값을 그대로 보여준다.
-  const CAPTURE_VERSION_LABEL = '1.0.4 (최신)';
-  const CAPTURE_VERSION_DIALOG = '현재 설치된 버전은 1.0.4이며 최신 상태예요.';
-
-  function captureMode() {
-    return Boolean(global.MoyeoApi?.deterministicParams?.());
-  }
-
-  // 최신 버전을 알려주는 서버 API가 없어 실행 중에는 '(최신)' 을 붙이지 않는다.
+  // **단일 출처는 `package.json` 의 `version`** 이다 (tests/run-tests.mjs 가 두 값을 비교한다).
+  //
+  // 예전에는 여기에 `'0.1.0'` 을 손으로 적어 뒀다. 그래서 package.json 을 올려도 화면은 안 바뀌고,
+  // 앱(1.0)과도 어긋난 값이 설정 화면에 찍혔다(2026-08-31 사용자 지적).
+  //
+  // 이제 배포가 `runtime-config.js` 에 `appVersion` 을 넣어 주면 그 값을 쓴다.
+  // 없으면 `scripts/sync-app-version.mjs` 가 package.json 에서 박아 둔 기본값을 쓴다 —
+  // 어느 쪽이든 사람이 두 곳을 맞출 필요가 없다.
+  const APP_VERSION =
+    (global.MOYEO_RUNTIME_CONFIG && global.MOYEO_RUNTIME_CONFIG.appVersion) || '1.0.0';
+  // 캡처에서도 실제 배포 버전을 그대로 보여준다 — 화면기획 값(1.0.4)을 덮어씌우면
+  // 스크린샷이 있지도 않은 버전을 말하게 된다.
+  // 최신 버전을 알려주는 서버 API가 없어 '(최신)' 은 붙이지 않는다.
   function versionLabel() {
-    return captureMode() ? CAPTURE_VERSION_LABEL : APP_VERSION;
+    return APP_VERSION;
   }
 
   function versionDialogBody() {
-    return captureMode() ? CAPTURE_VERSION_DIALOG : `현재 설치된 버전은 ${APP_VERSION}이에요.`;
+    return `현재 설치된 버전은 ${APP_VERSION}이에요.`;
   }
 
   Object.assign(global, {

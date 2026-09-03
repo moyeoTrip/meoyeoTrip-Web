@@ -1,5 +1,15 @@
 // Feed Write (5 steps), Dex (도감), Profile Edit, Settings, Public Profile
 
+// ───────── 문의 창구 ─────────
+// 네 표면이 **같은 값**을 쓴다. 여기만 고치면 되도록 한 곳에 모은다.
+//   iOS      MoyeoContact.swift
+//   안드로이드 MoyeoContact.kt
+//   기획      모여트립 in 경북/shared.jsx
+const MOYEO_CONTACT = {
+  issuesUrl: 'https://github.com/moyeoTrip/moyeoTrip-BACKEND/issues',
+  email: 'konempty.dev@gmail.com',
+};
+
 // ───────── 24-1~24-5 · 피드 글쓰기 (단계별 화면) ─────────
 // 5단계를 한 화면에 겹쳐 보여주면 각 단계에서 실제로 무엇을 하는지 검수할 수 없어서
 // 단계마다 독립 화면으로 분리했다. 단계 정의는 iOS/Android 구현과 같은 5단계다.
@@ -11,12 +21,95 @@ const FEED_WRITE_STEPS = [
   { step: 5, label: 'STEP 5 · 최종 확인', title: '게시 전 마지막 확인이에요', helper: '사진, 경로, 멤버가 한 장의 피드처럼 구성됐어요.' },
 ];
 
-const FEED_WRITE_MEMBERS = [
-  { k: 'deer', n: '따스한 사슴 3492', me: true },
-  { k: 'bear', n: '우직한 곰 7821' },
-  { k: 'turtle', n: '잔잔한 거북이 9032' },
-  { k: 'crane', n: '고요한 두루미 1130' },
-];
+// 24-1~24-5 가 쓰는 서버 데이터 한 벌.
+//
+// 예전 주석은 "다녀온 여행 조회 API 가 있어야 채울 수 있다 — 없으면 비운다"였는데
+// **틀린 말이었다**. 2026-09-02 실서버로 세 개를 다 호출해 확인했다:
+//   GET /chat-rooms/my                      → 내 모임 전부(ended·status 포함)
+//   GET /travel-courses/chat-rooms/{roomId} → 그 방의 코스(제목·소요시간·거리·방문지 좌표)
+//   GET /chat-rooms/{roomId}/companions     → 함께 간 멤버(완료한 여행만 200)
+//
+// ⚠️ "다녀온 여행"은 `ended && status === 'CONFIRMED'` 다 (MoyeoApi.isCompletedTrip 과 같은 규칙).
+//    `ended` 만 보면 **불발(CANCELLED) 방**이 후보로 들어온다 — 안드로이드가 지금 그 상태라
+//    24-1 첫 카드가 "검증용 방 0825"(CANCELLED)로 찍힌다. 따라하지 않는다.
+function useFeedWriteTrip() {
+  const liveMode = window.MoyeoApi?.live();
+  // trips: [{ room, course, tripRoom }] — tripRoom 은 roomCourse 가 주는 일정 정보(tripType·startDate).
+  const [state, setState] = React.useState({ status: liveMode ? 'loading' : 'signed-out', trips: [] });
+  const [roomId, setRoomId] = React.useState(null);
+  const [companions, setCompanions] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    setState({ status: 'loading', trips: [] });
+    window.MoyeoApi.myRooms()
+      .then(async (rooms) => {
+        const completed = (Array.isArray(rooms) ? rooms : [])
+          .filter((room) => window.MoyeoApi.isCompletedTrip(room))
+          // 가장 최근에 다녀온 여행이 먼저다 (종료일이 없으면 시작일).
+          .sort((a, b) => String(b.endDate || b.startDate || '').localeCompare(String(a.endDate || a.startDate || '')));
+        const details = await Promise.all(completed.map((room) => window.MoyeoApi.roomCourse(room.roomId)
+          .then((result) => result || null)
+          .catch(() => null)));
+        if (!active) return;
+        const trips = completed.map((room, index) => ({
+          room,
+          course: details[index]?.course || null,
+          tripRoom: details[index]?.room || null,
+        }));
+        // 앞 화면에서 고른 방이 다녀온 여행이면 그것을, 아니면 가장 최근 것을 연다.
+        // 고른 방을 맨 앞에 둔다 — 뒤에 묻히면 가로 목록 밖으로 밀려 "아무것도 안 골랐다"로 보인다.
+        const preferred = window.MoyeoApi.selectedRoomId();
+        const picked = trips.find((trip) => String(trip.room.roomId) === String(preferred)) || trips[0] || null;
+        const ordered = picked ? [picked, ...trips.filter((trip) => trip !== picked)] : trips;
+        setState({ status: 'done', trips: ordered });
+        setRoomId(picked ? String(picked.room.roomId) : null);
+      })
+      .catch(() => { if (active) setState({ status: 'error', trips: [] }); });
+    return () => { active = false; };
+  }, [liveMode]);
+
+  React.useEffect(() => {
+    if (!liveMode || !roomId) { setCompanions(null); return undefined; }
+    let active = true;
+    setCompanions(null);
+    window.MoyeoApi.roomCompanions(roomId)
+      .then((list) => { if (active && Array.isArray(list)) setCompanions(list); })
+      // 아직 여행 전이면 409 다 — 없는 동행자를 지어내지 않고 섹션을 0명으로 둔다.
+      .catch(() => {});
+    return () => { active = false; };
+  }, [liveMode, roomId]);
+
+  const selected = state.trips.find((trip) => String(trip.room.roomId) === String(roomId)) || null;
+  const places = selected?.course?.places || null;
+  // 좌표는 서버 코스가 준 것만 쓴다. 2곳 미만이면 null 이고 호출부는 지도를 그리지 않는다(R4).
+  const route = React.useMemo(
+    () => (places ? window.MoyeoKakaoMap?.routeFromPlaces?.(places) : null) || null,
+    [places],
+  );
+  return {
+    status: state.status,
+    trips: state.trips,
+    roomId,
+    select: setRoomId,
+    trip: selected,
+    course: selected?.course || null,
+    tripRoom: selected?.tripRoom || null,
+    route,
+    companions,
+  };
+}
+
+// "2026.08.28 · 당일치기" — 후보 카드에서 같은 코스로 떠난 여행 둘을 구분하는 줄이다.
+// 서버가 안 준 값은 자리를 비운다.
+function feedWriteTripMeta(trip) {
+  const startDate = trip?.tripRoom?.startDate || trip?.room?.startDate || '';
+  return [
+    startDate ? String(startDate).replace(/-/g, '.') : null,
+    trip?.tripRoom ? window.MoyeoApi.tripTypeLabel(trip.tripRoom) : null,
+  ].filter(Boolean).join(' · ');
+}
 
 function FeedWriteCard({ title, children, tone = 'base' }) {
   return (
@@ -27,55 +120,110 @@ function FeedWriteCard({ title, children, tone = 'base' }) {
   );
 }
 
-function FeedWriteMemoCard() {
+// 제목·메모는 사용자가 쓰는 값이다 — 예시 후기를 미리 채우면 그대로 게시된다.
+// 본문은 POST /feeds 의 request.content 로 그대로 실린다 (최대 500자).
+function FeedWriteMemoCard({ value = '', onChange }) {
   return (
     <FeedWriteCard>
-      <div style={{ fontSize: 18, fontWeight: 800, color: T.text900 }}>첫 반패키지 단풍 여행</div>
-      <div style={{ fontSize: 14, lineHeight: '22px', color: T.text700, marginTop: 8 }}>
-        처음 반패키지 여행이었는데 동행분들이 너무 좋으셨어요. 첨성대 야경이 진짜 인생샷...
-      </div>
-      <div style={{ fontSize: 11, color: T.text400, textAlign: 'right', marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>54 / 500</div>
+      <textarea
+        data-testid="feed-write-memo"
+        value={value}
+        maxLength={500}
+        onChange={(event) => onChange?.(event.target.value)}
+        placeholder="여행 어땠는지 한 줄 남겨주세요."
+        style={{ width: '100%', minHeight: 66, resize: 'vertical', border: 0, outline: 'none', background: 'transparent', fontSize: 14, lineHeight: '22px', color: T.text900, fontFamily: T.fontStack, padding: 0 }}
+      />
+      <div style={{ fontSize: 11, color: T.text400, textAlign: 'right', marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{value.length} / 500</div>
     </FeedWriteCard>
   );
 }
 
-function FeedWritePhotoGrid() {
+// 사진은 사용자가 고른 것만 들어간다 — 자리표시자 3장을 "고른 사진"처럼 깔지 않는다.
+// POST /feeds 는 images 파트를 **필수**로 받는다(1~10장) — 여기서 고른 파일이 그대로 올라간다.
+function FeedWritePhotoGrid({ files = [], onAdd, onRemove }) {
+  const inputRef = React.useRef(null);
+  // 고른 파일의 미리보기 URL. 파일이 바뀔 때마다 만들고, 떠날 때 반드시 되돌려준다(누수 방지).
+  const previews = React.useMemo(() => files.map((file) => URL.createObjectURL(file)), [files]);
+  React.useEffect(() => () => previews.forEach((url) => URL.revokeObjectURL(url)), [previews]);
+  const full = files.length >= 10;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-      <div style={{ height: 110, borderRadius: 12, position: 'relative', overflow: 'hidden' }}>
-        <ImgPlaceholder height={110} hue="autumn" radius={12}/>
-        <div style={{ position: 'absolute', top: 6, left: 6, padding: '2px 7px', borderRadius: 6, background: T.primary500, color: '#fff', fontSize: 10, fontWeight: 800 }}>대표</div>
-      </div>
-      <div style={{ height: 110, borderRadius: 12, overflow: 'hidden' }}><ImgPlaceholder height={110} hue="night" radius={12}/></div>
-      <div style={{ height: 110, borderRadius: 12, overflow: 'hidden' }}><ImgPlaceholder height={110} hue="sunset" radius={12}/></div>
-      <div style={{ height: 110, borderRadius: 12, border: `1.5px dashed ${T.line200}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, color: T.text500 }}>
-        <Icon name="plus" size={18} color={T.text500}/>
-        <div style={{ fontSize: 11 }}>사진 추가</div>
-      </div>
+      {files.map((file, index) => (
+        <div key={`${file.name}-${file.lastModified}-${index}`} style={{ position: 'relative', height: 110, borderRadius: 12, overflow: 'hidden', background: T.bgSubtle }}>
+          <img src={previews[index]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
+          <button
+            type="button"
+            aria-label={`사진 ${index + 1} 삭제`}
+            data-testid={`feed-write-photo-remove-${index}`}
+            onClick={() => onRemove?.(index)}
+            style={{ position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 999, border: 0, background: 'rgba(0,0,0,0.55)', display: 'grid', placeItems: 'center', cursor: 'pointer' }}
+          >
+            <Icon name="close" size={13} color="#fff"/>
+          </button>
+        </div>
+      ))}
+      {!full && (
+        <button
+          type="button"
+          data-testid="feed-write-photo-add"
+          onClick={() => inputRef.current?.click()}
+          style={{ height: 110, borderRadius: 12, border: `1.5px dashed ${T.line200}`, background: 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, color: T.text500, fontFamily: T.fontStack, cursor: 'pointer' }}
+        >
+          <Icon name="plus" size={18} color={T.text500}/>
+          <div style={{ fontSize: 11 }}>사진 추가</div>
+        </button>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        data-testid="feed-write-photo-input"
+        onChange={(event) => {
+          onAdd?.(Array.from(event.target.files || []));
+          // 같은 파일을 다시 고를 수 있게 비운다.
+          event.target.value = '';
+        }}
+        style={{ display: 'none' }}
+      />
     </div>
   );
 }
 
-function FeedWriteRouteCard() {
+// 경로 지도는 코스 좌표가 있어야 그린다 — 좌표가 2곳 미만이면 카드를 아예 두지 않는다(R4).
+// 좌표 문자열을 화면에 적지 않는다: 기획에 없고, 사용자에게 아무 의미가 없다.
+function FeedWriteRouteCard({ course, route }) {
+  if (!route) return null;
+  const caption = [
+    `방문지 ${(course?.places || []).length}곳`,
+    course?.distanceKm != null ? `${course.distanceKm}km` : null,
+  ].filter(Boolean).join(' · ');
   return (
     <FeedWriteCard title="경로 (자동)" tone="subtle">
-      <MiniMap height={140} pins={[1, 2, 3, 4]}/>
-      <div style={{ fontSize: 11, color: T.text500, marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-        <Icon name="pin" size={11} color={T.primary600}/>
-        경주 · 4 stops · 11/8 ~ 11/9
+      <div style={{ borderRadius: 12, overflow: 'hidden' }}>
+        <MiniMap height={140} markers={route.markers} polyline={route.polyline}/>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8, fontSize: 11, color: T.text500 }}>
+        <Icon name="pin" size={12} color={T.primary600}/>
+        <span>{caption}</span>
       </div>
     </FeedWriteCard>
   );
 }
 
-function FeedWriteMembersCard() {
+// 함께 간 멤버는 GET /chat-rooms/{roomId}/companions 가 근거다.
+// 0명이면 (0) 으로 둔다 — 혼자 다녀온 여행이 실제로 있다(방 101). 예시 멤버를 지어내지 않는다.
+function FeedWriteMembersCard({ companions }) {
+  if (!Array.isArray(companions)) return null;
   return (
-    <FeedWriteCard title={`함께 간 멤버 (${FEED_WRITE_MEMBERS.length})`}>
+    <FeedWriteCard title={`함께 간 멤버 (${companions.length})`}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {FEED_WRITE_MEMBERS.map((m) => (
-          <div key={m.n} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px 6px 6px', borderRadius: 999, background: m.me ? T.primary100 : T.bgSubtle }}>
-            <AnimalAvatar kind={m.k} size={24} bg={T.bgBase}/>
-            <div style={{ fontSize: 12, fontWeight: 600, color: m.me ? T.primary700 : T.text700 }}>{m.n}{m.me && ' (나)'}</div>
+        {companions.map((mate) => (
+          <div key={mate.userId} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px 6px 6px', borderRadius: 999, background: T.bgSubtle }}>
+            {mate.profileImageUrl
+              ? <img src={mate.profileImageUrl} alt="" style={{ width: 24, height: 24, borderRadius: 999, objectFit: 'cover', background: T.primary50 }}/>
+              : <span style={{ width: 24, height: 24, borderRadius: 999, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={13} color={T.primary600}/></span>}
+            <div style={{ fontSize: 12, fontWeight: 600, color: T.text700 }}>{mate.nickname}</div>
           </div>
         ))}
       </div>
@@ -83,43 +231,62 @@ function FeedWriteMembersCard() {
   );
 }
 
-function FeedWriteCourseCards() {
-  const courses = [
-    { t: '경주 감성 힐링 코스', s: '경주 · 1박 2일', on: true, hue: 'autumn' },
-    { t: '주왕산 & 주산지 힐링 트레킹', s: '청송 · 당일치기', on: false, hue: 'forest' },
-    { t: '안동 하회마을 하루 코스', s: '안동 · 당일치기', on: false, hue: 'hanok' },
-  ];
+// 기록할 코스 후보 = 내가 **다녀온 여행**(ended · CONFIRMED)과 그 방에 붙은 코스다.
+function FeedWriteCourseCards({ status, trips, roomId, onSelect }) {
+  const notice = {
+    'signed-out': '로그인하면 모집 중인 모임을 볼 수 있어요.',
+    loading: '불러오는 중이에요…',
+    error: '불러오지 못했어요.',
+    done: trips.length ? null : '아직 다녀온 여행 기록이 없어요.',
+  }[status];
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ fontSize: 12, fontWeight: 800, color: T.text900, marginBottom: 10 }}>기록할 코스</div>
-      <div style={{ display: 'flex', gap: 10, overflow: 'hidden' }}>
-        {courses.map((c) => (
-          <div key={c.t} style={{
-            width: 168, flexShrink: 0, padding: 10, borderRadius: 16,
-            background: c.on ? T.primary50 : T.bgBase,
-            border: `1px solid ${c.on ? T.primary500 : T.line100}`,
-          }}>
-            <div style={{ borderRadius: 10, overflow: 'hidden' }}><ImgPlaceholder height={66} hue={c.hue} radius={10}/></div>
-            <div style={{ fontSize: 12, fontWeight: 800, marginTop: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.t}</div>
-            <div style={{ fontSize: 11, color: T.text500, marginTop: 3 }}>{c.s}</div>
-            <div style={{
-              marginTop: 8, height: 24, borderRadius: 999, display: 'inline-flex', alignItems: 'center', padding: '0 10px',
-              background: c.on ? T.primary500 : T.primary50, color: c.on ? '#fff' : T.primary700,
-              fontSize: 11, fontWeight: 800,
-            }}>{c.on ? '선택됨' : '이 코스로 기록'}</div>
-          </div>
-        ))}
+      {notice && <div role="status" data-testid="feed-write-course-empty" style={{ fontSize: 12, color: T.text500 }}>{notice}</div>}
+      <div style={{ display: 'flex', gap: 10, overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none' }}>
+        {trips.map((trip) => {
+          const on = String(trip.room.roomId) === String(roomId);
+          return (
+            <div
+              key={trip.room.roomId}
+              data-testid={`feed-write-trip-${trip.room.roomId}`}
+              onClick={() => onSelect(String(trip.room.roomId))}
+              style={{
+                width: 168, flexShrink: 0, padding: 10, borderRadius: 16, cursor: 'pointer',
+                background: on ? T.primary50 : T.bgBase,
+                border: `1px solid ${on ? T.primary500 : T.line100}`,
+              }}>
+              <div style={{ borderRadius: 10, overflow: 'hidden' }}>
+                <RoomThumb src={trip.course?.thumbnail || trip.room.thumbnail} height={66}/>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 800, marginTop: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{trip.course?.title || trip.room.title}</div>
+              <div style={{ fontSize: 11, color: T.text500, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{feedWriteTripMeta(trip)}</div>
+              <div style={{
+                marginTop: 8, height: 24, borderRadius: 999, display: 'inline-flex', alignItems: 'center', padding: '0 10px',
+                background: on ? T.primary500 : T.primary50, color: on ? '#fff' : T.primary700,
+                fontSize: 11, fontWeight: 800,
+              }}>{on ? '선택됨' : '이 코스로 기록'}</div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function FeedWriteMetaCard() {
+// 24-4 · 24-5 요약 카드. 코스·일정은 고른 여행의 서버 코스에서 온다 — 예시 값을 적지 않는다(§4).
+function FeedWriteMetaCard({ course, route, companions }) {
+  const schedule = [
+    course?.travelTime || null,
+    course?.distanceKm != null ? `${course.distanceKm}km` : null,
+  ].filter(Boolean).join(' · ');
   const rows = [
-    ['map', '코스', '경주 감성 힐링 코스'],
-    ['pin', '지역', '경주 · 1박 2일 · 42.6km'],
-    ['eye', '공개', '친구만 · 경로지도 포함'],
-  ];
+    course?.title ? ['map', '코스', course.title] : null,
+    schedule ? ['pin', '일정', schedule] : null,
+    ['eye', '공개', route ? '친구만 · 경로지도 포함' : '친구만'],
+  ].filter(Boolean);
+  // 태그는 공개 설정(실제 화면 상태)과 고른 코스의 서버 태그만 쓴다.
+  const tags = ['친구만', route ? '경로지도' : null, ...(course?.tags || []).map((tag) => tag.name)].filter(Boolean);
   return (
     <FeedWriteCard>
       <div style={{ display: 'grid', gap: 12 }}>
@@ -130,12 +297,16 @@ function FeedWriteMetaCard() {
             <span style={{ flex: 1, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r[2]}</span>
           </div>
         ))}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <MemberStack size={26} members={['deer', 'bear', 'turtle']}/>
-          <span style={{ fontSize: 12.5, fontWeight: 800 }}>함께한 멤버 3명</span>
-        </div>
+        {/* 함께한 멤버 수는 companions 응답이 근거다 — 못 받았으면 줄을 두지 않는다. */}
+        {Array.isArray(companions) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
+            <Icon name="users" size={15} color={T.text500}/>
+            <span style={{ width: 40, color: T.text500, flexShrink: 0 }}>멤버</span>
+            <span style={{ flex: 1, fontWeight: 800 }}>함께한 멤버 {companions.length}명</span>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {['친구만', '경로지도', '경주', '힐링', '야경'].map((tag) => (
+          {tags.map((tag) => (
             <span key={tag} style={{ height: 26, padding: '0 10px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', background: T.primary50, color: T.primary700, fontSize: 11, fontWeight: 800 }}>{tag}</span>
           ))}
         </div>
@@ -144,32 +315,111 @@ function FeedWriteMetaCard() {
   );
 }
 
-function FeedWriteVisibilityCard() {
-  const options = ['전체공개', '친구만', '나만 보기'];
-  const selected = '친구만';
+// 공개 범위는 POST /feeds 의 request.visibility 로 실린다 (PUBLIC · FRIENDS · PRIVATE).
+const FEED_VISIBILITY_OPTIONS = [
+  { id: 'PUBLIC', label: '전체공개', hint: '모여트립을 쓰는 누구나 볼 수 있어요.' },
+  { id: 'FRIENDS', label: '친구만', hint: '서로 친구인 사람에게만 보여요. 기본값이에요.' },
+  { id: 'PRIVATE', label: '나만 보기', hint: '나만 볼 수 있어요. 나중에 공개로 바꿀 수 있어요.' },
+];
+
+function FeedWriteVisibilityCard({ value = 'FRIENDS', onChange }) {
+  const selected = FEED_VISIBILITY_OPTIONS.find((o) => o.id === value) || FEED_VISIBILITY_OPTIONS[1];
   return (
     <FeedWriteCard title="공개 범위">
       <div style={{ display: 'flex', gap: 8 }}>
-        {options.map((o) => (
-          <span key={o} style={{
-            height: 34, padding: '0 12px', borderRadius: 999, display: 'inline-flex', alignItems: 'center',
-            background: o === selected ? T.primary500 : T.primary50,
-            color: o === selected ? '#fff' : T.primary700,
-            fontSize: 12, fontWeight: 800,
-          }}>{o}</span>
-        ))}
+        {FEED_VISIBILITY_OPTIONS.map((o) => {
+          const on = o.id === selected.id;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              data-testid={`feed-write-visibility-${o.id}`}
+              aria-pressed={on}
+              onClick={() => onChange?.(o.id)}
+              style={{
+                height: 34, padding: '0 12px', borderRadius: 999, border: 0, cursor: 'pointer',
+                background: on ? T.primary500 : T.primary50,
+                color: on ? '#fff' : T.primary700,
+                fontSize: 12, fontWeight: 800, fontFamily: T.fontStack,
+              }}
+            >{o.label}</button>
+          );
+        })}
       </div>
-      <div style={{ fontSize: 11.5, color: T.text500, marginTop: 10, lineHeight: '17px' }}>
-        서로 친구인 사람에게만 보여요. 기본값이에요.
-      </div>
+      <div style={{ fontSize: 11.5, color: T.text500, marginTop: 10, lineHeight: '17px' }}>{selected.hint}</div>
     </FeedWriteCard>
   );
 }
+
+// 24-1 ~ 24-5 는 각각 라우트가 따로 있어서(feed-write-1 … feed-write-5) 단계마다 화면이 새로 뜬다.
+// 본문·사진·공개 범위는 그래서 컴포넌트 state 가 아니라 MoyeoApi 초안(메모리)에 쌓는다.
+const FEED_WRITE_ROUTES = ['feed-write-1', 'feed-write-2', 'feed-write-3', 'feed-write-4', 'feed-write-5'];
 
 function ScreenFeedWrite({ step = 3 }) {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
   const meta = FEED_WRITE_STEPS[Math.min(Math.max(step, 1), 5) - 1];
   const isLast = meta.step === 5;
+  const feed = useFeedWriteTrip();
+
+  // 초안을 화면 상태로 끌어와 입력이 바로 보이게 하고, 바뀔 때마다 초안에도 남긴다.
+  const liveMode = Boolean(window.MoyeoApi?.live());
+  const [draft, setDraft] = React.useState(() => (window.MoyeoApi?.feedDraft?.() || {}));
+  const patchDraft = (patch) => setDraft(window.MoyeoApi.updateFeedDraft(patch));
+  const content = draft.content || '';
+  const visibility = draft.visibility || 'FRIENDS';
+  const photos = draft.images || [];
+
+  const [submitting, setSubmitting] = React.useState(false);
+  const [error, setError] = React.useState('');
+
+  // 사진은 서버가 1~10장만 받는다. 10장을 넘겨 고르면 넘치는 만큼은 담지 않고 그 이유를 말해준다.
+  const addPhotos = (files) => {
+    const room = 10 - photos.length;
+    if (room <= 0) { setError('사진은 최대 10장까지 올릴 수 있어요.'); return; }
+    const images = files.filter((file) => file.type.startsWith('image/'));
+    setError(images.length > room ? '사진은 최대 10장까지 올릴 수 있어요.' : '');
+    patchDraft({ images: [...photos, ...images.slice(0, room)] });
+  };
+  const removePhoto = (index) => {
+    setError('');
+    patchDraft({ images: photos.filter((_, i) => i !== index) });
+  };
+
+  // 게시 조건: 기록할 완료 여행(chatRoomId)과 사진 1장 이상. 둘 다 서버가 요구하는 값이다.
+  const roomId = feed.roomId;
+  const canPublish = Boolean(liveMode && roomId && photos.length > 0);
+
+  const goStep = (next) => {
+    if (next < 1 || next > 5) return;
+    nav.go(FEED_WRITE_ROUTES[next - 1]);
+  };
+
+  const publish = async () => {
+    if (submitting) return;
+    if (!canPublish) {
+      // 왜 못 누르는지 말해준다 — 조용히 아무 일도 안 하면 고친 게 아니다.
+      setError(!roomId ? '기록할 여행을 먼저 골라주세요.' : '사진을 한 장 이상 골라주세요.');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      const created = await window.MoyeoApi.createFeed({
+        chatRoomId: Number(roomId),
+        content: content.trim(),
+        visibility,
+      }, photos);
+      // TAB-STATE-CANON R4: 피드 목록이 바뀌었다 — 다음 진입에서 한 번만 다시 받게 한다.
+      window.MoyeoTabCache?.invalidate?.(window.MoyeoTabCache.FEED_LIST_KEYS);
+      window.MoyeoApi.clearFeedDraft();
+      const feedId = created?.feedId;
+      if (feedId != null) window.MoyeoApi.selectFeed?.(feedId);
+      nav.go('feed');
+    } catch (failure) {
+      setError(failure?.message || '피드를 올리지 못했어요.');
+      setSubmitting(false);
+    }
+  };
 
   return (
     <Phone>
@@ -177,7 +427,10 @@ function ScreenFeedWrite({ step = 3 }) {
         <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: T.bgBase }}>
           <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="close" size={24}/></div>
           <div style={{ fontSize: 15, fontWeight: 700 }}>피드 글쓰기</div>
-          <div style={{ fontSize: 13, color: isLast ? T.primary600 : T.text400, fontWeight: 700 }}>게시</div>
+          {/* 마지막 단계에서만 누를 수 있는 헤더 `게시` — 하단 `게시하기` 와 같은 일을 한다. */}
+          {isLast
+            ? <button type="button" data-testid="feed-write-publish-header" disabled={submitting} onClick={publish} style={{ border: 0, background: 'transparent', padding: 0, fontSize: 13, color: T.primary600, fontWeight: 700, fontFamily: T.fontStack, cursor: submitting ? 'default' : 'pointer' }}>게시</button>
+            : <span style={{ fontSize: 13, color: T.text400, fontWeight: 700 }}>게시</span>}
         </div>
         <div style={{ padding: '8px 20px 16px', background: T.bgBase, display: 'flex', gap: 6, borderBottom: `1px solid ${T.line100}` }}>
           {[1, 2, 3, 4, 5].map((i) => <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= meta.step ? T.primary500 : T.line100 }}/>)}
@@ -187,15 +440,34 @@ function ScreenFeedWrite({ step = 3 }) {
           <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.3, marginBottom: 4, letterSpacing: '-0.5px' }}>{meta.title}</div>
           <div style={{ fontSize: 13, color: T.text500, marginBottom: 16 }}>{meta.helper}</div>
 
-          {meta.step === 1 && <><FeedWriteCourseCards/><FeedWriteRouteCard/><FeedWriteMembersCard/></>}
-          {meta.step === 2 && <><FeedWritePhotoGrid/><FeedWriteRouteCard/></>}
-          {meta.step === 3 && <><FeedWriteMemoCard/><FeedWritePhotoGrid/></>}
-          {meta.step === 4 && <><FeedWriteVisibilityCard/><FeedWriteMetaCard/></>}
-          {meta.step === 5 && <><FeedWriteMemoCard/><FeedWritePhotoGrid/><FeedWriteRouteCard/><FeedWriteMetaCard/></>}
+          {meta.step === 1 && (
+            <>
+              <FeedWriteCourseCards status={feed.status} trips={feed.trips} roomId={feed.roomId} onSelect={feed.select}/>
+              <FeedWriteRouteCard course={feed.course} route={feed.route}/>
+              <FeedWriteMembersCard companions={feed.companions}/>
+            </>
+          )}
+          {meta.step === 2 && <><FeedWritePhotoGrid files={photos} onAdd={addPhotos} onRemove={removePhoto}/><FeedWriteRouteCard course={feed.course} route={feed.route}/></>}
+          {meta.step === 3 && <><FeedWriteMemoCard value={content} onChange={(value) => patchDraft({ content: value })}/><FeedWritePhotoGrid files={photos} onAdd={addPhotos} onRemove={removePhoto}/></>}
+          {meta.step === 4 && <><FeedWriteVisibilityCard value={visibility} onChange={(value) => patchDraft({ visibility: value })}/><FeedWriteMetaCard course={feed.course} route={feed.route} companions={feed.companions}/></>}
+          {meta.step === 5 && (
+            <>
+              <FeedWriteMemoCard value={content} onChange={(value) => patchDraft({ content: value })}/>
+              <FeedWritePhotoGrid files={photos} onAdd={addPhotos} onRemove={removePhoto}/>
+              <FeedWriteRouteCard course={feed.course} route={feed.route}/>
+              <FeedWriteMetaCard course={feed.course} route={feed.route} companions={feed.companions}/>
+            </>
+          )}
+          {error && <div role="alert" style={{ fontSize: 12, color: T.danger, marginTop: 4 }}>{error}</div>}
         </div>
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '12px 20px 32px', background: T.bgBase, borderTop: `1px solid ${T.line100}`, display: 'flex', gap: 8 }}>
-          <Btn variant="ghost">이전</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full>{isLast ? '게시하기' : `다음 (${meta.step + 1}/5)`}</Btn></div>
+          {/* 1단계에서는 앞 단계가 없다 — 글쓰기를 닫는다(헤더 X 와 같은 일). */}
+          <Btn variant="ghost" disabled={submitting} onClick={() => (meta.step === 1 ? nav.back() : goStep(meta.step - 1))} testId="feed-write-prev">이전</Btn>
+          <div style={{ flex: 1 }}>
+            <Btn variant="primary" full disabled={submitting} onClick={() => (isLast ? publish() : goStep(meta.step + 1))} testId="feed-write-next">
+              {isLast ? (submitting ? '올리는 중...' : '게시하기') : `다음 (${meta.step + 1}/5)`}
+            </Btn>
+          </div>
         </div>
       </div>
     </Phone>
@@ -271,66 +543,18 @@ function ScreenDex() {
       </Phone>
     );
   }
-  const friends = [
-    { k: 'deer', n: '따스한 사슴 3492', trips: 3, me: true, last: '2일 전 · 경주' },
-    { k: 'bear', n: '우직한 곰 7821', trips: 2, last: '2일 전 · 경주' },
-    { k: 'turtle', n: '잔잔한 거북이 9032', trips: 2, last: '2일 전 · 경주' },
-    { k: 'crane', n: '고요한 두루미 1130', trips: 1, last: '3주 전 · 안동' },
-    { k: 'rabbit', n: '엉뚱한 토끼 1457', trips: 1, last: '3주 전 · 안동' },
-    { k: 'raccoon', n: '호기심 많은 너구리 9027', trips: 1, last: '6주 전 · 영주' },
-    { k: 'deer', n: '나른한 사슴 6614', trips: 1, last: '8주 전 · 포항' },
-    { k: 'bear', n: '느긋한 곰 4408', trips: 1, last: '8주 전 · 포항' },
-    { k: 'turtle', n: '평온한 거북이 1175', trips: 2, last: '12주 전 · 울진' },
-    { k: 'crane', n: '청아한 두루미 2024', trips: 1, last: '14주 전 · 영덕' },
-    { k: 'rabbit', n: '깡총 토끼 5523', trips: 1, last: '14주 전 · 영덕' },
-    { k: 'raccoon', n: '말많은 너구리 7791', trips: 1, last: '20주 전 · 문경' },
-  ];
+  // 도감은 서버 동행 기록에서만 온다 — 예시 친구 12마리를 그리지 않는다.
   return (
     <Phone>
-      <div style={{ position: 'absolute', inset: 0, paddingTop: 60, background: T.bgSubtle }}>
-        <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: T.bgBase }}>
-          <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>친구 도감</div>
-          <Icon name="search" size={22}/>
-        </div>
-        <div style={{ padding: '20px 20px 16px', background: T.bgBase, borderBottom: `1px solid ${T.line100}` }}>
-          <div style={{ fontSize: 13, color: T.text500 }}>지금까지 만난 친구</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
-            <div style={{ fontSize: 36, fontWeight: 700, color: T.primary700, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{friends.length}</div>
-            <div style={{ fontSize: 15, color: T.text500, fontWeight: 500 }}>마리</div>
-            <div style={{ marginLeft: 'auto', fontSize: 11, color: T.text400 }}>최근 동행 순</div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 14, overflow: 'auto' }}>
-            <Chip variant="primary" size="md">전체 {friends.length}</Chip>
-            <Chip variant="neutral" size="md">2회 이상 {friends.filter(f => f.trips >= 2).length}</Chip>
-            <Chip variant="neutral" size="md">최근 1개월 {friends.slice(0,3).length}</Chip>
-          </div>
-        </div>
-        <div style={{ padding: 16, overflow: 'auto', maxHeight: 540 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-            {friends.map((f, i) => (
-              <div key={i}
-                onClick={() => !f.me && nav.go('public-profile')}
-                style={{ background: T.bgBase, borderRadius: 14, padding: 10, border: f.me ? `1.5px solid ${T.primary500}` : `1px solid ${T.line100}`, position: 'relative', cursor: f.me ? 'default' : 'pointer', transition: 'transform 120ms ease, box-shadow 120ms ease' }}
-                onMouseEnter={(e) => { if (!f.me) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = T.l1; } }}
-                onMouseLeave={(e) => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}>
-                {f.me && <div style={{ position: 'absolute', top: 6, right: 6, padding: '1px 5px', borderRadius: 4, background: T.primary500, color: '#fff', fontSize: 9, fontWeight: 700 }}>나</div>}
-                {f.trips >= 2 && !f.me && <div style={{ position: 'absolute', top: 6, right: 6, padding: '1px 5px', borderRadius: 4, background: T.primary100, color: T.primary700, fontSize: 9, fontWeight: 700 }}>{f.trips}×</div>}
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0' }}>
-                  <AnimalAvatar kind={f.k} size={56} bg={T.primary50}/>
-                </div>
-                <div style={{ fontSize: 11, fontWeight: 600, textAlign: 'center', lineHeight: 1.3, marginTop: 4, height: 28, overflow: 'hidden' }}>{f.n.split(' ').slice(0,2).join(' ')}</div>
-                <div style={{ fontSize: 10, color: T.text400, textAlign: 'center', marginTop: 2 }}>{(f.last || '').split(' · ')[0]}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ textAlign: 'center', padding: '20px 0 8px', fontSize: 11, color: T.text400 }}>다음 모임에서 새 친구를 만나보세요 ✨</div>
+      <div style={{ position: 'absolute', inset: 0, paddingTop: 46, background: T.bgSubtle }}>
+        <Header title="친구 도감" left center onBack={nav.back}/>
+        <div role="status" style={{ padding: '48px 20px', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '21px' }}>
+          로그인하면 모집 중인 모임을 볼 수 있어요.
         </div>
       </div>
     </Phone>
   );
 }
-
 // ───────── 28 · 프로필 수정 ─────────
 function ScreenProfileEdit() {
   return (
@@ -351,10 +575,12 @@ function ProfileEditBody() {
     let active = true;
     window.MoyeoApi.myProfile()
       .then((result) => { if (active && result?.nickname) setProfile(result); })
-      .catch(() => { /* 실패 시 목데이터 유지 */ });
+      .catch(() => { /* 실패하면 프로필 칸을 비워 둔다 — 예시 프로필로 채우지 않는다 */ });
     return () => { active = false; };
   }, [liveMode]);
-  const genderLabel = profile ? ({ M: '남성', F: '여성', N: '선택 안 함' }[profile.gender] || profile.gender) : '여성';
+  const genderLabel = profile ? ({ M: '남성', F: '여성', N: '선택 안 함' }[profile.gender] || profile.gender) : '';
+  // 프로필 이미지가 없으면 닉네임의 동물을 따른다 — 화면마다 동물을 고정하지 않는다(R5).
+  const avatar = window.MoyeoApi?.avatarForNickname?.(profile?.nickname);
   const birthLabel = profile?.birthDate ? profile.birthDate.replaceAll('-', '.') : null;
   const Row = ({ label, value, locked, danger }) => (
     <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${T.line100}` }}>
@@ -375,22 +601,24 @@ function ProfileEditBody() {
         
         <div style={{ background: T.bgBase, padding: '24px 20px 28px', display: 'flex', flexDirection: 'column', alignItems: 'center', borderBottom: `1px solid ${T.line100}` }}>
           <div style={{ position: 'relative' }}>
-            {profile
-              ? (profile.profileImageUrl
-                ? <img src={profile.profileImageUrl} alt="" style={{ width: 96, height: 96, borderRadius: 999, objectFit: 'cover', background: T.primary100 }}/>
-                : <span style={{ width: 96, height: 96, borderRadius: 999, background: T.primary100, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={44} color={T.primary600}/></span>)
-              : <AnimalAvatar kind="deer" size={96} bg={T.primary100}/>}
+            {profile?.profileImageUrl
+              ? <img src={profile.profileImageUrl} alt="" style={{ width: 96, height: 96, borderRadius: 999, objectFit: 'cover', background: T.primary100 }}/>
+              : avatar?.kind
+                ? <AnimalAvatar kind={avatar.kind} size={96} bg={T.primary100}/>
+                : avatar?.emoji
+                  ? <span aria-hidden="true" style={{ width: 96, height: 96, borderRadius: 999, background: T.primary100, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 54, lineHeight: 1 }}>{avatar.emoji}</span>
+                  : <span style={{ width: 96, height: 96, borderRadius: 999, background: T.primary100, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={44} color={T.primary600}/></span>}
             <div style={{ position: 'absolute', bottom: 0, right: 0, width: 28, height: 28, borderRadius: 999, background: T.line200, border: `2px solid ${T.bgBase}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Icon name="lock" size={12} color={T.text500}/>
             </div>
           </div>
-          <div style={{ fontSize: 17, fontWeight: 700, marginTop: 12 }}>{profile ? profile.nickname : '따스한 사슴 3492'}</div>
+          <div style={{ fontSize: 17, fontWeight: 700, marginTop: 12 }}>{profile?.nickname || ''}</div>
           <div style={{ fontSize: 11, color: T.text500, marginTop: 4 }}>한 번 정한 친구는 바꿀 수 없어요</div>
         </div>
 
         <div style={{ fontSize: 11, fontWeight: 600, color: T.text500, padding: '20px 20px 8px', letterSpacing: 0.5 }}>공개 프로필</div>
         <div style={{ background: T.bgBase }}>
-          <Row label="자기소개" value={profile ? (profile.introduction || '아직 없음') : '느긋한 여행 좋아해요'}/>
+          <Row label="자기소개" value={profile?.introduction || ''}/>
           {/* 여행 스타일과 관심 지역은 가입(06-1)과 동일하게 한 블록에서 함께 조회·수정한다.
               블록(칩·+추가 포함)을 탭하면 여행 취향 편집 Bottom Sheet(28-1)가 열린다. */}
           <div
@@ -408,12 +636,12 @@ function ProfileEditBody() {
             </div>
             <div style={{ fontSize: 11, fontWeight: 600, color: T.text500, marginBottom: 6 }}>여행 스타일</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-              {(profile ? profile.travelStyles.map((style) => style.label) : ['자연', '사진']).map(styleTag => <Chip key={styleTag} variant="primary" size="sm">{styleTag}</Chip>)}
+              {(profile?.travelStyles || []).map((style) => <Chip key={style.label} variant="primary" size="sm">{style.label}</Chip>)}
               <Chip variant="neutral" size="sm">+ 추가</Chip>
             </div>
             <div style={{ fontSize: 11, fontWeight: 600, color: T.text500, marginBottom: 6 }}>관심 지역</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {(profile ? profile.interestedRegions.map((region) => region.signguName) : ['경주', '안동', '포항', '문경']).map(r => <Chip key={r} variant="primary" size="sm">{r}</Chip>)}
+              {(profile?.interestedRegions || []).map((region) => <Chip key={region.signguName} variant="primary" size="sm">{region.signguName}</Chip>)}
               <Chip variant="neutral" size="sm">+ 추가</Chip>
             </div>
           </div>
@@ -421,50 +649,53 @@ function ProfileEditBody() {
 
         <div style={{ fontSize: 11, fontWeight: 600, color: T.text500, padding: '20px 20px 8px', letterSpacing: 0.5 }}>비공개 정보</div>
         <div style={{ background: T.bgBase }}>
-          <Row label="닉네임" value={profile ? profile.nickname : '따스한 사슴 3492'} locked/>
+          <Row label="닉네임" value={profile?.nickname || ''} locked/>
           <Row label="캐릭터" value="고정됨" locked/>
-          {(!profile || birthLabel) && <Row label="생년월일" value={profile ? birthLabel : '1998.04.12'}/>}
-          <Row label="성별" value={genderLabel}/>
+          {birthLabel && <Row label="생년월일" value={birthLabel}/>}
+          {genderLabel && <Row label="성별" value={genderLabel}/>}
         </div>
       </div>
   );
 }
 
 // ───────── 28-1 · 여행 취향 편집 Bottom Sheet ─────────
-// 28의 여행 취향 블록(칩·+ 추가)을 탭하면 열린다. 후보·기본값·선택 규칙은 가입 06-1과 동일하며,
+// 28의 여행 취향 블록(칩·+ 추가)을 탭하면 열린다. 선택 규칙도 후보의 출처도 가입 06-1과 같다 —
+// 둘 다 GET /users/me/profile/options 만 쓴다(2026-08-30부터 이 API 는 토큰 없이도 200이라
+// 가입 전 화면도 같은 곳에서 받는다). 거울 표는 세 플랫폼 모두에서 지웠다.
 // 스타일과 관심 지역을 언제나 한 시트에서 함께 편집한다. 각 1개 이상일 때만 저장이 활성화된다.
 // 바텀시트 프레임(딤 배경 + 상단 라운드 24 + 핸들 바)은 신고 시트(30-2)와 같은 관례를 따른다.
 function ScreenProfileTasteEdit() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
-  const STYLES = ['자연', '힐링', '사진', '맛집', '역사', '야경', '트레킹', '카페'];
-  const REGIONS = ['경주', '안동', '포항', '문경', '청송', '영주', '울진', '울릉'];
-  const [styles, setStyles] = React.useState(['자연', '사진']);
-  const [regions, setRegions] = React.useState(['경주', '안동', '포항', '문경']);
-  const toggle = (list, setList, value) => setList(list.includes(value) ? list.filter(v => v !== value) : [...list, value]);
-  // 로그인 상태: 후보는 GET users/me/profile/options(스타일 12종·시군구 24곳, 서버 기준),
-  // 현재 선택은 GET users/me/profile, 저장은 PUT users/me/profile 로 연동한다.
-  const liveMode = window.MoyeoApi?.live();
+  // 후보는 GET users/me/profile/options, 현재 선택은 GET users/me/profile,
+  // 저장은 PUT users/me/profile 이다. 하드코딩 후보 표는 없다 —
+  // 서버가 목록을 바꾸면 이 화면도 06-1도 바로 따라간다.
   const [serverOptions, setServerOptions] = React.useState(null);
   const [serverProfile, setServerProfile] = React.useState(null);
   const [styleIds, setStyleIds] = React.useState([]);
   const [regionIds, setRegionIds] = React.useState([]);
+  const [status, setStatus] = React.useState('loading');
+  const [reloadKey, setReloadKey] = React.useState(0);
   const [saving, setSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState('');
   React.useEffect(() => {
-    if (!liveMode) return undefined;
     let active = true;
-    Promise.all([window.MoyeoApi.profileOptions(), window.MoyeoApi.myProfile()])
+    setStatus('loading');
+    Promise.resolve()
+      .then(() => Promise.all([window.MoyeoApi.profileOptions(), window.MoyeoApi.myProfile()]))
       .then(([optionsResult, profileResult]) => {
-        if (!active || !Array.isArray(optionsResult?.travelStyles)) return;
+        if (!active) return;
+        if (!Array.isArray(optionsResult?.travelStyles)) { setStatus('error'); return; }
         setServerOptions(optionsResult);
         setServerProfile(profileResult);
         setStyleIds((profileResult?.travelStyles || []).map((style) => style.id));
         setRegionIds((profileResult?.interestedRegions || []).map((region) => region.id));
+        setStatus('ready');
       })
-      .catch(() => { /* 실패 시 목데이터 유지 */ });
+      // 후보를 받지 못하면 임의의 후보를 그리지 않는다 — 고르는 순간 서버에 없는 id 를 보내게 된다.
+      .catch(() => { if (active) setStatus('error'); });
     return () => { active = false; };
-  }, [liveMode]);
-  const serverMode = Boolean(serverOptions && serverProfile);
+  }, [reloadKey]);
+  const serverMode = status === 'ready' && Boolean(serverOptions && serverProfile);
   const toggleId = (list, setList, id) => setList(list.includes(id) ? list.filter((v) => v !== id) : [...list, id]);
   const saveServer = async () => {
     if (saving) return;
@@ -485,9 +716,7 @@ function ScreenProfileTasteEdit() {
       setSaveError(requestError?.message || '저장하지 못했어요. 잠시 후 다시 시도해주세요.');
     }
   };
-  const canSave = serverMode
-    ? (styleIds.length > 0 && regionIds.length > 0 && !saving)
-    : (styles.length > 0 && regions.length > 0);
+  const canSave = serverMode && styleIds.length > 0 && regionIds.length > 0 && !saving;
   const chip = (label, on, onClick, testId) => (
     <button key={label} type="button" data-testid={testId} onClick={onClick} aria-pressed={on} style={{
       height: 36, padding: '0 14px', borderRadius: 999, cursor: 'pointer', fontFamily: T.fontStack,
@@ -514,25 +743,25 @@ function ScreenProfileTasteEdit() {
 
           <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, margin: '18px 0 10px' }}>여행 스타일 <span style={{ color: T.danger }}>*</span> <span style={{ color: T.text500, fontWeight: 400 }}>· 1개 이상</span></div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {serverMode
-              ? serverOptions.travelStyles.map((style) => chip(style.label, styleIds.includes(style.id), () => toggleId(styleIds, setStyleIds, style.id), "taste-edit-style-" + style.label))
-              : STYLES.map(style => chip(style, styles.includes(style), () => toggle(styles, setStyles, style), "taste-edit-style-" + style))}
+            {serverMode && serverOptions.travelStyles.map((style) => chip(style.label, styleIds.includes(style.id), () => toggleId(styleIds, setStyleIds, style.id), "taste-edit-style-" + style.label))}
           </div>
 
           <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, margin: '18px 0 10px' }}>관심 지역 <span style={{ color: T.danger }}>*</span> <span style={{ color: T.text500, fontWeight: 400 }}>· 경북 안에서 1곳 이상</span></div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, maxHeight: serverMode ? 132 : undefined, overflow: serverMode ? 'auto' : undefined }}>
-            {serverMode
-              ? serverOptions.interestedRegions.map((region) => chip(region.signguName, regionIds.includes(region.id), () => toggleId(regionIds, setRegionIds, region.id), "taste-edit-region-" + region.signguName))
-              : REGIONS.map(region => chip(region, regions.includes(region), () => toggle(regions, setRegions, region), "taste-edit-region-" + region))}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, maxHeight: 132, overflow: 'auto' }}>
+            {serverMode && serverOptions.interestedRegions.map((region) => chip(region.signguName, regionIds.includes(region.id), () => toggleId(regionIds, setRegionIds, region.id), "taste-edit-region-" + region.signguName))}
           </div>
 
-          <div style={{ fontSize: 12, color: T.text500, textAlign: 'center', margin: '18px 0 12px' }}>
-            여행 스타일 {serverMode ? styleIds.length : styles.length}개 · 관심 지역 {serverMode ? regionIds.length : regions.length}곳 선택
+          <div role="status" style={{ fontSize: 12, color: T.text500, textAlign: 'center', margin: '18px 0 12px' }}>
+            {status === 'loading' && '불러오는 중이에요…'}
+            {status === 'error' && (
+              <>불러오지 못했어요. <button type="button" data-testid="taste-edit-retry" onClick={() => setReloadKey((key) => key + 1)} style={{ padding: 0, border: 0, background: 'transparent', color: T.primary600, fontFamily: T.fontStack, fontSize: 12, fontWeight: 900, textDecoration: 'underline', cursor: 'pointer' }}>다시 시도</button></>
+            )}
+            {serverMode && `여행 스타일 ${styleIds.length}개 · 관심 지역 ${regionIds.length}곳 선택`}
           </div>
           {saveError && <div role="alert" style={{ fontSize: 12, color: T.danger, textAlign: 'center', marginBottom: 10 }}>{saveError}</div>}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button type="button" data-testid="taste-edit-cancel" onClick={() => nav.back()} style={{ width: 72, height: 52, border: 0, background: 'transparent', fontSize: 14, fontWeight: 600, color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>취소</button>
-            <div style={{ flex: 1 }}><Btn variant="primary" full disabled={!canSave} onClick={serverMode ? saveServer : () => nav.back()} testId="taste-edit-save">{saving ? '저장 중...' : '저장'}</Btn></div>
+            <div style={{ flex: 1 }}><Btn variant="primary" full disabled={!canSave} onClick={saveServer} testId="taste-edit-save">{saving ? '저장 중...' : '저장'}</Btn></div>
           </div>
         </div>
       </div>
@@ -656,7 +885,6 @@ function ScreenSettings() {
   };
   // ── 테마 (29 › 화면 › 테마) ──
   // 저장값은 3상태다: system(기본) · light · dark. 'system' 이면 OS 변경을 즉시 따라간다.
-  const captureMode = Boolean(window.MoyeoApi?.deterministicParams?.());
   const [themePreference, setThemePreference] = React.useState(() => window.getMoyeoThemePreference?.() || 'system');
   React.useEffect(() => {
     const sync = (event) => setThemePreference(event.detail?.preference || window.getMoyeoThemePreference?.() || 'system');
@@ -664,16 +892,26 @@ function ScreenSettings() {
     return () => window.removeEventListener('moyeo:theme-mode', sync);
   }, []);
   const themeLabels = window.MOYEO_THEME_PREFERENCE_LABELS || { system: '시스템 기본', light: '라이트', dark: '다크' };
-  const themeValue = captureMode ? '시스템 기본' : (themeLabels[themePreference] || '시스템 기본');
+  // 캡처에서도 실제 저장된 테마 설정을 보여준다 — 값을 '시스템 기본' 으로 고정하지 않는다.
+  const themeValue = themeLabels[themePreference] || '시스템 기본';
   const cycleTheme = () => setThemePreference(window.cycleMoyeoThemeMode?.(themePreference) || 'system');
 
   // ── 정보 섹션 안내 다이얼로그 ──
   // 문구는 Android(MyMenuScreens.kt)·iOS(MyView.swift)와 같은 값을 쓴다. 새 문구를 만들지 않는다.
-  // 버전 본문만 근거 없는 '최신 상태' 주장을 빼고 설치된 버전을 알려준다(캡처 모드는 기획 문구 유지).
+  // 버전 본문은 근거 없는 '최신 상태' 주장을 빼고 실제 설치된 버전을 알려준다.
   const [infoDialog, setInfoDialog] = React.useState(null);
   const infoDialogs = {
     version: { title: '앱 버전', body: window.MoyeoAppVersion?.dialogBody() },
-    contact: { title: '문의하기', body: '채팅, 모집, 결제 문의를 남기는 고객센터로 이어져요.' },
+    // 문의는 **두 갈래**다 — 버그·기능 제안은 GitHub 이슈, 그 밖은 이메일.
+    // 예전 문구는 "고객센터로 이어져요" 였는데 고객센터는 존재하지 않는 개념이다.
+    contact: {
+      title: '문의하기',
+      body: '버그 제보나 기능 제안은 GitHub 이슈로, 그 밖의 문의는 이메일로 보내주세요.',
+      links: [
+        { label: 'GitHub 이슈로 문의', href: MOYEO_CONTACT.issuesUrl, testId: 'settings-contact-issues' },
+        { label: '이메일로 문의', href: `mailto:${MOYEO_CONTACT.email}`, testId: 'settings-contact-email' },
+      ],
+    },
     rate: { title: '앱 평가하기', body: '스토어 평가로 이동하기 전, 모여트립 사용 경험을 한 번 더 확인해요.' },
   };
   const infoDialogSpec = infoDialog ? infoDialogs[infoDialog] : null;
@@ -707,20 +945,19 @@ function ScreenSettings() {
         <Section title="화면">
           {/* 탭하면 시스템 기본 → 라이트 → 다크 순환. 기획에 선택 시트가 없어 순환으로 간다.
               캡처 모드에서는 강제 테마가 사용자 설정보다 우선하므로 값은 기획대로 '시스템 기본' 고정. */}
-          <Row label="테마" value={themeValue} onClick={captureMode ? undefined : cycleTheme} testId="settings-theme"/>
+          <Row label="테마" value={themeValue} onClick={cycleTheme} testId="settings-theme"/>
           <Row label="언어" value="한국어"/>
         </Section>
 
         <Section title="계정">
           <Row label="로그인 방식" value="관리" onClick={() => nav.go('auth-methods')} testId="settings-auth-methods"/>
-          <Row label="차단한 사용자" value={liveMode ? '관리' : '2명'} onClick={() => nav.go('blocked')} testId="settings-blocked"/>
+          <Row label="차단한 사용자" value="관리" onClick={() => nav.go('blocked')} testId="settings-blocked"/>
           <Row label="개인정보 처리방침" onClick={() => nav.go('privacy-settings')} testId="settings-privacy"/>
           <Row label="이용약관" onClick={() => nav.go('terms-settings')} testId="settings-terms"/>
         </Section>
 
         <Section title="정보">
-          {/* 실제 빌드 버전을 보여준다. 최신 버전을 알려주는 서버 API가 없어 '(최신)' 은 붙이지 않는다.
-              캡처 모드에서는 기획값 '1.0.4 (최신)' 을 그대로 유지한다. */}
+          {/* 실제 빌드 버전을 보여준다. 최신 버전을 알려주는 서버 API가 없어 '(최신)' 은 붙이지 않는다. */}
           <Row label="버전" value={window.MoyeoAppVersion?.label()} onClick={() => setInfoDialog('version')} testId="settings-version"/>
           <Row label="문의하기" onClick={() => setInfoDialog('contact')} testId="settings-contact"/>
           <Row label="앱 평가하기" onClick={() => setInfoDialog('rate')} testId="settings-rate"/>
@@ -735,6 +972,24 @@ function ScreenSettings() {
             <div style={{ width: '100%', maxWidth: 320, background: T.bgRaised, borderRadius: 20, padding: 22, boxShadow: T.l3 }}>
               <div style={{ fontSize: 17, fontWeight: 900, lineHeight: '24px' }}>{infoDialogSpec.title}</div>
               <div style={{ fontSize: 12.5, color: T.text500, marginTop: 10, lineHeight: '19px' }}>{infoDialogSpec.body}</div>
+              {infoDialogSpec.links && (
+                <div style={{ marginTop: 16, display: 'grid', gap: 8 }}>
+                  {infoDialogSpec.links.map((link) => (
+                    <a
+                      key={link.href}
+                      href={link.href}
+                      target={link.href.startsWith('mailto:') ? undefined : '_blank'}
+                      rel="noreferrer"
+                      data-testid={link.testId}
+                      style={{
+                        height: 44, borderRadius: 12, border: `1px solid ${T.line200}`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 13.5, fontWeight: 800, color: T.text900, textDecoration: 'none',
+                      }}
+                    >{link.label}</a>
+                  ))}
+                </div>
+              )}
               <div style={{ marginTop: 18 }}>
                 <Btn variant="primary" full testId="settings-info-dialog-confirm" onClick={() => setInfoDialog(null)}>확인</Btn>
               </div>
@@ -771,7 +1026,8 @@ function ScreenAuthMethods() {
     setError('');
     try {
       const result = await window.MoyeoAuth.linkProvider(provider, options);
-      if (!result?.redirecting) setProviders(result.providers || providers);
+      // 취소(R1·R2)와 리다이렉트는 아직 아무 일도 일어나지 않은 상태다 — 목록을 그대로 둔다.
+      if (!result?.redirecting && !result?.cancelled) setProviders(result.providers || providers);
     } catch (requestError) {
       setError(requestError?.message || '로그인 방식을 연결하지 못했어요.');
     } finally {
@@ -802,7 +1058,9 @@ function ScreenAuthMethods() {
           <div style={{ fontSize: 16, fontWeight: 800, marginLeft: 4 }}>로그인 방식</div>
         </div>
         <div style={{ padding: '22px 18px 40px' }}>
-          <p style={{ margin: '0 2px 18px', color: T.text500, fontSize: 13, lineHeight: 1.55 }}>연결된 로그인 방식으로 같은 계정을 안전하게 이용할 수 있어요.</p>
+          {/* 29-5 계정 연결. 안드로이드 MyMenuScreens · iOS MyView 와 **글자 그대로** 같은 문구를 쓴다
+              (ATTACH-COMPOSER-CANON §6-1 — 웹만 다른 문장을 쓰고 있었다). */}
+          <p style={{ margin: '0 2px 18px', color: T.text500, fontSize: 13, lineHeight: 1.55 }}>어느 방법으로든 같은 계정으로 들어와요. 하나를 더 연결해두면 한쪽을 못 쓰게 돼도 들어올 수 있어요.</p>
           <div style={{ display: 'grid', gap: 12 }}>
             {rows.map((item) => {
               const linked = providers.includes(item.id.toUpperCase());
@@ -831,6 +1089,13 @@ function ScreenAuthMethods() {
                 </div>
               );
             })}
+          </div>
+          {/* 마지막 하나는 끊을 수 없다 — 끊으면 아무 방법으로도 못 들어온다.
+              (서버에 연결 해제 API 자체가 없다 — GET·POST /auth/providers 뿐이다.) */}
+          <div style={{ marginTop: 16, borderRadius: 12, background: T.bgSubtle, padding: 14 }}>
+            <div style={{ fontSize: 11.5, color: T.text700, lineHeight: '17px' }}>
+              마지막 하나 남은 로그인 방식은 끊을 수 없어요. 계정을 아예 지우려면 설정에서 탈퇴해 주세요.
+            </div>
           </div>
           <div role="status" style={{ minHeight: 20, marginTop: 14, color: error ? T.danger : T.text500, fontSize: 12, textAlign: 'center' }}>{error}</div>
         </div>
@@ -953,42 +1218,52 @@ function ScreenPublicProfile({ initialFlipped = false }) {
 
   const [profile, setProfile] = React.useState(null);
   const [reviews, setReviews] = React.useState([]);
+  // 받아오는 중과 실패를 구분한다. 하나로 묶어 두면 **적재 중에 「불러오지 못했어요」**
+  // 가 뜨고, 캡처가 그 순간을 찍으면 성한 화면이 실패로 기록된다.
+  const [status, setStatus] = React.useState('loading');
+  const [reloadKey, setReloadKey] = React.useState(0);
   React.useEffect(() => {
-    if (!liveMode || !userId) return undefined;
+    if (!liveMode || !userId) { setStatus('no-target'); return undefined; }
     let active = true;
+    setStatus('loading');
     window.MoyeoApi.publicProfile(userId)
-      .then((r) => { if (active && r?.nickname) setProfile(r); })
-      .catch(() => {});
+      .then((r) => {
+        if (!active) return;
+        if (r?.nickname) { setProfile(r); setStatus('ready'); }
+        else setStatus('failed');
+      })
+      .catch(() => { if (active) setStatus('failed'); });
+    // 평가는 없어도 카드를 그린다 — 실패로 보지 않는다.
     window.MoyeoApi.receivedTravelReviews(userId)
       .then((r) => { if (active && Array.isArray(r)) setReviews(r); })
       .catch(() => {});
     return () => { active = false; };
-  }, [liveMode, userId]);
+  }, [liveMode, userId, reloadKey]);
 
-  // 캡처(결정적 파라미터)에서는 기획과 같은 값을 쓴다. 라이브에서는 서버 값만 쓴다.
-  const mock = {
-    kind: 'bear', nickname: '우직한 곰 7821', nicknameColor: 'ORANGE',
-    profileImageUrl: null, mannerRating: 4.8,
-    introduction: '사진 찍는 걸 좋아해요. 천천히 걷는 여행을 좋아합니다.',
-    travelStyles: ['사진', '자연'],
-    // 여행·호스트·피드 횟수는 어떤 서버 응답에도 없다. 캡처 모드에서도 만들지 않는다 —
-    // 목데이터라도 지어낸 숫자를 앱 화면에 띄우지 않는다. 기획(25)에는 정의가 남아 있어
-    // 그 세 칸에서 기획 캡처와 다른 것은 정상이다.
-    tripCount: 2, latestTripTitle: '경주 단풍·야경 모임', latestTripDate: '2026.08.23',
-    memories: [
-      { tripTitle: '경주 단풍·야경 모임', tripDate: '2026.08.23', oneLineReview: '사진 정말 잘 찍어주셨어요!' },
-      { tripTitle: '주왕산 힐링 트레킹', tripDate: '2026.06.14', oneLineReview: null },
-    ],
-    receivedReviews: [
-      { reviewerNickname: '고요한 두루미 1130', reviewerNicknameColor: 'SKY_BLUE', content: '약속 시간을 정확히 지키고 사진도 많이 남겨주셨어요.' },
-      { reviewerNickname: '잔잔한 거북이 9032', reviewerNicknameColor: 'MINT', content: '걷는 속도를 계속 맞춰줘서 편했습니다.' },
-    ],
+  // 25 에서 할 수 있는 행동은 친구 신청뿐이다 (POST users/me/friend-requests/{userId}).
+  // 20-1a ScreenMemberActions 와 같은 API·같은 상태 전이·같은 실패 문구를 쓴다 —
+  // 두 화면이 다르게 동작하면 그게 결함이다.
+  // 자기에게 친구 신청을 걸 수는 없다 — 내 카드에서는 그 버튼을 그리지 않는다.
+  const isMe = userId != null
+    && String(userId) === String(window.MoyeoApi?.myUserId?.() ?? '');
+  const [requestState, setRequestState] = React.useState('idle');
+  const [requestError, setRequestError] = React.useState('');
+  const sendFriendRequest = async () => {
+    if (!userId || requestState !== 'idle') return;
+    setRequestState('sending');
+    setRequestError('');
+    try {
+      await window.MoyeoApi.sendFriendRequest(userId);
+      setRequestState('sent');
+    } catch (error) {
+      setRequestState('idle');
+      setRequestError(error?.message || '친구 요청을 보내지 못했어요.');
+    }
   };
 
-  // 목데이터로 떨어지는 것은 서버가 없을 때(캡처·목킹 모드)뿐이다.
-  // 로그인 상태에서 조회가 실패했는데 목데이터를 보여주면 남의 프로필을 지어내는 셈이 된다.
-  const captureMode = !liveMode || !userId;
+  // 프로필 카드는 서버 값만 쓴다 — 못 받으면 카드를 그리지 않는다.
   const dex = params.dex || null;
+
   const subject = profile ? {
     kind: 'bear',
     nickname: profile.nickname,
@@ -998,7 +1273,7 @@ function ScreenPublicProfile({ initialFlipped = false }) {
     introduction: profile.introduction,
     travelStyles: (profile.travelStyles || []).map((v) => v.label || v.name || v),
     // 서버가 주지 않는 값은 넣지 않는다 → 칸이 만들어지지 않는다
-    completedTripCount: undefined, hostedTripCount: undefined, feedCount: undefined,
+    completedTripCount: undefined, feedCount: undefined,
     tripCount: dex?.tripCount ?? null,
     latestTripTitle: dex?.latestTripTitle || null,
     latestTripDate: dex?.latestTripDate || null,
@@ -1008,7 +1283,7 @@ function ScreenPublicProfile({ initialFlipped = false }) {
       reviewerNicknameColor: r.reviewerNicknameColor,
       content: r.content,
     })),
-  } : (captureMode ? mock : null);
+  } : null;
 
   const pal = userCardPalette(subject?.nicknameColor);
 
@@ -1016,14 +1291,16 @@ function ScreenPublicProfile({ initialFlipped = false }) {
   // 진입점(도감·동행자)에서는 한 칸짜리 전체폭 스트립이 남아 어색했다.
   const stats = subject ? [
     subject.completedTripCount != null && ['여행', `${subject.completedTripCount}`],
-    subject.hostedTripCount != null && ['호스트', `${subject.hostedTripCount}`],
     subject.feedCount != null && ['피드', `${subject.feedCount}`],
   ].filter(Boolean) : [];
 
   const REST = { rx: 0, ry: 0, x: 0.5, y: 0.5, scale: 1, shine: 0.62, lift: 0 };
   const [tilt, setTilt] = React.useState({ ...REST, phase: 'rest' });
   const enterTimer = React.useRef(null);
-  const [flipped, setFlipped] = React.useState(initialFlipped);
+  // 뒤집힘을 **부호 있는 반회전 수**로 센다 — 부호가 방향이다.
+  // `Bool` 이던 동안에는 어느 쪽으로 밀어도 늘 같은 방향으로 돌았다.
+  const [flipTurns, setFlipTurns] = React.useState(initialFlipped ? 1 : 0);
+  const flipped = Math.abs(flipTurns) % 2 === 1;
   const cardRef = React.useRef(null);
   const swipeStart = React.useRef(null);
 
@@ -1034,7 +1311,8 @@ function ScreenPublicProfile({ initialFlipped = false }) {
     if (!s0) return;
     const dx = x - s0.x;
     const dy = y - s0.y;
-    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) setFlipped((v) => !v);
+    // 스와이프한 방향으로 돈다 — 왼쪽으로 밀면 왼쪽으로 넘어간다.
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) setFlipTurns((v) => v + (dx < 0 ? -1 : 1));
   };
 
   const onMove = (clientX, clientY) => {
@@ -1080,13 +1358,27 @@ function ScreenPublicProfile({ initialFlipped = false }) {
   };
 
   if (!subject) {
-    // 라이브에서 아직 못 받았거나 실패한 상태. 값을 지어내지 않고 비워 둔다.
+    // 값을 지어내지 않고 비워 둔다. 다만 **받아오는 중과 실패를 다르게 말한다** —
+    // 적재 중에 "못했어요" 라고 하면 성한 화면이 실패로 읽힌다(캡처도 그렇게 찍힌다).
     return (
       <Phone>
         <div style={{ position: 'absolute', inset: 0, paddingTop: 46, background: T.bgSubtle, display: 'flex', flexDirection: 'column' }}>
           <Header title="프로필" left center onBack={nav.back}/>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: T.text500 }}>
-            프로필을 불러오지 못했어요
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: T.text500, textAlign: 'center', padding: '0 24px' }}>
+            {status === 'loading' && '불러오는 중이에요…'}
+            {status === 'no-target' && '불러오지 못했어요.'}
+            {status === 'failed' && (
+              <span>
+                불러오지 못했어요.{' '}
+                <button
+                  type="button"
+                  onClick={() => setReloadKey((k) => k + 1)}
+                  style={{ padding: 0, border: 0, background: 'transparent', color: T.primary600, fontFamily: T.fontStack, fontSize: 13, fontWeight: 900, textDecoration: 'underline', cursor: 'pointer' }}
+                >
+                  다시 시도
+                </button>
+              </span>
+            )}
           </div>
         </div>
       </Phone>
@@ -1127,7 +1419,7 @@ function ScreenPublicProfile({ initialFlipped = false }) {
                 그림자는 각 면의 box-shadow 로 준다. */}
             <div style={{
               position: 'relative', transformStyle: 'preserve-3d',
-              transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+              transform: `rotateY(${flipTurns * 180}deg)`,
               transition: 'transform 700ms cubic-bezier(0.16, 1, 0.3, 1)',
             }}>
               {/* ─── 앞면 ─── */}
@@ -1205,13 +1497,25 @@ function ScreenPublicProfile({ initialFlipped = false }) {
                     </div>
                   )}
 
-                  {(subject.memories.length > 0 || subject.receivedReviews.length > 0) && (
+                  {/* 뒷면에 볼 것이 하나라도 있을 때만 안내한다 — 매너 점수만 있어도 볼 것이 있다. */}
+                  {(subject.mannerRating != null || subject.memories.length > 0 || subject.receivedReviews.length > 0) && (
                     <div style={{
                       marginTop: 2, paddingTop: 8, borderTop: `1px solid ${RF.softLine}`,
                       display: 'flex', alignItems: 'center', gap: 5,
                       fontSize: 10, fontWeight: 800, color: T.text500,
                     }}>
-                      <Icon name="arrow" size={12} color={T.text400}/>
+                      {/* 캡처에서는 끈다 — 움직이는 중간을 찍으면 같은 아트보드가 회차마다 달라진다. */}
+                      <span
+                        data-swipe-hint
+                        style={{
+                          display: 'inline-flex',
+                          animation: new URLSearchParams(window.location.search).get('capture') === '1'
+                            ? 'none'
+                            : 'mt-swipe-hint 0.62s ease-in-out 2',
+                        }}
+                      >
+                        <Icon name="arrow" size={12} color={T.text400}/>
+                      </span>
                       옆으로 밀면 함께한 여행과 평가를 볼 수 있어요
                     </div>
                   )}
@@ -1266,13 +1570,24 @@ function ScreenPublicProfile({ initialFlipped = false }) {
                     </div>
                   )}
 
-                  {/* 받은 게 없으면 섹션을 만들지 않는다.
+                  {/* 평가 칸은 **0건이어도 그린다** — 제목만 남고 아래가 비면 고장으로 읽힌다.
+                      뒷면에 다른 내용이 하나라도 있을 때만이다.
                       도감의 oneLineReview 는 "내가 남긴" 값이라 여기 섞으면 안 된다. */}
-                  {subject.receivedReviews.length > 0 && (
+                  {(subject.receivedReviews.length > 0
+                    || subject.mannerRating != null
+                    || subject.memories.length > 0) && (
                     <div style={{ paddingTop: 9, borderTop: `1px solid ${RF.softLine}` }}>
                       <div style={{ fontSize: 10, fontWeight: 800, color: T.text500, marginBottom: 6 }}>
                         다른 여행자들이 남긴 평가
                       </div>
+                      {subject.receivedReviews.length === 0 && (
+                        <div
+                          data-testid="profile-back-no-reviews"
+                          style={{ fontSize: 10.5, lineHeight: '15px', fontWeight: 600, color: T.text500, marginBottom: 8, whiteSpace: 'pre-line' }}
+                        >
+                          {'아직 받은 한줄평이 없어요.\n함께 여행하면 서로 한줄평을 남길 수 있어요.'}
+                        </div>
+                      )}
                       {subject.receivedReviews.map((r) => (
                         <div key={r.reviewerNickname + r.content} style={{ marginBottom: 8, display: 'flex', gap: 7 }}>
                           {/* 강조선은 남긴 사람의 색 — 카드 주인 색과 헷갈리지 않게 */}
@@ -1290,6 +1605,23 @@ function ScreenPublicProfile({ initialFlipped = false }) {
                       ))}
                     </div>
                   )}
+                  {/* 매너 점수도 함께한 여행도 평가도 없으면 뒷면이 통째로 비어 있었다 —
+                      뒤집어 봤는데 아무것도 없으면 고장으로 읽힌다. */}
+                  {subject.mannerRating == null
+                    && subject.memories.length === 0
+                    && subject.receivedReviews.length === 0 && (
+                    <div
+                      data-testid="profile-back-empty"
+                      style={{
+                        fontSize: 11, lineHeight: '16px', fontWeight: 600, color: T.text500,
+                        textAlign: 'center', whiteSpace: 'pre-line',
+                        // 한 줄이 위에 붙어 있으면 카드가 여전히 비어 보인다 — 남은 자리 가운데 놓는다.
+                        minHeight: 190, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      {'아직 함께한 여행과 평가가 없어요.\n함께 여행하면 기록과 한줄평이 여기 쌓여요.'}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1298,13 +1630,20 @@ function ScreenPublicProfile({ initialFlipped = false }) {
 
         {/* 스와이프로도 뒤집히지만, 뒤집을 수 있다는 걸 알 방법이 필요해 버튼도 둔다 */}
         <div style={{ padding: '0 20px 28px', display: 'flex', gap: 8 }}>
-          <Btn variant="ghost" onClick={() => setFlipped((v) => !v)}>{flipped ? '앞면' : '뒤집기'}</Btn>
+          {/* 버튼에는 방향이 없다 — 오른쪽으로 돈다. */}
+          <Btn variant="ghost" onClick={() => setFlipTurns((v) => v + 1)}>카드 뒤집기</Btn>
           {/* DM 기획이 없다 — 여기서 할 수 있는 행동은 친구 신청뿐이다.
-              (차단·신고는 20-1a 멤버 액션처럼 대상이 확실한 경로에서만 연다) */}
-          <div style={{ flex: 1 }}>
-            <Btn variant="primary" full>친구 신청</Btn>
-          </div>
+              (차단·신고는 20-1a 멤버 액션처럼 대상이 확실한 경로에서만 연다)
+              20-1a ScreenMemberActions 와 **같은 API·같은 상태 문구**를 쓴다. */}
+          {!isMe && (
+            <div style={{ flex: 1 }}>
+              <Btn variant="primary" full disabled={!userId || requestState !== 'idle'} onClick={userId ? sendFriendRequest : undefined} testId="public-profile-friend">
+                {requestState === 'sent' ? '친구 요청을 보냈어요' : requestState === 'sending' ? '보내는 중...' : '친구 신청'}
+              </Btn>
+            </div>
+          )}
         </div>
+        {requestError && <div role="alert" style={{ fontSize: 11.5, color: T.danger, padding: '0 20px 20px', textAlign: 'center' }}>{requestError}</div>}
       </div>
     </Phone>
   );
@@ -1315,6 +1654,9 @@ Object.assign(window, {
   ScreenFeedWrite, ScreenFeedWriteStep1, ScreenFeedWriteStep2, ScreenFeedWriteStep3, ScreenFeedWriteStep4, ScreenFeedWriteStep5,
   ScreenDex, ScreenProfileEdit, ProfileEditBody, ScreenProfileTasteEdit, ScreenSettings, ScreenAuthMethods, ScreenPublicProfile,
   MOYEO_USER_COLORS, userCardPalette,
+  // 30-2 밖의 신고 진입점(20-1 채팅방 메뉴 · 20-1a 멤버 액션 · 15 모집 상세)이
+  // 같은 문의 창구를 쓰도록 window 로 올린다 (정본 REPORT-CANON §3).
+  MOYEO_CONTACT,
 });
 
 // ─── window export ───

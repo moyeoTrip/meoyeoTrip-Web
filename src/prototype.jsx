@@ -31,6 +31,7 @@
       explore: window.ScreenExplore,
       'explore-map': window.ScreenExploreMap,
       search: window.ScreenSearch,
+      'search-results': window.ScreenSearchResults,   // 12-1 검색 결과 (코스·모집)
       notif: window.ScreenNotifications,
       'removal-reason': window.ScreenRemovalReason,
       course: window.ScreenCourseDetail,
@@ -42,6 +43,10 @@
       'place-detail': window.ScreenPlaceDetail,
       'create-schedule': window.ScreenCreateSchedule,
       'create-people': window.ScreenCreatePeople,
+      // 17-4a · 17-4b 캡처용 — 인원수별 멘트 변형 3단계 중 양 끝을 열어 둔다.
+      // 기본값(17-4 · 최대 5명 → 단체 사진 멘트)은 위 create-people 이 그대로 담당한다.
+      'create-people-small': () => React.createElement(window.ScreenCreatePeople, { initialMax: 4 }),
+      'create-people-large': () => React.createElement(window.ScreenCreatePeople, { initialMax: 10 }),
       'create-detail': window.ScreenCreateDetail,
       'create-meet': window.ScreenCreateMeetPoint,
       'create-summary': window.ScreenCreateSummary,
@@ -58,8 +63,31 @@
       'member-actions': window.ScreenMemberActions,
       'member-remove': window.ScreenMemberRemove,
       'chat-attach': window.ScreenChatAttach,
+      // 20-2a~20-2f 첨부 작성 화면 (ATTACH-COMPOSER-CANON §1)
+      'attach-photo': window.ScreenAttachPhoto,
+      'attach-place': window.ScreenAttachPlace,
+      'attach-map': window.ScreenAttachMap,
+      'attach-poll': window.ScreenAttachPoll,
+      'attach-settlement': window.ScreenAttachSettlement,
+      'attach-notice': window.ScreenAttachNotice,
       'notice-history': window.ScreenNoticeHistory,
+      // 20-3a 공지 수정 · 삭제 (호스트)
+      'notice-edit': window.ScreenNoticeEdit,
+      // 20-1c 이 모임 알림 (전역 방해금지 29-2 와 다른 화면이다)
+      'room-notif': window.ScreenRoomNotification,
       'leave-alert': window.ScreenLeaveAlert,
+      // 31-1 참가자 나가기 — 같은 화면을 역할만 바꿔 연다 (ATTACH-COMPOSER-CANON §6-5)
+      'leave-member': window.ScreenLeaveMember,
+      // ATTACH-COMPOSER-CANON §6 신설 화면
+      'password-reset': window.ScreenPasswordReset,     // 08-H 비밀번호 재설정
+      'kick-history': window.ScreenKickHistory,         // 13-2 내보내진 기록
+      'trip-status': window.ScreenTripStatus,           // 18-4 여행 확정 / 불발 (호스트)
+      'meeting-edit': window.ScreenMeetingEdit,         // 18-5 집합 정보 수정 (호스트)
+      'apply-cancel': window.ScreenApplyCancel,         // 19-2 참가 신청 취소 확인
+      'favorite-rooms': window.ScreenFavoriteRooms,     // 26-1 찜한 모집
+      'course-rating': window.ScreenCourseRating,       // 27-4 코스 평가
+      'friend-manage': window.ScreenFriendManage,       // 27-2a 친구 정리
+      'unblock-confirm': window.ScreenUnblockConfirm,   // 29-1a 차단 해제 확인
       states: window.ScreenStates,
       msgs: window.ScreenSpecialMessages,
       feed: window.ScreenFeed,
@@ -91,6 +119,9 @@
       'profile-taste-edit': window.ScreenProfileTasteEdit,
       settings: window.ScreenSettings,
       'auth-methods': window.ScreenAuthMethods,
+      // 29-5 계정 연결 — 웹은 이미 GET/POST /auth/providers 로 그리는 화면(auth-methods)이 있다.
+      // 기획 번호(29-5 · account-providers)로도 열 수 있게 같은 화면을 건다 (화면을 두 벌 만들지 않는다).
+      'account-providers': window.ScreenAuthMethods,
       'oss-licenses': window.ScreenOssLicenses,             // 29-4 오픈소스 라이선스 목록
       'oss-license-detail': window.ScreenOssLicenseDetail,  // 29-4a 라이선스 전문
     };
@@ -124,7 +155,12 @@
           await new Promise((resolve) => window.setTimeout(resolve, remainingSplash));
           if (!cancelled) setStack([result.route || 'login']);
         } catch (error) {
-          window.__moyeoAuthStartupError = error?.message || '로그인 상태를 확인하지 못했어요.';
+          // AUTH-SILENT-CASES-CANON R3: 세션 만료로 돌아온 것은 오류가 아니다.
+          // 로그인 화면으로 보내는 것 자체가 안내이므로 배너를 남기지 않는다.
+          // 네트워크·서버 실패(§3)는 그대로 알린다.
+          if (!error?.sessionExpired) {
+            window.__moyeoAuthStartupError = error?.message || '로그인 상태를 확인하지 못했어요.';
+          }
           const remainingSplash = Math.max(0, 1800 - (Date.now() - startedAt));
           await new Promise((resolve) => window.setTimeout(resolve, remainingSplash));
           if (!cancelled) setStack(['login']);
@@ -133,6 +169,19 @@
       restore();
       return () => { cancelled = true; };
     }, [bootstrapAuth]);
+
+    // 가입 게이트(409 40902·40918)는 auth-api 가 이벤트로 올려보낸다 —
+    // 라우터가 React 컨텍스트라 API 계층이 직접 화면을 바꿀 수 없기 때문이다.
+    // 지금 화면을 **교체**한다: 뒤로 가기로 다시 막힌 화면에 돌아가면 같은 409 를 또 맞는다.
+    useEffect(() => {
+      const onSignupGate = (event) => {
+        const next = event.detail?.route;
+        if (!next) return;
+        setStack((s) => (s[s.length - 1] === next ? s : [...s.slice(0, -1), next]));
+      };
+      window.addEventListener('moyeo:signup-gate', onSignupGate);
+      return () => window.removeEventListener('moyeo:signup-gate', onSignupGate);
+    }, []);
 
     const [params, setParams] = useState({});
 
@@ -235,6 +284,15 @@
           @keyframes mt-tab-switch {
             from { transform: scale(0.985); opacity: 0.28; }
             to   { transform: scale(1);     opacity: 1; }
+          }
+          /* 25 프로필 카드 — "옆으로 밀 수 있다"를 알리는 절제된 유도.
+             폭 3px, 두 번 왕복하고 제자리에서 멈춘다. 들여다보는 화면이라 계속 움직이지 않는다. */
+          @keyframes mt-swipe-hint {
+            0%, 100% { transform: translateX(0); }
+            50%      { transform: translateX(3px); }
+          }
+          @media (prefers-reduced-motion: reduce) {
+            [data-swipe-hint] { animation: none !important; }
           }
         `}</style>
         <div style={animStyle} key={route}>

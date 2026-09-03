@@ -201,20 +201,23 @@ html, body {
   filter: brightness(0.84) saturate(0.9);
 }
 
+/* 조각은 화면 위에서 떨어져 **제자리(흩뿌려진 위치)** 에 내려앉는다.
+   끝난 뒤에도 남아 있어야 정지 화면(스크린샷)에서 화면 아래까지 흩날린 모습이 보인다.
+   예전에는 상단 40% 안에서만 생겨 아래로 210px 내려간 뒤 사라져, 위쪽에만 뭉쳐 보였다. */
 @keyframes moyeo-confetti-burst {
   0% {
     opacity: 0;
-    transform: translate3d(0, -18px, 0) rotate(0deg) scale(0.72);
+    transform: translate3d(0, calc(-1 * var(--confetti-rise, 320px)), 0) rotate(0deg) scale(0.78);
   }
-  18% { opacity: 0.92; }
+  14% { opacity: 0.95; }
   100% {
-    opacity: 0;
-    transform: translate3d(var(--confetti-drift, 12px), 210px, 0) rotate(var(--confetti-spin, 240deg)) scale(1);
+    opacity: 0.92;
+    transform: translate3d(var(--confetti-drift, 12px), 0, 0) rotate(var(--confetti-spin, 240deg)) scale(1);
   }
 }
 
 .moyeo-confetti-piece {
-  animation: moyeo-confetti-burst 1.9s cubic-bezier(0.18, 0.72, 0.28, 1) both;
+  animation: moyeo-confetti-burst var(--confetti-duration, 1.9s) cubic-bezier(0.18, 0.72, 0.28, 1) both;
   animation-delay: var(--confetti-delay, 0ms);
   will-change: transform, opacity;
 }
@@ -222,7 +225,7 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .moyeo-confetti-piece {
     animation: none;
-    opacity: 0.62;
+    opacity: 0.72;
   }
 }
 
@@ -345,8 +348,9 @@ const Icon = ({ name, size = 24, color = 'currentColor', strokeWidth = 1.6 }) =>
   const lucideNames = {
     arrow: 'ChevronRight', back: 'ChevronLeft', bell: 'Bell', bookmark: 'Bookmark',
     calendar: 'CalendarDays', camera: 'Camera', chat: 'MessageCircle', check: 'Check',
-    clock: 'Clock3', close: 'X', feed: 'Newspaper', flag: 'Flag', heart: 'Heart',
+    clock: 'Clock3', close: 'X', eye: 'Eye', feed: 'Newspaper', flag: 'Flag', heart: 'Heart',
     home: 'House', lock: 'LockKeyhole', map: 'Map', menu: 'Menu', minus: 'Minus',
+    myLocation: 'LocateFixed',
     money: 'Banknote', more: 'Ellipsis', note: 'FileText', paperclip: 'Paperclip',
     phone: 'Phone', pin: 'MapPin', plus: 'Plus', poll: 'ChartNoAxesColumnIncreasing',
     refresh: 'RefreshCw', search: 'Search', send: 'Send', settings: 'Settings',
@@ -383,6 +387,8 @@ const Icon = ({ name, size = 24, color = 'currentColor', strokeWidth = 1.6 }) =>
     star: <path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6L12 17l-5.4 2.8 1-6L3.2 9.5l6.1-.9L12 3Z" fill={color} stroke="none"/>,
     sparkle: <g fill={color}><path d="M12 2l1.4 4.6L18 8l-4.6 1.4L12 14l-1.4-4.6L6 8l4.6-1.4L12 2Z"/><path d="M19 14l.7 2.3L22 17l-2.3.7L19 20l-.7-2.3L16 17l2.3-.7L19 14Z"/></g>,
     pin: <g fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round"><path d="M12 22s7-7 7-12a7 7 0 1 0-14 0c0 5 7 12 7 12Z"/><circle cx="12" cy="10" r="2.5"/></g>,
+    // 내 위치(11 탐색 지도) — 안드로이드 MyLocation·iOS dot.scope 와 같은 십자선 모양이다.
+    myLocation: <g fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.6" fill={color} stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></g>,
     clock: <g fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></g>,
     calendar: <g fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/></g>,
     phone: <path d="M7 4h4l1.2 4-2.2 1.3a12 12 0 0 0 4.7 4.7l1.3-2.2 4 1.2v4a2 2 0 0 1-2.2 2A15 15 0 0 1 5 6.2 2 2 0 0 1 7 4Z" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"/>,

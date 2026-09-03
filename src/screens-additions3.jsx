@@ -71,19 +71,27 @@ function ScreenTripConfirmed() {
     observer.observe(root, { attributes: true, attributeFilter: ['data-moyeo-theme'] });
     return () => observer.disconnect();
   }, []);
-  const confetti = Array.from({ length: 18 }, (_, i) => ({
-    left: (i * 37) % 96,
-    top: 6 + ((i * 53) % 34),   // 상단 40% 안쪽 — 본문 텍스트와 겹치지 않게
-    size: 6 + (i % 3) * 3,
+  // 조각 배치는 4플랫폼 공통 규칙이다 (docs/alignment/MOCKDATA-CANON.md 의 confetti 항목).
+  // 무리수의 소수부를 쓰면 값이 고르게 퍼지면서도 규칙이 눈에 띄지 않는다 —
+  // 격자처럼 줄 서지 않고, 네 플랫폼이 같은 그림을 그린다(스크린샷 재현성).
+  const frac = (value) => value - Math.floor(value);
+  const confetti = Array.from({ length: 30 }, (_, i) => ({
+    left: 2 + frac(i * 0.6180339887) * 96,
+    // 상단이 아니라 **화면 전체 높이**에 흩뿌린다. 위에서 떨어져 이 자리에 내려앉는다.
+    top: 4 + frac(0.5 + i * 0.3819660113) * 88,
+    size: 5 + (i % 4) * 2,
     color: [T.primary500, T.accent500, T.primary300, T.warning][i % 4],
-    rot: (i * 47) % 180,
-    drift: -34 + ((i * 29) % 72),
-    delay: (i % 6) * 54,
+    rot: frac(i * 0.7548776662) * 360,
+    drift: -42 + frac(i * 0.7548776662) * 84,
+    // 떨어지는 거리·시간·시작 시점을 조각마다 달리해 한 덩어리로 움직이지 않게 한다.
+    rise: 180 + frac(i * 0.9142135624) * 260,
+    duration: 1.5 + frac(i * 0.4142135624) * 1.2,
+    delay: frac(i * 0.2360679775) * 520,
   }));
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative', overflow: 'hidden' }}>
-        <Header title={room ? (room.courseTitle || room.title) : '주왕산 & 주산지 힐링 트레킹'} left center onBack={nav.back}/>
+        <Header title={room ? (room.courseTitle || room.title) : ''} left center onBack={nav.back}/>
 
         {/* confetti — prefers-reduced-motion에서는 페이드만 (디자인 시스템 §7-3) */}
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
@@ -94,6 +102,8 @@ function ScreenTripConfirmed() {
               background: c.color,
               '--confetti-drift': `${c.drift}px`,
               '--confetti-spin': `${c.rot + 220}deg`,
+              '--confetti-rise': `${c.rise}px`,
+              '--confetti-duration': `${c.duration}s`,
               '--confetti-delay': `${c.delay}ms`,
             }}/>
           ))}
@@ -110,9 +120,10 @@ function ScreenTripConfirmed() {
           </div>
           <div style={{ fontSize: 22, fontWeight: 900, lineHeight: '31px', marginTop: 18 }}>여행이 확정됐어요!</div>
           <div style={{ fontSize: 13, color: T.text500, marginTop: 8, lineHeight: '20px' }}>
+            {/* 인원·마감일은 서버 모임에서만 온다 — 예시 숫자를 대신 적지 않는다 */}
             {room
               ? <>{room.recruitmentDeadlineDate ? `${window.MoyeoApi.formatDate(room.recruitmentDeadlineDate)} 마감까지 ` : ''}<b style={{ color: T.primary600 }}>{room.participantCount}명</b>이 모였어요.<br/>이제 함께 떠나기만 하면 돼요.</>
-              : <>5월 22일 마감까지 <b style={{ color: T.primary600 }}>5명</b>이 모였어요.<br/>이제 함께 떠나기만 하면 돼요.</>}
+              : '이제 함께 떠나기만 하면 돼요.'}
           </div>
 
           <div style={{
@@ -127,11 +138,7 @@ function ScreenTripConfirmed() {
               <span style={{ width: 8, height: 8, borderRadius: 999, background: T.primary500 }}/>
               <div style={{ fontSize: 12, fontWeight: 900, color: T.primary500 }}>확정된 여행</div>
             </div>
-            {(room ? confirmedRows(room) : [
-              ['calendar', '5/25(토) 당일치기 · 08:00 – 18:00'],
-              ['pin', '07:50 청송 시외버스터미널 정문 앞'],
-              ['users', '3명 · 최소 3명 충족'],
-            ]).map((r) => (
+            {(room ? confirmedRows(room) : []).map((r) => (
               <div key={r[1]} style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 8, fontSize: 12.5, color: T.text900, fontWeight: 700 }}>
                 <Icon name={r[0]} size={15} color={T.primary600}/>{r[1]}
               </div>
@@ -169,10 +176,8 @@ function ScreenTripConfirmed() {
 // ───────── 35 · 여행 날 채팅방 (진행 위젯) ─────────
 function ScreenTripDay() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
-  // 기획 20-5와 같이 입력이 비어 있으면 전송은 비활성이다.
-  const [draft, setDraft] = React.useState('');
-  // 참여 중인 방이면 GET {id}/roadmap/current 로 진행 위젯(방문지 스텝·현재/다음 일정)을 대체한다.
-  // active 가 false 거나 places 가 비면 서버가 진행 상황을 주지 않는 것이므로 목데이터를 유지한다.
+  // 참여 중인 방이면 GET {id}/roadmap/current 로 진행 위젯(방문지 스텝·현재/다음 일정)을 받는다.
+  // active 가 false 거나 places 가 비면 서버가 진행 상황을 주지 않는 것이므로 빈 상태를 그린다.
   const liveMode = window.MoyeoApi?.live();
   const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
   const [roadmap, setRoadmap] = React.useState(null);
@@ -182,38 +187,44 @@ function ScreenTripDay() {
     let active = true;
     window.MoyeoApi.roomRoadmap(roomId)
       .then((result) => { if (active && result?.active && (result.places || []).length) setRoadmap(result); })
-      .catch(() => { /* 403(미참여) 이면 목데이터 유지 */ });
+      .catch(() => { /* 403(미참여) 이면 빈 상태로 남는다 */ });
     window.MoyeoApi.roomDetail(roomId)
       .then((result) => { if (active && result?.roomId != null) setRoadmapRoom(result); })
       .catch(() => {});
     return () => { active = false; };
   }, [liveMode, roomId]);
-  const stops = roadmap ? roadmap.places.map((place) => place.title) : ['청송터미널', '주왕산', '주산지', '달기약수탕'];
+  // 진행 상황은 서버 로드맵에서만 온다 — 예시 방문지·대화를 대신 그리지 않는다.
+  const stops = roadmap ? roadmap.places.map((place) => place.title) : [];
   // 서버는 방문지별 progress(COMPLETED/CURRENT/UPCOMING)를 준다 — 완료 개수가 곧 진행 단계다.
   const current = roadmap
     ? Math.max(1, roadmap.places.filter((place) => place.progress === 'COMPLETED').length + (roadmap.places.some((place) => place.progress === 'CURRENT') ? 1 : 0))
-    : 2; // 1-indexed
-  const placeMarker = React.useMemo(() => {
-    const place = roadmap?.currentPlace || roadmap?.nextPlace;
-    if (place && Number.isFinite(Number(place.latitude)) && Number.isFinite(Number(place.longitude))) {
-      return { lat: Number(place.latitude), lng: Number(place.longitude), label: place.title };
-    }
-    return roadmap ? null : (window.MoyeoKakaoMap?.placeCoord?.('주산지') || null);
-  }, [roadmap]);
+    : 0;
+
+  if (!roadmap) {
+    return (
+      <Phone>
+        <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+          <Header title="" left center onBack={nav.back}/>
+          <div role="status" style={{ padding: '48px 20px', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '21px' }}>
+            {liveMode ? '참여 중인 모임이 없어요.' : '로그인하면 모집 중인 모임을 볼 수 있어요.'}
+          </div>
+        </div>
+      </Phone>
+    );
+  }
 
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
         <Header
-          title={roadmapRoom?.title || '주왕산 & 주산지 힐링 트레킹'}
+          title={roadmapRoom?.title || ''}
           left center onBack={nav.back}
           right={<><IconButton name="search"/><IconButton name="menu" onClick={() => nav.go('chat-menu')}/></>}
         />
         <div style={{ textAlign: 'center', fontSize: 12, color: T.text500, paddingBottom: 10, borderBottom: `1px solid ${RF.softLine}`, fontVariantNumeric: 'tabular-nums' }}>
           <span style={{ color: T.primary600, fontWeight: 900 }}>여행 중</span>
-          {roadmap
-            ? <>{roadmapRoom?.participantCount != null ? ` · ${roadmapRoom.participantCount}명` : ''}{roadmap.dayNumber != null ? ` · ${roadmap.dayNumber}/${roadmap.totalDays}일차` : ''}</>
-            : ' · 5명 · 오늘 08:00 출발'}
+          {roadmapRoom?.participantCount != null ? ` · ${roadmapRoom.participantCount}명` : ''}
+          {roadmap.dayNumber != null ? ` · ${roadmap.dayNumber}/${roadmap.totalDays}일차` : ''}
         </div>
 
         {/* 여행 진행 위젯 — 여행 시작일 당일에만 상단 고정 */}
@@ -221,7 +232,7 @@ function ScreenTripDay() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Icon name="pin" size={15} color={T.primary700}/>
             <div style={{ flex: 1, fontSize: 12.5, fontWeight: 900, color: T.primary700 }}>
-              현재 방문지 {current}/{stops.length} · {stops[current - 1]}
+              현재 방문지 {current}/{stops.length} · {stops[current - 1] || ''}
             </div>
             <span style={{ fontSize: 11, fontWeight: 800, color: T.primary600 }}>코스 전체 →</span>
           </div>
@@ -248,56 +259,19 @@ function ScreenTripDay() {
               </React.Fragment>
             ))}
           </div>
-          {roadmap
-            ? (roadmap.nextPlace && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 11.5, color: T.primary700 }}>
-                <Icon name="clock" size={13} color={T.primary600}/>
-                다음 일정 · <b>{window.MoyeoApi.formatClock(roadmap.nextPlace.scheduledAt)} {roadmap.nextPlace.title}</b>
-              </div>
-            ))
-            : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 11.5, color: T.primary700 }}>
-                <Icon name="clock" size={13} color={T.primary600}/>
-                다음 일정 · <b>14:00 주산지</b> 왕버들 산책로
-              </div>
-            )}
+          {roadmap.nextPlace && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 11.5, color: T.primary700 }}>
+              <Icon name="clock" size={13} color={T.primary600}/>
+              다음 일정 · <b>{window.MoyeoApi.formatClock(roadmap.nextPlace.scheduledAt)} {roadmap.nextPlace.title}</b>
+            </div>
+          )}
         </div>
 
+        {/* 여행 날 대화는 채팅방(20)이 그린다 — 예시 대화·장소 카드는 두지 않는다. */}
         <div style={{ height: 'calc(100% - 274px)', overflow: 'auto', padding: '16px 18px 86px', background: T.chatCanvas }}>
-          <div style={{ width: 'fit-content', margin: '0 auto 14px', background: T.systemMsg, color: T.primary700, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 800 }}>
+          <div style={{ width: 'fit-content', margin: '0 auto', background: T.systemMsg, color: T.primary700, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 800 }}>
             오늘 여행이 시작됐어요 🎒
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 14 }}>
-            <AnimalAvatar kind="rabbit" size={30} bg={T.primary50}/>
-            <div>
-              <div style={{ fontSize: 10, color: T.text500, margin: '0 0 4px 2px' }}>엉뚱한 토끼 1457</div>
-              <div style={{ maxWidth: 244, background: RF.card, border: `1px solid ${RF.softLine}`, borderRadius: '16px 16px 16px 4px', padding: '10px 13px', fontSize: 13, lineHeight: '19px' }}>
-                주왕산 3폭포 도착! 생각보다 사람 적어요 👍
-              </div>
-            </div>
-          </div>
-          {/* 장소 카드 — 첨부 메뉴의 '장소' */}
-          <div style={{ maxWidth: 268, marginLeft: 38, borderRadius: 14, border: `1px solid ${RF.softLine}`, background: RF.card, overflow: 'hidden', marginBottom: 14 }}>
-            {/* 장소 카드 — 방문지 실좌표에 단일 마커. 좌표를 못 찾으면 목업 지도가 남는다 */}
-            <MiniMap height={92} pins={[1]} level={4} markers={placeMarker ? [{ ...placeMarker, label: '' }] : null}/>
-            <div style={{ padding: 11 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 900 }}>주산지 주차장</div>
-              <div style={{ fontSize: 11, color: T.text500, marginTop: 3 }}>14:00 도착 예정 · 차로 22분</div>
-              <div style={{ fontSize: 11, fontWeight: 800, color: T.primary600, marginTop: 8 }}>길 찾기 →</div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <div style={{ maxWidth: 244, background: 'var(--moyeo-chat-mine)', borderRadius: '16px 16px 4px 16px', padding: '10px 13px', fontSize: 13, lineHeight: '19px' }}>
-              저는 주차장에서 기다릴게요~
-            </div>
-          </div>
-        </div>
-
-        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 14px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button type="button" onClick={() => nav.go('chat-attach')} aria-label="첨부 메뉴 열기" style={{ width: 38, height: 38, borderRadius: 999, border: `1px solid ${RF.softLine}`, background: RF.card, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-            <Icon name="plus" size={19} color={T.text700}/>
-          </button>
-          <Composer value={draft} onChange={setDraft} onSend={() => setDraft('')} placeholder="메시지 입력" testId="trip-day-composer"/>
         </div>
       </div>
     </Phone>
@@ -486,6 +460,20 @@ function ScreenAccountDelete() {
   const [withdrawing, setWithdrawing] = React.useState(false);
   // 로그인 상태에서는 DELETE /api/v1/users/me 실호출로 연결한다 (검증 시 실행 금지 — QA 계정 보호).
   const liveMode = window.MoyeoApi?.live();
+  // 참여 중인 여행은 마이·모임 탭과 같은 보관소('my.rooms')를 읽는다 —
+  // 탈퇴 화면에 들어왔다고 같은 목록을 다시 부르지 않는다 (TAB-STATE-CANON R3).
+  const roomsData = window.useTabData('my.rooms', () => window.MoyeoApi.myRooms(), {
+    enabled: liveMode, mode: 'keep', accept: Array.isArray,
+  });
+  // 종료된 방은 정리할 것이 없다. D-day 는 서버가 준 값만 붙인다(없으면 제목만).
+  const joinedTrips = React.useMemo(() => (roomsData.value || [])
+    .filter((room) => !room.ended)
+    .map((room) => ({
+      roomId: room.roomId,
+      label: room.recruitmentDDay != null && room.recruitmentDDay >= 0
+        ? `${room.title} · D-${room.recruitmentDDay}`
+        : room.title,
+    })), [roomsData.value]);
   const confirmWithdraw = async () => {
     if (!liveMode) { nav.go('login'); return; }
     if (withdrawing) return;
@@ -511,27 +499,31 @@ function ScreenAccountDelete() {
         <Header title="계정 탈퇴" left center onBack={nav.back}/>
 
         <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 96, overflow: 'auto', padding: '10px 20px 20px' }}>
-          {/* 참여 중인 모임이 있으면 먼저 정리하도록 — 서버 조회로 대체하지 않은 목데이터라 로그인 상태에서는 숨긴다 */}
-          {!liveMode && <div style={{ borderRadius: 14, border: `1px solid ${T.warningBg}`, background: T.warningBg, padding: 14 }}>
-            <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
-              <Icon name="users" size={17} color={T.warningText}/>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 900, color: T.warningText }}>참여 중인 여행이 2개 있어요</div>
-                <div style={{ fontSize: 11.5, color: T.warningText, marginTop: 5, lineHeight: '17px' }}>
-                  탈퇴하면 동행자들에게 갑자기 빈자리가 생겨요. 나가기 처리를 먼저 해주세요.
-                </div>
+          {/* 참여 중인 여행 경고 — 근거는 GET chat-rooms/my 다(안드로이드 AccountDeleteScreen 과 같은 조회).
+              어떤 여행을 먼저 정리해야 하는지 이 화면에서 알아야 한다. 목록이 비면 카드도 사라진다. */}
+          {joinedTrips.length > 0 && (
+            <div data-testid="account-delete-joined-trips" style={{ padding: 14, borderRadius: 14, background: T.warningBg, display: 'grid', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="users" size={16} color={T.warningText}/>
+                <span style={{ fontSize: 13, fontWeight: 900, color: T.warningText }}>참여 중인 여행이 {joinedTrips.length}개 있어요</span>
               </div>
-            </div>
-            <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
-              {['주왕산 & 주산지 힐링 트레킹 · D-2', '포항·영덕 동해 드라이브 · D-9'].map((t) => (
-                <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 11px', borderRadius: 10, background: RF.card, fontSize: 12, fontWeight: 700 }}>
-                  <Icon name="calendar" size={14} color={T.text500}/>
-                  <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t}</span>
-                  <span style={{ fontSize: 11.5, fontWeight: 800, color: T.primary600 }}>관리 →</span>
-                </div>
+              <div style={{ fontSize: 11.5, lineHeight: '17px', color: T.warningText }}>탈퇴하면 동행자들에게 갑자기 빈자리가 생겨요. 나가기 처리를 먼저 해주세요.</div>
+              {joinedTrips.map((trip) => (
+                <button
+                  key={trip.roomId}
+                  type="button"
+                  onClick={() => { window.MoyeoApi.selectRoom(trip.roomId); nav.go('detail'); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: 11, borderRadius: 10,
+                    border: 0, background: RF.card, color: T.text900, fontFamily: T.fontStack, textAlign: 'left', cursor: 'pointer',
+                  }}>
+                  <Icon name="calendar" size={13} color={T.warningText}/>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{trip.label}</span>
+                  <span style={{ fontSize: 11.5, fontWeight: 900, color: T.warningText, flexShrink: 0 }}>관리 →</span>
+                </button>
               ))}
             </div>
-          </div>}
+          )}
 
           <div style={{ fontSize: 13, fontWeight: 900, marginTop: 22 }}>떠나는 이유를 알려주세요</div>
           <div style={{ fontSize: 11.5, color: T.text500, marginTop: 5 }}>서비스를 고치는 데만 쓰여요. (필수)</div>
@@ -599,7 +591,7 @@ function ScreenAccountDelete() {
               {deleteAcknowledged && <Icon name="check" size={13} color="#fff" strokeWidth={3}/>}
             </span>
             <span style={{ fontSize: 12, lineHeight: '18px', fontWeight: 700 }}>
-              삭제되는 정보와 30일 복구 대기 정책을 확인했어요.
+              삭제 범위와 30일 대기 정책을 확인했어요
             </span>
           </button>
         </div>
@@ -699,6 +691,35 @@ function ScreenSystemMaintenance() { return <ScreenSystemNotice mode="maintenanc
 function ScreenSystemError() { return <ScreenSystemNotice mode="error"/>; }
 
 // ───────── 39 · 피드 댓글 전체 보기 ─────────
+// 23 피드 상세와 23-1 이 같은 댓글 한 줄을 쓴다 — 두 화면이 각자 그리면 아바타·시각 표기가 갈린다.
+// 프로필 이미지는 ProfileAvatar 를 쓴다(없으면 닉네임 아바타로 떨어진다 · 다른 화면과 같다).
+function FeedCommentRow({ item, reply = false }) {
+  const size = reply ? 26 : 34;
+  return (
+    <div style={{ display: 'flex', gap: 10, padding: reply ? '10px 0 10px 38px' : '12px 0' }}>
+      <ProfileAvatar src={item.author?.profileImageUrl} nickname={item.author?.nickname} size={size}/>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12.5, fontWeight: 800 }}>{item.author?.nickname}</span>
+          <span style={{ fontSize: 10.5, color: T.text400 }}>{window.MoyeoApi.formatRelative(item.createdAt)}</span>
+        </div>
+        <div style={{ fontSize: 13, lineHeight: '20px', marginTop: 5 }}>{item.content}</div>
+      </div>
+    </div>
+  );
+}
+
+// 23-1 이 한 번에 받는 최상위 댓글 수. 서버 기본값(20)과 같은 값을 명시해 둔다 —
+// 서버는 1~50 으로 보정하므로 이 값을 바꿔도 응답 모양은 같다.
+const FEED_COMMENTS_PAGE_SIZE = 20;
+
+// ───────── 23-1 · 댓글 전체 보기 (커서 페이지네이션) ─────────
+//
+// GET /feeds/{id}/comments 는 2026-09-02 부터 `{comments, nextId}` 를 준다(예전엔 배열이었다).
+// 커서는 GET /feeds 와 같은 방식이다 — 마지막 묶음의 `nextId` 를 다음 요청의
+// `beforeCommentId` 로 넘기고, `nextId` 가 null 이면 마지막 페이지다.
+// 최상위 댓글은 최신 ID 부터 오고 `replies` 는 각 최상위 댓글 안에 들어 있다
+// (대댓글은 페이지네이션 대상이 아니라 더 받을 것이 없다).
 function ScreenFeedComments() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   // 기획 23-1과 같이 입력이 비어 있으면 전송은 비활성이다.
@@ -707,51 +728,97 @@ function ScreenFeedComments() {
   const liveMode = window.MoyeoApi?.live();
   const feedId = liveMode ? window.MoyeoApi.selectedFeedId() : null;
   const [serverComments, setServerComments] = React.useState(null);
-  const loadComments = React.useCallback(() => {
+  // 다음 묶음의 커서. null 이면 마지막 페이지다. undefined 는 "아직 첫 묶음도 안 받았다".
+  const [nextId, setNextId] = React.useState(undefined);
+  const [loadingMore, setLoadingMore] = React.useState(false);
+  // 헤더의 총 댓글 수는 피드 상세의 commentCount 를 쓴다 — 받아 온 묶음의 길이를 쓰면
+  // 무한 스크롤 중에 "댓글 20" 처럼 총 개수를 틀리게 말한다(23 의 `댓글 N개` 와도 갈린다).
+  const [commentCount, setCommentCount] = React.useState(null);
+  const scrollRef = React.useRef(null);
+
+  // 첫 묶음. beforeCommentId 없이 부른다.
+  const loadFirstPage = React.useCallback(() => {
     if (!liveMode || !feedId) return;
-    window.MoyeoApi.feedComments(feedId)
-      .then((result) => { if (Array.isArray(result)) setServerComments(result); })
-      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    window.MoyeoApi.feedComments(feedId, { limit: FEED_COMMENTS_PAGE_SIZE })
+      .then((result) => {
+        if (!Array.isArray(result?.comments)) return;
+        setServerComments(result.comments);
+        setNextId(result.nextId ?? null);
+        if (scrollRef.current) scrollRef.current.scrollTop = 0;
+      })
+      .catch(() => { /* 실패 시 이미 그린 목록을 유지한다 */ });
   }, [liveMode, feedId]);
-  React.useEffect(() => { loadComments(); }, [loadComments]);
+  React.useEffect(() => { loadFirstPage(); }, [loadFirstPage]);
+  React.useEffect(() => {
+    if (!liveMode || !feedId) return;
+    window.MoyeoApi.feedDetail(feedId)
+      .then((feed) => { if (typeof feed?.commentCount === 'number') setCommentCount(feed.commentCount); })
+      .catch(() => { /* 총 개수를 못 받으면 헤더에 숫자를 지어내지 않는다 */ });
+  }, [liveMode, feedId]);
+
+  // 다음 묶음. 스크롤이 끝에 닿을 때만 부른다 — 한 번에 전부 받지 않는다.
+  const loadMore = React.useCallback(() => {
+    if (!feedId || loadingMore || !nextId) return;
+    setLoadingMore(true);
+    window.MoyeoApi.feedComments(feedId, { beforeCommentId: nextId, limit: FEED_COMMENTS_PAGE_SIZE })
+      .then((result) => {
+        if (!Array.isArray(result?.comments)) return;
+        // 같은 커서로 두 번 받아도 목록이 겹치지 않게 ID 로 걸러 붙인다.
+        setServerComments((current) => {
+          const seen = new Set((current || []).map((item) => item.commentId));
+          return [...(current || []), ...result.comments.filter((item) => !seen.has(item.commentId))];
+        });
+        setNextId(result.nextId ?? null);
+      })
+      .catch(() => { /* 실패하면 커서를 그대로 두고 다음 스크롤에서 다시 시도한다 */ })
+      .then(() => setLoadingMore(false));
+  }, [feedId, loadingMore, nextId]);
+
+  const onListScroll = (event) => {
+    const list = event.currentTarget;
+    if (list.scrollTop + list.clientHeight >= list.scrollHeight - 120) loadMore();
+  };
+  // 받은 묶음이 화면을 다 채우지 못하면 스크롤이 생기지 않아 다음 묶음을 부를 계기가 없다 —
+  // 그러면 `불러오는 중이에요…` 가 영원히 남는다. 스크롤이 없을 때는 여기서 이어 받는다.
+  React.useEffect(() => {
+    const list = scrollRef.current;
+    if (!list || !nextId || loadingMore) return;
+    if (list.scrollHeight <= list.clientHeight) loadMore();
+  }, [nextId, loadingMore, serverComments, loadMore]);
+
   const sendServerComment = async () => {
     if (!comment.trim()) return;
     try {
       await window.MoyeoApi.addFeedComment(feedId, comment.trim());
       setComment('');
-      loadComments();
+      // 새 댓글은 가장 큰 ID 라 목록 맨 위에 온다. 뒤 묶음의 커서는 그대로 유효하지만
+      // 받아 둔 묶음 사이에 끼워 넣을 자리를 클라가 계산하면 순서가 어긋난다 —
+      // **첫 묶음부터 다시 받아** 맨 위로 올린다(23 의 commentCount 도 같이 다시 읽는다).
+      setNextId(undefined);
+      loadFirstPage();
+      setCommentCount((current) => (typeof current === 'number' ? current + 1 : current));
     } catch (_) { /* 실패 시 입력 유지 */ }
   };
 
   if (serverComments) {
-    const ServerComment = ({ item, reply = false }) => (
-      <div style={{ display: 'flex', gap: 10, padding: reply ? '10px 0 10px 38px' : '12px 0' }}>
-        {item.author?.profileImageUrl
-          ? <img src={item.author.profileImageUrl} alt="" style={{ width: reply ? 26 : 34, height: reply ? 26 : 34, borderRadius: 999, objectFit: 'cover', background: T.primary50 }}/>
-          : <span style={{ width: reply ? 26 : 34, height: reply ? 26 : 34, borderRadius: 999, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="user" size={reply ? 13 : 16} color={T.primary600}/></span>}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12.5, fontWeight: 800 }}>{item.author?.nickname}</span>
-            <span style={{ fontSize: 10.5, color: T.text400 }}>{window.MoyeoApi.formatRelative(item.createdAt)}</span>
-          </div>
-          <div style={{ fontSize: 13, lineHeight: '20px', marginTop: 5 }}>{item.content}</div>
-        </div>
-      </div>
-    );
     return (
       <Phone>
         <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
-          <Header title={`댓글 ${serverComments.length}`} left center onBack={nav.back}/>
-          <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 78, overflow: 'auto', padding: '0 18px 16px' }}>
+          <Header title={commentCount == null ? '댓글' : `댓글 ${commentCount}`} left center onBack={nav.back}/>
+          <div ref={scrollRef} onScroll={onListScroll} data-testid="feed-comments-scroll" style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 78, overflow: 'auto', padding: '0 18px 16px' }}>
             {serverComments.length === 0 && (
               <div style={{ padding: '56px 0', textAlign: 'center', color: T.text500, fontSize: 13 }}>아직 댓글이 없어요. 첫 댓글을 남겨보세요!</div>
             )}
             {serverComments.map((item) => (
               <div key={item.commentId} style={{ borderBottom: `1px solid ${RF.softLine}` }}>
-                <ServerComment item={item}/>
-                {(item.replies || []).map((reply) => <ServerComment key={reply.commentId} item={reply} reply/>)}
+                <FeedCommentRow item={item}/>
+                {(item.replies || []).map((reply) => <FeedCommentRow key={reply.commentId} item={reply} reply/>)}
               </div>
             ))}
+            {/* 다음 묶음이 있는 동안만 자리를 남긴다 — 마지막 페이지(nextId null)에는 아무것도 없다. */}
+            {nextId && (
+              <div role="status" data-testid="feed-comments-more" style={{ padding: '16px 0', textAlign: 'center', color: T.text500, fontSize: 12 }}>불러오는 중이에요…</div>
+            )}
           </div>
           <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 14px 24px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8, alignItems: 'center' }}>
             <Composer value={comment} onChange={setComment} onSend={sendServerComment} placeholder="댓글을 남겨주세요" height={40} buttonSize={36} iconSize={16} inputLabel="댓글 입력" testId="feed-comments-composer"/>
@@ -760,70 +827,13 @@ function ScreenFeedComments() {
       </Phone>
     );
   }
-  const comments = [
-    { k: 'rabbit', n: '엉뚱한 토끼 1457', t: '2시간 전', c: '이날 진짜 좋았어요! 주산지 물안개 사진 저도 올릴게요 📷', likes: 4, mate: true, replies: [
-      { k: 'bear', n: '숲속여행자', t: '1시간 전', c: '토끼님 사진이 훨씬 잘 나왔어요 ㅎㅎ', author: true },
-    ] },
-    { k: 'turtle', n: '잔잔한 거북이 9032', t: '3시간 전', c: '달기약수탕 백숙 진짜 맛있었죠', likes: 2, mate: true, replies: [] },
-    { k: 'crane', n: '고요한 두루미 1130', t: '5시간 전', c: '이 코스 저도 가보고 싶네요. 당일치기로 충분할까요?', likes: 1, mate: false, replies: [
-      { k: 'bear', n: '숲속여행자', t: '4시간 전', c: '네 08시 출발이면 여유로워요!', author: true },
-    ] },
-  ];
-
-  const Comment = ({ c, reply = false }) => (
-    <div style={{ display: 'flex', gap: 10, padding: reply ? '10px 0 10px 38px' : '12px 0' }}>
-      <AnimalAvatar kind={c.k} size={reply ? 26 : 34} bg={T.primary50}/>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12.5, fontWeight: 800 }}>{c.n}</span>
-          {c.author && <Chip variant="soft">작성자</Chip>}
-          {c.mate && <Chip variant="neutral">함께 간 친구</Chip>}
-          <span style={{ fontSize: 10.5, color: T.text400 }}>{c.t}</span>
-        </div>
-        <div style={{ fontSize: 13, lineHeight: '20px', marginTop: 5 }}>{c.c}</div>
-        <div style={{ display: 'flex', gap: 14, marginTop: 7, fontSize: 11, color: T.text500, fontWeight: 700 }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <Icon name="heart" size={13} color={T.text400}/>{c.likes || ''}
-          </span>
-          <span>답글 달기</span>
-        </div>
-      </div>
-    </div>
-  );
-
+  // 서버 댓글을 못 받으면 예시 댓글을 그리지 않는다.
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
-        <Header title="댓글 18" left center onBack={nav.back}/>
-
-        <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 78, overflow: 'auto', padding: '0 18px 16px' }}>
-          {/* 어떤 피드의 댓글인지 */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0 12px', borderBottom: `1px solid ${RF.softLine}` }}>
-            <div style={{ width: 40, height: 40, borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
-              <Photo hue="forest" height={40} radius={0}/>
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>주왕산 &amp; 주산지 힐링 트레킹</div>
-              <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>숲속여행자 · 좋아요 128</div>
-            </div>
-          </div>
-
-          {comments.map((c) => (
-            <div key={c.n} style={{ borderBottom: `1px solid ${RF.softLine}` }}>
-              <Comment c={c}/>
-              {c.replies.map((r) => <Comment key={r.c} c={r} reply/>)}
-            </div>
-          ))}
-
-          <div style={{ textAlign: 'center', fontSize: 11, color: T.text400, padding: '16px 0 4px' }}>
-            함께 간 친구의 댓글이 먼저 보여요
-          </div>
-        </div>
-
-        {/* 댓글 입력 */}
-        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 14px 24px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8, alignItems: 'center' }}>
-          <AnimalAvatar kind="deer" size={32} bg={T.primary50}/>
-          <Composer value={comment} onChange={setComment} onSend={() => setComment('')} placeholder="댓글을 남겨주세요" height={40} buttonSize={36} iconSize={16} inputLabel="댓글 입력" testId="feed-comments-composer"/>
+        <Header title="댓글" left center onBack={nav.back}/>
+        <div role="status" style={{ padding: '48px 20px', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '21px' }}>
+          {liveMode ? '아직 댓글이 없어요.' : '로그인하면 모집 중인 모임을 볼 수 있어요.'}
         </div>
       </div>
     </Phone>

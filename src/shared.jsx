@@ -1,5 +1,15 @@
 // Shared components for 모여트립 — phone shells, character avatars, map, progress
 
+// 화면을 URL 로 **직접** 연 진입이다 (`?screen=` · `?route=` — 캡처와 프로토타입 전용 경로).
+// 이때는 앞 단계가 없으므로, 가입 단계 화면이 서버 상태만 보고 다음 화면으로 넘겨서는 안 된다.
+// 넘겨 버리면 그 자리에 홈이 찍혀 대조 자료가 통째로 거짓이 된다 (07 이 실제로 그랬다).
+// iOS 의 authPreview 직접 라우트가 같은 규칙이다 — 단계 화면을 그대로 그리고 이동하지 않는다.
+function isDirectScreenEntry() {
+  if (typeof window === 'undefined' || !window.location) return false;
+  const params = new URLSearchParams(window.location.search);
+  return Boolean(params.get('screen') || params.get('route'));
+}
+
 // Phone shell — replicates the iOS frame style but lighter
 function Phone({ children, dark = false }) {
   return (
@@ -168,90 +178,17 @@ function ProgressBar({ current = 4, max = 8, min = 3 }) {
   );
 }
 
-// Realistic-feeling landscape placeholder — layered nature SVG, calm muted tones
-function ImgPlaceholder({ label, height = 180, hue = 'forest', radius = 16, children, scene }) {
-  // Nature scene palettes — calm, photographic, low chroma
-  // sky/water/mountain/foreground tones derived from natural Korean landscape photos
-  const palettes = {
-    forest:  { sky: '#D8E4D2', water: '#7A9580', m1: '#3F5A45', m2: '#2A4030', m3: '#1F3025', fore: '#1A2620' }, // 산·숲 짙은 그린
-    autumn:  { sky: '#E8DCC8', water: '#A89060', m1: '#8A6A3A', m2: '#6B4A28', m3: '#4A331C', fore: '#3A2818' }, // 단풍·갈색
-    coast:   { sky: '#CDD8DA', water: '#7A95A0', m1: '#4A6068', m2: '#33454C', m3: '#22323A', fore: '#1A262C' }, // 동해 코스트
-    sunset:  { sky: '#E8D0B0', water: '#B89878', m1: '#7A5A40', m2: '#5A3F28', m3: '#3F2A18', fore: '#2A1C10' }, // 일몰
-    night:   { sky: '#2A3530', water: '#1A2520', m1: '#152018', m2: '#0E1812', m3: '#08120C', fore: '#050A06' }, // 야경
-    pebble:  { sky: '#E0DCD2', water: '#B8B0A0', m1: '#8A8070', m2: '#6A6050', m3: '#4A4030', fore: '#3A3020' }, // 한옥·돌담
-    hanok:   { sky: '#D8DFD2', water: '#9AAA8A', m1: '#5A4A38', m2: '#3F3022', m3: '#2A1F18', fore: '#1A1208' }, // 한옥마을
-  };
-  const p = palettes[hue] || palettes.forest;
+// 서버 이미지가 없을 때의 빈 썸네일. 산·물·나무를 그리던 풍경 SVG(hue 팔레트)는 지웠다 —
+// 자리표시자가 사진처럼 보이면 "이 콘텐츠에 사진이 없다"는 사실이 화면에서 사라진다.
+// 빈 자리는 앱 공용 플레이스홀더 에셋 하나로 통일한다(PlaceImage 와 같은 그림).
+function ImgPlaceholder({ height = 180, radius = 16, shape = 'landscape', children }) {
+  const source = window.MoyeoImageCache?.placeholderSources?.[shape];
   return (
     <div style={{
       width: '100%', height, borderRadius: radius, position: 'relative', overflow: 'hidden',
-      background: p.sky,
+      background: T.bgSubtle,
     }}>
-      <svg width="100%" height="100%" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" style={{ display: 'block' }}>
-        {/* sky gradient */}
-        <defs>
-          <linearGradient id={`sky-${hue}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={p.sky}/>
-            <stop offset="100%" stopColor={p.water} stopOpacity="0.4"/>
-          </linearGradient>
-          <linearGradient id={`water-${hue}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={p.water} stopOpacity="0.7"/>
-            <stop offset="100%" stopColor={p.m2}/>
-          </linearGradient>
-        </defs>
-        <rect width="320" height="200" fill={`url(#sky-${hue})`}/>
-
-        {/* Far mountains */}
-        <path d="M0 110 L40 80 L80 95 L130 70 L180 95 L230 75 L280 90 L320 80 L320 130 L0 130 Z" fill={p.m1} opacity="0.8"/>
-        {/* Mid mountains */}
-        <path d="M0 130 L30 105 L70 120 L110 95 L160 115 L210 100 L260 120 L320 105 L320 145 L0 145 Z" fill={p.m2} opacity="0.85"/>
-        {/* Water/lake reflection */}
-        <rect x="0" y="140" width="320" height="60" fill={`url(#water-${hue})`}/>
-        {/* Water shimmer lines */}
-        <path d="M30 158 L80 158 M120 162 L200 162 M230 156 L290 156 M40 172 L100 172 M150 175 L220 175 M250 170 L300 170" stroke={p.sky} strokeWidth="0.6" opacity="0.4"/>
-
-        {/* Foreground hill */}
-        <path d="M0 145 Q30 130 60 138 Q100 148 140 140 Q180 132 220 142 Q260 150 320 138 L320 200 L0 200 Z" fill={p.m3}/>
-        {/* Trees on foreground */}
-        <g opacity="0.9">
-          {[20, 45, 75, 110, 145, 185, 225, 265, 295].map((x, i) => (
-            <g key={i} transform={`translate(${x} ${150 + (i%3)*3})`}>
-              <path d={`M0 0 L-3 -${8 + (i%3)*2} L0 -${10 + (i%3)*2} L3 -${8 + (i%3)*2} Z`} fill={p.fore}/>
-            </g>
-          ))}
-        </g>
-
-        {/* Atmospheric haze */}
-        <rect x="0" y="80" width="320" height="40" fill={p.sky} opacity="0.25"/>
-      </svg>
-
-      {/* Optional scene-specific overlays */}
-      {scene === 'hanok' && (
-        <svg width="60%" height="50%" viewBox="0 0 200 100" preserveAspectRatio="xMidYMax meet" style={{ position: 'absolute', bottom: '10%', left: '20%', opacity: 0.95 }}>
-          {/* Hanok roof silhouette */}
-          <path d="M20 60 Q100 30 180 60 L170 65 Q100 38 30 65 Z" fill="#2A1C10"/>
-          <rect x="40" y="65" width="120" height="25" fill="#4A3320"/>
-          <rect x="50" y="72" width="20" height="18" fill="#1A1008"/>
-          <rect x="90" y="72" width="20" height="18" fill="#1A1008"/>
-          <rect x="130" y="72" width="20" height="18" fill="#1A1008"/>
-        </svg>
-      )}
-
-      {/* subtle grain */}
-      <div style={{
-        position: 'absolute', inset: 0, pointerEvents: 'none',
-        backgroundImage: `radial-gradient(rgba(0,0,0,0.04) 1px, transparent 1px)`,
-        backgroundSize: '3px 3px', opacity: 0.5,
-      }}/>
-
-      {label && (
-        <div style={{
-          position: 'absolute', bottom: 10, left: 12,
-          fontSize: 10, fontFamily: 'ui-monospace, "SF Mono", monospace',
-          color: 'rgba(255,255,255,0.85)', letterSpacing: 0.3, textTransform: 'uppercase',
-          textShadow: '0 1px 2px rgba(0,0,0,0.4)',
-        }}>{label}</div>
-      )}
+      {source && <img src={source} alt="" style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}/>}
       {children}
     </div>
   );
@@ -351,17 +288,16 @@ function moyeoPinDataUri(route) {
 
 // Mini map — 좌표가 있고 SDK 로드가 되면 카카오 실지도, 아니면 아래 SVG 목업.
 // 이름·기존 props 를 그대로 유지해 호출부 8곳 이상을 건드리지 않는다.
+// 실제 카카오 지도만 그린다. 좌표가 없거나 SDK 를 쓸 수 없으면 아무것도 그리지 않는다 —
+// 손으로 그린 지도는 실제 위치와 무관해서, 비어 있는 것보다 더 잘못된 정보를 준다.
 function MiniMap({
-  height = 200, dark = false, withRoute = true, pins = [1,2,3,4],
+  height = 200,
   center = null, markers = null, polyline = null, level = 6,
-  draggablePin = false, onPinMove = null, onMarkerSelect = null, onLiveMap = null,
+  draggablePin = false, onPinMove = null, onMarkerSelect = null,
 }) {
   // 지도 색은 테마 토큰을 쓴다 — 다크 모드에서 지도만 밝게 남으면 앱과 어긋난다.
-  // dark 를 명시한 호출부(밝은 히어로 위 어두운 지도)는 그대로 고정 색을 쓴다.
-  const bg = dark ? '#1A2320' : T.mapBg;
-  const land = dark ? '#222C28' : T.mapLand;
-  const water = dark ? '#1A2A36' : T.mapWater;
-  const route = dark ? T.primary300 : T.primary500;
+  const bg = T.mapBg;
+  const route = T.primary500;
 
   const markerList = React.useMemo(() => (markers || []).filter((m) => m && Number.isFinite(m.lat) && Number.isFinite(m.lng)), [markers]);
   const pathList = React.useMemo(() => (polyline || []).filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng)), [polyline]);
@@ -378,9 +314,7 @@ function MiniMap({
   const markerKey = JSON.stringify(markerList);
   const pathKey = JSON.stringify(pathList);
 
-  React.useEffect(() => { if (onLiveMap) onLiveMap(live); }, [live, onLiveMap]);
-
-  // 지도 생성 — 실패·인증 오류·타일 미로딩은 모두 목업 폴백으로 떨어진다.
+  // 지도 생성 — 실패·인증 오류·타일 미로딩이면 지도 자리를 비운다.
   React.useEffect(() => {
     if (!canTryLive) return undefined;
     let cancelled = false;
@@ -457,7 +391,7 @@ function MiniMap({
 
       setLive(true);
       // 도메인 미등록 등 인증 실패는 스크립트 로드로는 잡히지 않는다.
-      // 타일 이미지가 하나도 안 붙으면 빈 사각형이 남으므로 목업으로 되돌린다.
+      // 타일 이미지가 하나도 안 붙으면 지도가 아니라 빈 사각형이므로 live 를 내린다.
       tileTimer = window.setTimeout(() => {
         if (cancelled) return;
         if (!holderRef.current || !holderRef.current.querySelector('img')) setLive(false);
@@ -474,50 +408,18 @@ function MiniMap({
     };
   }, [canTryLive, focusKey, markerKey, pathKey, level, height, draggablePin, route]);
 
+  // 지도를 못 그리는 상태(좌표 없음 · 키 없음 · 캡처 라우트)면 자리 자체를 만들지 않는다.
+  if (!canTryLive) return null;
+
   return (
     // isolation: 카카오 지도 내부 z-index 가 헤더·하단 카드 위로 올라오지 않게 스택 컨텍스트를 가둔다.
     <div style={{ width: '100%', height, borderRadius: 16, overflow: 'hidden', position: 'relative', background: bg, isolation: 'isolate', zIndex: 0 }}>
-      {canTryLive && (
-        <div
-          ref={holderRef}
-          data-moyeo-map="kakao"
-          data-moyeo-map-live={live ? 'true' : 'false'}
-          style={{ position: 'absolute', inset: 0, opacity: live ? 1 : 0, pointerEvents: live ? 'auto' : 'none' }}
-        />
-      )}
-      {!live && (
-      <svg width="100%" height="100%" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice">
-        <rect width="320" height="200" fill={bg}/>
-        {/* land masses */}
-        <path d="M0 0 L320 0 L320 60 Q260 70 220 90 Q180 110 140 100 Q100 90 60 110 Q20 130 0 120 Z" fill={land}/>
-        <path d="M0 200 L320 200 L320 130 Q280 150 240 140 Q180 130 140 150 Q80 170 40 160 Q20 156 0 162 Z" fill={land}/>
-        {/* water */}
-        <path d="M-10 60 Q60 100 140 95 Q220 90 320 70 L320 130 Q260 145 200 140 Q120 135 60 150 Q20 160 -10 155 Z" fill={water} opacity="0.5"/>
-        {/* roads */}
-        <path d="M30 30 Q90 50 150 60 Q210 70 290 50" stroke={dark ? '#323D38' : T.mapRoad} strokeWidth="1.5" fill="none"/>
-        <path d="M40 170 Q120 150 200 160 Q260 168 300 180" stroke={dark ? '#323D38' : T.mapRoad} strokeWidth="1.5" fill="none"/>
-        {/* route line */}
-        {withRoute && (
-          <>
-            <path d="M50 150 Q90 130 130 110 Q170 95 210 75 Q240 60 270 50" stroke="rgba(0,0,0,0.18)" strokeWidth="5" strokeLinecap="round" fill="none" transform="translate(0,1.5)"/>
-            <path d="M50 150 Q90 130 130 110 Q170 95 210 75 Q240 60 270 50" stroke={route} strokeWidth="4" strokeLinecap="round" fill="none"/>
-          </>
-        )}
-        {/* pins */}
-        {withRoute && [
-          { x: 50, y: 150, n: 1 },
-          { x: 130, y: 110, n: 2 },
-          { x: 210, y: 75, n: 3 },
-          { x: 270, y: 50, n: 4 },
-        ].slice(0, pins.length).map((p, i) => (
-          <g key={i}>
-            <circle cx={p.x} cy={p.y + 1} r="13" fill="rgba(0,0,0,0.18)"/>
-            <circle cx={p.x} cy={p.y} r="13" fill={route}/>
-            <text x={p.x} y={p.y + 4} fontSize="11" fontWeight="700" textAnchor="middle" fill="#fff" fontFamily={T.fontStack}>{p.n}</text>
-          </g>
-        ))}
-      </svg>
-      )}
+      <div
+        ref={holderRef}
+        data-moyeo-map="kakao"
+        data-moyeo-map-live={live ? 'true' : 'false'}
+        style={{ position: 'absolute', inset: 0, opacity: live ? 1 : 0, pointerEvents: live ? 'auto' : 'none' }}
+      />
     </div>
   );
 }
@@ -527,10 +429,22 @@ function BottomNav({ active = 'home', dark = false, onChange }) {
   const tabs = [
     { id: 'home',  label: '홈', icon: 'home', route: 'home' },
     { id: 'compass', label: '탐색', icon: 'compass', route: 'explore' },
-    { id: 'group', label: '모임', icon: 'users', dot: true, route: 'chat-list' },
+    // `dot` 은 아래 useEffect 가 서버에서 받아 켠다 — 여기서 true 로 박으면 안 된다.
+    { id: 'group', label: '모임', icon: 'users', route: 'chat-list' },
     { id: 'feed',  label: '피드', icon: 'feed', route: 'feed' },
     { id: 'my',    label: '마이', icon: 'user', route: 'my' },
   ];
+  // 모임 탭 알림 점 — 읽지 않은 메시지가 있을 때만 켠다.
+  // 예전에는 `dot: true` 가 박혀 있어 알림이 하나도 없어도 계속 떠 있었다.
+  const [hasMeetingAlert, setHasMeetingAlert] = React.useState(false);
+  React.useEffect(() => {
+    let alive = true;
+    window.MoyeoApi?.hasMeetingAlert?.()
+      .then((value) => { if (alive) setHasMeetingAlert(Boolean(value)); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   const bg = dark ? '#1A2320' : '#FFFFFF';
   const inactiveColor = T.text400;
   const activeColor = dark ? T.primary300 : T.primary500;
@@ -560,7 +474,7 @@ function BottomNav({ active = 'home', dark = false, onChange }) {
             }}>
             <div style={{ position: 'relative' }}>
               <Icon name={t.icon} size={24} color={on ? activeColor : inactiveColor}/>
-              {t.dot && (
+              {t.id === 'group' && hasMeetingAlert && (
                 <div style={{
                   position: 'absolute', top: -1, right: -2, width: 7, height: 7, borderRadius: 999,
                   background: T.accent500, border: `1.5px solid ${bg}`,
@@ -692,4 +606,4 @@ function Composer({
   );
 }
 
-Object.assign(window, { Phone, AnimalAvatar, ProgressBar, ImgPlaceholder, MiniMap, BottomNav, Chip, Btn, BearChar, BearGroup, CategoryChip, Composer });
+Object.assign(window, { Phone, AnimalAvatar, ProgressBar, ImgPlaceholder, MiniMap, BottomNav, Chip, Btn, BearChar, BearGroup, CategoryChip, Composer, isDirectScreenEntry });

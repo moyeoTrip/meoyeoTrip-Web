@@ -34,6 +34,9 @@
     exploreMap: 'explore-map',
     map: 'explore-map',
     search: 'search',
+    // 12-1 검색 결과
+    searchResults: 'search-results',
+    'search-results': 'search-results',
     notifications: 'notif',
     notif: 'notif',
     removalReason: 'removal-reason',
@@ -54,6 +57,11 @@
     'create-schedule': 'create-schedule',
     createPeople: 'create-people',
     'create-people': 'create-people',
+    // 17-4a · 17-4b — 인원수별 멘트 변형 (캡처 전용 진입, 실사용 기본값은 create-people)
+    createPeopleSmall: 'create-people-small',
+    'create-people-small': 'create-people-small',
+    createPeopleLarge: 'create-people-large',
+    'create-people-large': 'create-people-large',
     createDetail: 'create-detail',
     'create-detail': 'create-detail',
     createMeet: 'create-meet',
@@ -88,11 +96,52 @@
     'member-remove': 'member-remove',
     chatAttach: 'chat-attach',
     'chat-attach': 'chat-attach',
+    // 20-2a~20-2f 첨부 작성 화면
+    attachPhoto: 'attach-photo',
+    'attach-photo': 'attach-photo',
+    attachPlace: 'attach-place',
+    'attach-place': 'attach-place',
+    attachMap: 'attach-map',
+    'attach-map': 'attach-map',
+    attachPoll: 'attach-poll',
+    'attach-poll': 'attach-poll',
+    attachSettlement: 'attach-settlement',
+    'attach-settlement': 'attach-settlement',
+    attachNotice: 'attach-notice',
+    'attach-notice': 'attach-notice',
     noticeHistory: 'notice-history',
     'notice-history': 'notice-history',
+    noticeEdit: 'notice-edit',
+    'notice-edit': 'notice-edit',
+    roomNotif: 'room-notif',
+    'room-notif': 'room-notif',
     leaveAlert: 'leave-alert',
     leave: 'leave-alert',
     'leave-alert': 'leave-alert',
+    // 31-1 참가자 나가기 (31 은 호스트 문구)
+    leaveMember: 'leave-member',
+    'leave-member': 'leave-member',
+    // ATTACH-COMPOSER-CANON §6 신설 화면
+    passwordReset: 'password-reset',
+    'password-reset': 'password-reset',
+    kickHistory: 'kick-history',
+    'kick-history': 'kick-history',
+    tripStatus: 'trip-status',
+    'trip-status': 'trip-status',
+    meetingEdit: 'meeting-edit',
+    'meeting-edit': 'meeting-edit',
+    applyCancel: 'apply-cancel',
+    'apply-cancel': 'apply-cancel',
+    favoriteRooms: 'favorite-rooms',
+    'favorite-rooms': 'favorite-rooms',
+    courseRating: 'course-rating',
+    'course-rating': 'course-rating',
+    friendManage: 'friend-manage',
+    'friend-manage': 'friend-manage',
+    unblockConfirm: 'unblock-confirm',
+    'unblock-confirm': 'unblock-confirm',
+    accountProviders: 'account-providers',
+    'account-providers': 'account-providers',
     states: 'states',
     messages: 'msgs',
     msgs: 'msgs',
@@ -252,6 +301,26 @@
       filter: saturate(0.35);
     }
 
+    /* ── 캡처 중에는 애니메이션·전환을 멈춘다 ──
+       두 가지 이유가 있다.
+       (1) **결정성** — 같은 화면을 두 번 찍으면 같은 픽셀이 나와야 비교가 성립한다.
+           스켈레톤 반짝임·프로그레스 흐름이 살아 있으면 매번 다른 프레임이 찍힌다.
+       (2) **속도** — 헤드리스 Chrome 의 --virtual-time-budget 은 애니메이션 프레임에
+           맞춰 가상 시간을 흘리므로, 끊임없이 도는 애니메이션이 있으면 예산 15초를
+           실시간으로도 거의 다 쓴다. 멈추면 예산이 즉시 소진돼 캡처가 훨씬 빨라진다.
+       capture=1 일 때만 걸린다 — 실사용 화면은 그대로다.
+       (이 주석은 템플릿 리터럴 안이다 — 백틱을 쓰면 문자열이 끊긴다.) */
+    .mw-root[data-capture="true"] *,
+    .mw-root[data-capture="true"] *::before,
+    .mw-root[data-capture="true"] *::after {
+      animation-play-state: paused !important;
+      animation-duration: 0s !important;
+      animation-delay: 0s !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0s !important;
+      transition-delay: 0s !important;
+    }
+
     .mw-stage-crop > div > div,
     .mw-stage-crop .moyeo-web-phone,
     .mw-stage-crop [style*="width: 393px"][style*="height: 852px"] {
@@ -362,9 +431,21 @@
       if (initialScroll === 'top' && capturePage === 1) return undefined;
 
       const scrollLargestScrollable = () => {
-        const candidates = Array.from(document.querySelectorAll('.mw-stage-crop *'))
-          .filter((el) => el.scrollHeight > el.clientHeight + 8)
-          .sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight));
+        // **실제로 스크롤되는 요소**를 먼저 고른다. `scrollHeight > clientHeight` 만 보면
+        // 카카오 지도 내부 div(overflow:visible · clientHeight 0 · scrollHeight 340)가
+        // 넘침 폭이 커서 1등으로 뽑히고, 그걸 스크롤해 봐도 화면은 그대로다 —
+        // 21 특수 메시지 견본이 실제로 그렇게 2페이지째를 1페이지와 똑같이 찍었다.
+        const overflowing = Array.from(document.querySelectorAll('.mw-stage-crop *'))
+          .filter((el) => el.scrollHeight > el.clientHeight + 8);
+        const byOverflow = (a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight);
+        const scrollable = overflowing.filter(
+          (el) => ['auto', 'scroll'].includes(window.getComputedStyle(el).overflowY),
+        );
+        // auto/scroll 이 하나도 없으면 예전 규칙으로 돌아간다(overflow:hidden 을 scrollTop 으로
+        // 밀던 화면이 있을 수 있다). 지도 내부만 빼면 된다.
+        const candidates = (scrollable.length > 0
+          ? scrollable
+          : overflowing.filter((el) => !el.closest('[data-moyeo-map]'))).sort(byOverflow);
         const target = candidates[0];
         if (!target) {
           window.__moyeoScrollPages = 1;
@@ -449,7 +530,7 @@
     }, [online]);
 
     return (
-      <div className={`mw-root${captureMode ? ' mw-capture' : ''}`} data-online={online ? 'true' : 'false'}>
+      <div className={`mw-root${captureMode ? ' mw-capture' : ''}`} data-online={online ? 'true' : 'false'} data-capture={captureMode ? 'true' : 'false'}>
         <MobileStage initial={initial} initialScroll={initialScroll} capturePage={getCapturePage()} bootstrapAuth={bootstrapAuth} online={online}/>
       </div>
     );

@@ -6,16 +6,6 @@
   const SCRIPT_ID = 'moyeo-kakao-maps-sdk';
   const LOAD_TIMEOUT_MS = 9000;
 
-  // 17-3 집합 장소 기본값. 화면기획의 좌표(청송 시외버스터미널)와 같은 값을 쓴다.
-  const MEETING_POINT = { lat: 36.435612, lng: 129.057214, label: '청송 시외버스터미널' };
-
-  // 목데이터 방문지 이름 → 관광 샘플 좌표 매칭용 별칭. 좌표를 새로 만들지 않고 리포에 있는 값만 쓴다.
-  const NAME_ALIASES = {
-    청송터미널: '청송 시외버스터미널',
-    청송시외버스터미널: '청송 시외버스터미널',
-    달기약수탕: '달기약수터 백숙거리',
-  };
-
   let loadPromise = null;
 
   function runtimeConfig() {
@@ -28,17 +18,21 @@
 
   // 캡처·QA 라우트에서는 네트워크 지도를 타지 않는다.
   // 타일 로딩이 비결정적이라 캡처 비교가 깨지고, ?screen= 는 capture-single/QA 캡처의 공통 진입점이다.
+  // 데이터를 갈아끼우는 분기가 아니다 — 지도를 못 그리면 그 자리는 비어 있고, 가짜 지도를 대신 넣지 않는다.
   function isCaptureMode() {
     const params = new URLSearchParams(global.location?.search || '');
-    // ?liveMap=1 은 개발자용 예외 — 캡처 도구는 이 값을 절대 붙이지 않으므로 캡처는 그대로 결정적이다.
+    // ?liveMap=1 은 개발자용 예외.
     if (params.get('liveMap') === '1') return false;
+    // **라이브 캡처(?liveData=1)도 예외다.** 실데이터를 보려고 찍는 캡처에서 지도만 비어 있으면
+    // "지도가 실제로 그려지는지"를 확인할 수 없다.
+    if (params.get('liveData') === '1') return false;
     return Boolean(params.get('screen'))
       || Boolean(params.get('route'))
       || params.get('capture') === '1'
       || params.get('uitest') === '1';
   }
 
-  // 실지도를 시도할 수 있는 상태인지. false 면 호출부는 기존 SVG 목업을 그대로 그린다.
+  // 실지도를 시도할 수 있는 상태인지. false 면 호출부는 지도를 그리지 않는다.
   function isAvailable() {
     return Boolean(javaScriptKey()) && !isCaptureMode();
   }
@@ -117,56 +111,9 @@
     return loadPromise;
   }
 
-  function normalizeName(value) {
-    return String(value || '').replace(/\s+/g, '').toLowerCase();
-  }
-
-  function coordPool() {
-    const samples = global.MoyeoTourism?.samplePlaces || [];
-    return [
-      ...samples.map((item) => ({ title: item.title, lat: Number(item.latitude), lng: Number(item.longitude) })),
-      { title: MEETING_POINT.label, lat: MEETING_POINT.lat, lng: MEETING_POINT.lng },
-    ].filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng) && item.lat !== 0);
-  }
-
-  // 방문지 이름으로 좌표를 찾는다. 못 찾으면 null — 호출부는 그 지도를 목업으로 유지한다.
-  function placeCoord(name) {
-    const raw = normalizeName(name);
-    if (!raw) return null;
-    const key = normalizeName(NAME_ALIASES[String(name || '').replace(/\s+/g, '')] || name);
-    const pool = coordPool();
-    const hit = pool.find((item) => {
-      const title = normalizeName(item.title);
-      return title === key || title.includes(key) || key.includes(title);
-    });
-    return hit ? { lat: hit.lat, lng: hit.lng, label: hit.title } : null;
-  }
-
-  // 이름 배열 → 좌표 배열. 하나라도 못 찾으면 null 을 돌려 지도 전체를 목업으로 남긴다.
-  function placeCoords(names) {
-    const list = (names || []).map((name, index) => {
-      const found = placeCoord(typeof name === 'string' ? name : name?.name);
-      return found ? { ...found, label: String(index + 1) } : null;
-    });
-    if (!list.length || list.some((item) => !item)) return null;
-    return list;
-  }
-
-  // 기획 18-x 경로 지도의 기본 코스(주왕산 & 주산지 힐링 트레킹) 방문지 순서.
-  const DEFAULT_COURSE_STOPS = ['청송 시외버스터미널', '주왕산 국립공원', '주산지', '달기약수탕'];
-
-  // 방문지 이름 배열 → { markers, polyline }. 좌표를 못 찾으면 null (호출부는 목업 유지).
-  function routeFromNames(names) {
-    const coords = placeCoords(names);
-    if (!coords || coords.length < 2) return null;
-    return {
-      markers: coords,
-      polyline: coords.map((item) => ({ lat: item.lat, lng: item.lng })),
-    };
-  }
-
   // 서버 코스 방문지(latitude/longitude 를 그대로 가진 객체) → { markers, polyline }.
-  // 이름 매칭이 필요한 routeFromNames 와 달리 서버가 준 좌표만 쓴다. 좌표가 2개 미만이면 null.
+  // 좌표는 서버가 준 값만 쓴다 — 이름으로 표본 좌표를 찾아 붙이던 경로는 지웠다.
+  // 좌표가 2개 미만이면 null 이고, 호출부는 지도를 아예 그리지 않는다.
   function routeFromPlaces(places) {
     const coords = (places || [])
       .map((place, index) => ({
@@ -182,16 +129,25 @@
     };
   }
 
+  // 15 모집 상세 `길 찾기` — 집합 좌표를 지도 앱으로 넘긴다. 서버 호출은 없다.
+  // 카카오 지도 link/to 는 앱이 깔려 있으면 앱이, 없으면 웹 지도가 받는다.
+  // iOS 는 같은 자리에서 Apple 지도(maps.apple.com?daddr=)를 여는데, 플랫폼 기본 지도가
+  // 다른 것이므로 문구·동작 불일치가 아니다. 좌표가 없으면 null 이고 호출부는 버튼을 두지 않는다.
+  function directionsUrl(latitude, longitude, name) {
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
+    // link/to/{이름},{위도},{경도} — 이름에 쉼표가 있으면 경로가 깨지므로 지운다.
+    const label = String(name || '집합 장소').replace(/,/g, ' ').trim() || '집합 장소';
+    return `https://map.kakao.com/link/to/${encodeURIComponent(label)},${lat},${lng}`;
+  }
+
   global.MoyeoKakaoMap = {
-    DEFAULT_COURSE_STOPS,
-    MEETING_POINT,
-    routeFromNames,
+    directionsUrl,
     routeFromPlaces,
     isAvailable,
     isCaptureMode,
     javaScriptKey,
     loadKakaoMaps,
-    placeCoord,
-    placeCoords,
   };
 }(window));

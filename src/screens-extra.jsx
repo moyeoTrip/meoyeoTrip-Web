@@ -5,6 +5,8 @@
 // ───────── 13 · 로그인 ─────────
 function continueAuthFlow(nav, context) {
   if (context?.redirecting) return;
+  // AUTH-SILENT-CASES-CANON R2: 사용자가 그만둔 것이다. 다른 화면으로 보내지 않는다.
+  if (context?.cancelled) return;
   if (context.login.signupState === 'SIGNUP_COMPLETE') {
     nav.go('home', { replace: true });
   } else if (context.login.signupState === 'PROFILE_IMAGE_REQUIRED') {
@@ -37,7 +39,8 @@ function ScreenLogin() {
     setError('');
     try {
       const context = await window.MoyeoAuth.begin(provider);
-      if (context?.redirecting) return;
+      // 취소면 로딩만 걷고 이 화면에 그대로 머문다 — 오류 문구를 띄우지 않는다 (R1 · R2).
+      if (context?.redirecting || context?.cancelled) return;
       continueAuthFlow(nav, context);
     } catch (requestError) {
       setError(requestError?.message || '로그인을 시작하지 못했어요. 다시 시도해주세요.');
@@ -131,15 +134,14 @@ function ScreenLogin() {
 // ───────── 13-1 · 이메일 인증 ─────────
 function ScreenEmailAuth() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
-  const [mode, setMode] = React.useState('login');
+  // 로그인/새 계정 만들기를 사용자가 먼저 고르지 않는다. 한 번 로그인해 보고 계정이 없으면
+  // 그대로 만든다 (auth-api 의 signInOrCreateEmailUser). 소셜 로그인과 같은 흐름이다.
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
-  const [passwordConfirmation, setPasswordConfirmation] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState('');
   const [error, setError] = React.useState('');
-  const passwordsMatch = mode !== 'signup' || password === passwordConfirmation;
-  const canSubmit = /^\S+@\S+\.\S+$/.test(email) && password.length >= 6 && passwordsMatch && !loading;
+  const canSubmit = /^\S+@\S+\.\S+$/.test(email) && password.length >= 6 && !loading;
 
   const submit = async (event) => {
     event.preventDefault();
@@ -148,7 +150,7 @@ function ScreenEmailAuth() {
     setMessage('');
     setError('');
     try {
-      const context = await window.MoyeoAuth.begin('email', { email, password, mode });
+      const context = await window.MoyeoAuth.begin('email', { email, password });
       continueAuthFlow(nav, context);
     } catch (requestError) {
       setError(requestError?.message || '이메일 인증을 완료하지 못했어요.');
@@ -157,15 +159,12 @@ function ScreenEmailAuth() {
     }
   };
 
-  const resetPassword = async () => {
-    setMessage('');
-    setError('');
-    try {
-      await window.MoyeoAuth.resetEmailPassword(email);
-      setMessage('비밀번호 재설정 메일을 보냈어요.');
-    } catch (requestError) {
-      setError(requestError?.message || '재설정 메일을 보내지 못했어요.');
-    }
+  // 08-H 비밀번호 재설정으로 보낸다. 예전에는 이 자리에서 조용히 메일만 보내고 끝나서,
+  // 무엇이 일어났는지·안 오면 어떻게 하는지 알 길이 없었다 (ATTACH-COMPOSER-CANON §6-1).
+  // 이미 친 이메일은 그대로 넘겨 두 번 치게 하지 않는다.
+  const resetPassword = () => {
+    window.MoyeoApi?.selectResetEmail?.(email);
+    nav.go('password-reset');
   };
 
   const fieldStyle = {
@@ -181,38 +180,24 @@ function ScreenEmailAuth() {
         </button>
         <div style={{ marginTop: 22 }}>
           <h1 style={{ margin: 0, fontSize: 25, lineHeight: 1.35, color: T.text900 }}>이메일로 시작하기</h1>
-          <p style={{ margin: '8px 0 0', color: T.text500, fontSize: 14, lineHeight: 1.55 }}>가입했던 이메일로 로그인하거나 새 계정을 만들어요.</p>
+          <p style={{ margin: '8px 0 0', color: T.text500, fontSize: 14, lineHeight: 1.55 }}>이메일과 비밀번호를 입력하면 로그인하거나 새 계정을 만들어요.</p>
         </div>
-        <div role="tablist" aria-label="이메일 인증 방식" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: 4, marginTop: 26, borderRadius: 10, background: T.bgSubtle }}>
-          {[['login', '로그인'], ['signup', '새 계정 만들기']].map(([value, label]) => (
-            <button key={value} type="button" role="tab" aria-selected={mode === value} data-testid={`email-mode-${value}`} onClick={() => { setMode(value); setPasswordConfirmation(''); setError(''); setMessage(''); }} style={{ height: 40, border: 0, borderRadius: 8, background: mode === value ? T.bgRaised : 'transparent', color: mode === value ? T.primary600 : T.text500, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>{label}</button>
-          ))}
-        </div>
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 22 }}>
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 26 }}>
           <label style={{ display: 'grid', gap: 7, color: T.text700, fontSize: 13, fontWeight: 600 }}>
             이메일
             <input data-testid="email-auth-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" style={fieldStyle}/>
           </label>
           <label style={{ display: 'grid', gap: 7, color: T.text700, fontSize: 13, fontWeight: 600 }}>
             비밀번호
-            <input data-testid="email-auth-password" type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="6자 이상 입력" style={fieldStyle}/>
+            <input data-testid="email-auth-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="6자 이상 입력" style={fieldStyle}/>
           </label>
-          {mode === 'signup' && (
-            <label style={{ display: 'grid', gap: 7, color: T.text700, fontSize: 13, fontWeight: 600 }}>
-              비밀번호 확인
-              <input data-testid="email-auth-password-confirmation" type="password" autoComplete="new-password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} placeholder="한 번 더 입력" style={fieldStyle}/>
-              {passwordConfirmation && !passwordsMatch && <span data-testid="email-auth-password-mismatch" style={{ color: T.danger, fontSize: 12 }}>비밀번호가 서로 같지 않아요.</span>}
-            </label>
-          )}
-          {mode === 'login' && (
-            <button data-testid="email-password-reset" type="button" onClick={resetPassword} style={{ alignSelf: 'flex-end', border: 0, padding: '2px 0', background: 'transparent', color: T.primary600, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>비밀번호를 잊으셨나요?</button>
-          )}
+          <button data-testid="email-password-reset" type="button" onClick={resetPassword} style={{ alignSelf: 'flex-end', border: 0, padding: '2px 0', background: 'transparent', color: T.primary600, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>비밀번호를 잊으셨나요?</button>
           <button data-testid="email-auth-submit" data-network-action="true" type="submit" disabled={!canSubmit} style={{ height: 50, marginTop: 6, border: 0, borderRadius: 10, background: canSubmit ? T.primary600 : T.bgSubtle, color: canSubmit ? '#fff' : T.text400, fontSize: 15, fontWeight: 700, cursor: canSubmit ? 'pointer' : 'default' }}>
-            {loading ? '확인 중...' : mode === 'signup' ? '계정 만들고 계속하기' : '로그인'}
+            {loading ? '확인 중...' : '계속하기'}
           </button>
         </form>
         <div role="status" data-testid="email-auth-status" style={{ minHeight: 42, marginTop: 14, color: error ? T.danger : T.primary600, fontSize: 13, lineHeight: 1.5, textAlign: 'center' }}>{error || message}</div>
-        <p style={{ margin: 'auto 0 0', color: T.text400, fontSize: 12, lineHeight: 1.55, textAlign: 'center' }}>이메일 인증 후에도 가입 진행 단계는 서버 응답에 따라 이어집니다.</p>
+        <p style={{ margin: 'auto 0 0', color: T.text400, fontSize: 12, lineHeight: 1.55, textAlign: 'center' }}>처음 쓰는 이메일이면 새 계정을 만들고, 가입 진행 단계는 서버 응답에 따라 이어집니다.</p>
       </div>
     </Phone>
   );
@@ -220,8 +205,15 @@ function ScreenEmailAuth() {
 
 // ───────── 14 · 프로필 Step 3 (생년월일/성별) ─────────
 function KoreanBirthDatePicker({ value, onChange }) {
-  const [year, month, day] = value.split('-').map(Number);
-  const [draft, setDraft] = React.useState({ year, month, day });
+  // 고르기 전에는 value 가 비어 있다. 피커를 열 때의 시작 위치만 이 날짜로 둔다 —
+  // 오늘 날짜에서 시작하면 사용자가 수십 년을 스크롤해야 한다.
+  const PICKER_START = { year: 1998, month: 4, day: 12 };
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))
+    ? (() => { const [y, m, d] = value.split('-').map(Number); return { year: y, month: m, day: d }; })()
+    : null;
+  const start = parsed || PICKER_START;
+  const { year, month, day } = start;
+  const [draft, setDraft] = React.useState(start);
   const [open, setOpen] = React.useState(false);
   const maxYear = new Date().getFullYear();
   const minimumYear = 1900;
@@ -276,7 +268,7 @@ function KoreanBirthDatePicker({ value, onChange }) {
         style={{ width: '100%', minHeight: 58, padding: '0 16px', borderRadius: 14, border: `1px solid ${T.line200}`, background: T.bgRaised, color: T.text900, display: 'flex', alignItems: 'center', gap: 12, fontFamily: T.fontStack, cursor: 'pointer', boxShadow: T.l1 }}
       >
         <span style={{ width: 34, height: 34, borderRadius: 10, display: 'grid', placeItems: 'center', background: T.primary50, color: T.primary700 }}><Icon name="calendar" size={18}/></span>
-        <span style={{ flex: 1, textAlign: 'left', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{year}년 {month}월 {day}일</span>
+        <span style={{ flex: 1, textAlign: 'left', fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: parsed ? T.text900 : T.text400 }}>{parsed ? `${year}년 ${month}월 ${day}일` : '생년월일을 선택해주세요'}</span>
         <Icon name="arrow" size={18} color={T.text400}/>
       </button>
       {open && (
@@ -301,28 +293,43 @@ function KoreanBirthDatePicker({ value, onChange }) {
   );
 }
 
+// 생년월일 아래 안내 — 공개되는 것은 나이대뿐임을 알려준다.
+// 계산 규칙은 iOS `AuthAgeBandNote` · 안드로이드 `ageBandLabel` 과 같다 (0~3 초반 · 4~6 중반 · 그 외 후반).
+function ageBandNote(birthDate) {
+  const parsed = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthDate || '');
+  if (!parsed) return '나이대만 공개됩니다';
+  const born = new Date(Number(parsed[1]), Number(parsed[2]) - 1, Number(parsed[3]));
+  if (Number.isNaN(born.getTime())) return '나이대만 공개됩니다';
+  const now = new Date();
+  let age = now.getFullYear() - born.getFullYear();
+  const beforeBirthday = now.getMonth() < born.getMonth()
+    || (now.getMonth() === born.getMonth() && now.getDate() < born.getDate());
+  if (beforeBirthday) age -= 1;
+  if (age < 10) return '나이대만 공개됩니다';
+  const remainder = age % 10;
+  const phase = remainder <= 3 ? '초반' : (remainder <= 6 ? '중반' : '후반');
+  return `나이대만 공개됩니다 (${Math.floor(age / 10) * 10}대 ${phase})`;
+}
+
 function ScreenProfileBasic() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
-  const [birthDate, setBirthDate] = React.useState('1998-04-12');
+  // 고르기 전에는 비어 있다. 미리 채워두면 사용자가 한 번도 고르지 않은 날짜가
+  // 본인 생년월일로 저장되고, 연령 확인이 무의미해진다.
+  const [birthDate, setBirthDate] = React.useState('');
   // 성별은 사용자가 직접 고르는 값이다 (화면기획·앱과 같이 기본 선택 없음)
   const [gender, setGender] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState('');
-  const nickname = window.__moyeoSelectedNickname || '따스한 사슴 3492';
+  const nickname = window.__moyeoSelectedNickname || '';
 
   const submit = async () => {
     if (!birthDate || !gender || submitting) return;
     setSubmitting(true);
     setError('');
     try {
-      const tokens = await window.MoyeoAuth.signup({
-        nickname,
-        nicknameSelectionToken: window.__moyeoNicknameSelectionToken,
-        gender,
-        birthDate,
-      });
-      // 여행 취향(7/8)을 거친 뒤 이동할 곳을 기억해 둔다 — 이미지 후보가 필요하면 prof-2, 아니면 home
-      window.__moyeoPostTasteRoute = tokens.signupState === 'PROFILE_IMAGE_REQUIRED' ? 'prof-2' : 'home';
+      // 가입 호출은 약관 동의 뒤에 한다 — 서버가 `agreedTermIds` 를 필수로 받는다(없으면 400 40012).
+      // 여기서 부르면 사용자가 약관에 동의하기도 전에 계정이 만들어진다.
+      window.__moyeoSignupBasics = { gender, birthDate };
       nav.go('prof-4');
     } catch (requestError) {
       setError(requestError?.message || '회원 정보를 저장하지 못했어요. 다시 시도해주세요.');
@@ -345,7 +352,9 @@ function ScreenProfileBasic() {
           <div style={{ marginBottom: 24 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, marginBottom: 8 }}>생년월일 <span style={{ color: T.danger }}>*</span></div>
             <KoreanBirthDatePicker value={birthDate} onChange={setBirthDate}/>
-            <div style={{ fontSize: 11, color: T.text500, marginTop: 6 }}>나이대만 공개됩니다 (20대 후반)</div>
+            {/* 나이대는 **고른 생년월일**에서 계산한다. 예시로 박아두면 아무것도 고르지 않은 화면에
+                "20대 후반" 이 사실처럼 붙는다 — iOS·안드로이드와 같은 규칙으로 맞춘다. */}
+            <div style={{ fontSize: 11, color: T.text500, marginTop: 6 }} data-testid="auth-basic-age-band">{ageBandNote(birthDate)}</div>
           </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, marginBottom: 8 }}>성별 <span style={{ color: T.danger }}>*</span></div>
@@ -373,8 +382,11 @@ function ScreenProfileBasic() {
 // ───────── 06-1 · 여행 취향 (Step 7/8) ─────────
 // 여행 스타일과 관심 지역은 항상 한 화면에서 함께 조회·수정한다.
 // 가입에서 받은 값은 28 프로필 수정의 "여행 취향" 블록에서 같은 구조로 다시 편집한다.
-const TASTE_STYLES = ['자연', '힐링', '사진', '맛집', '역사', '야경', '트레킹', '카페'];
-const TASTE_REGIONS = ['경주', '안동', '포항', '문경', '청송', '영주', '울진', '울릉'];
+//
+// 후보 목록은 **언제나 서버에서 받는다** — GET /users/me/profile/options.
+// 이 API 는 토큰 없이도 200 이라(2026-08-30 직접 확인) 가입 전 단계인 이 화면에서도 부를 수 있다.
+// 예전에는 "가입 전엔 못 부른다"는 이유로 서버 시드를 옮겨 적은 거울 표를 들고 있었는데,
+// 서버가 시드를 바꾸면 화면이 조용히 어긋나는 구조였다. 그 표는 지웠다(BE 회신 반영 정본 §2-2).
 
 function TasteChip({ label, on, onClick, testId }) {
   return (
@@ -396,44 +408,76 @@ function TasteChip({ label, on, onClick, testId }) {
 
 function ScreenProfileTaste() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
-  const [styles, setStyles] = React.useState(['자연', '사진']);
-  const [regions, setRegions] = React.useState(['경주', '안동', '포항', '문경']);
-  const toggle = (list, setList, value) => setList(list.includes(value) ? list.filter(v => v !== value) : [...list, value]);
-  // 로그인(가입 진행) 상태에서는 후보를 GET users/me/profile/options 로 받고,
+  // 로그인(가입을 이미 마친) 상태에서는 후보를 GET users/me/profile/options 로 받고,
   // 저장은 PUT users/me/profile 로 보낸다 (birthDate·gender 는 GET 프로필 값을 그대로 실어 보낸다).
   const liveMode = window.MoyeoApi?.live();
   const [serverOptions, setServerOptions] = React.useState(null);
   const [serverProfile, setServerProfile] = React.useState(null);
+  // 아무것도 고르지 않은 상태로 시작한다 — 고르지 않은 취향을 본인 것으로 저장하지 않는다.
+  // 라벨이 아니라 **서버 id** 를 담는다. 그래야 가입 요청에 그대로 실을 수 있다.
   const [styleIds, setStyleIds] = React.useState([]);
   const [regionIds, setRegionIds] = React.useState([]);
   const [saving, setSaving] = React.useState(false);
+  const [optionsStatus, setOptionsStatus] = React.useState('loading');
+  const [reloadKey, setReloadKey] = React.useState(0);
+
+  // 후보 목록. **가입 전에도 부른다** — 이 엔드포인트는 토큰을 요구하지 않는다.
+  // 실패하면 후보를 지어내지 않고 다시 시도를 띄운다(NO-MOCK-CANON R1).
+  React.useEffect(() => {
+    let active = true;
+    setOptionsStatus('loading');
+    window.MoyeoApi.profileOptions()
+      .then((result) => {
+        if (!active) return;
+        if (!Array.isArray(result?.travelStyles)) { setOptionsStatus('error'); return; }
+        setServerOptions(result);
+        setOptionsStatus('ready');
+      })
+      .catch(() => { if (active) setOptionsStatus('error'); });
+    return () => { active = false; };
+  }, [reloadKey]);
+
+  // 이미 가입을 마친 계정이 취향만 고치러 들어온 경우에만 저장된 값을 미리 칠한다.
+  // 이 화면을 URL 로 직접 연 진입(캡처)은 **가입 7/8 단계**를 보여주는 자리다.
+  // 저장된 취향을 미리 칠하면 아무도 고르지 않은 단계가 이미 고른 화면으로 찍힌다 —
+  // iOS·안드로이드는 둘 다 아무것도 고르지 않은 상태를 그린다.
   React.useEffect(() => {
     if (!liveMode) return undefined;
+    if (window.isDirectScreenEntry?.()) return undefined;
     let active = true;
-    Promise.all([window.MoyeoApi.profileOptions(), window.MoyeoApi.myProfile()])
-      .then(([optionsResult, profileResult]) => {
-        if (!active || !Array.isArray(optionsResult?.travelStyles)) return;
-        setServerOptions(optionsResult);
+    window.MoyeoApi.myProfile()
+      .then((profileResult) => {
+        if (!active || !profileResult) return;
         setServerProfile(profileResult);
-        setStyleIds((profileResult?.travelStyles || []).map((style) => style.id));
-        setRegionIds((profileResult?.interestedRegions || []).map((region) => region.id));
+        setStyleIds((profileResult.travelStyles || []).map((style) => style.id));
+        setRegionIds((profileResult.interestedRegions || []).map((region) => region.id));
       })
-      .catch(() => { /* 실패 시 목데이터 후보 유지 */ });
+      .catch(() => { /* 토큰이 없으면(=가입 중) 실패가 정상이다 — 아무것도 칠하지 않는다 */ });
     return () => { active = false; };
   }, [liveMode]);
-  const serverMode = Boolean(serverOptions && serverProfile);
+
+  // 저장 경로를 가르는 것은 **가입을 마쳤는가**(= 내 프로필을 읽었는가)이지 후보 출처가 아니다.
+  const serverMode = Boolean(serverProfile);
+  const styleOptions = serverOptions?.travelStyles || [];
+  const regionOptions = serverOptions?.interestedRegions || [];
   const toggleId = (list, setList, id) => setList(list.includes(id) ? list.filter((v) => v !== id) : [...list, id]);
-  const canContinue = serverMode
-    ? (styleIds.length > 0 && regionIds.length > 0 && !saving)
-    : (styles.length > 0 && regions.length > 0);
+  const canContinue = styleIds.length > 0 && regionIds.length > 0 && !saving;
   const goNext = () => {
-    // 기본 정보(6/8)에서 기억해 둔 다음 목적지로 이동 — 이미지 후보가 필요하면 prof-2, 아니면 home
-    const next = window.__moyeoPostTasteRoute || 'prof-2';
+    // 취향 다음은 약관 동의다. 가입(POST /auth/signup)은 거기서 동의한 termId 와 함께 보낸다.
+    // 이미 가입을 마친 사용자가 취향만 고치러 들어온 경우에는 원래 목적지로 돌아간다.
+    const next = window.__moyeoPostTasteRoute;
     if (next === 'home') nav.go('home', { replace: true });
-    else nav.go(next);
+    else if (next) nav.go(next);
+    else nav.go('terms');
   };
   const submit = async () => {
-    if (!serverMode) { goNext(); return; }
+    if (!serverMode) {
+      // R4: 여기서 고른 id 를 약관 화면까지 들고 가 POST /auth/signup 본문에 싣는다.
+      // 예전에는 어디로도 보내지 않아 가입과 동시에 조용히 사라졌다.
+      window.__moyeoSignupTaste = { travelStyleIds: [...styleIds], interestedRegionIds: [...regionIds] };
+      goNext();
+      return;
+    }
     setSaving(true);
     try {
       await window.MoyeoApi.updateProfile({
@@ -455,39 +499,47 @@ function ScreenProfileTaste() {
           <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.5px', lineHeight: '30px' }}>어떤 여행을 좋아하세요?</div>
           <div style={{ fontSize: 13, color: T.text500, marginTop: 8, lineHeight: '19px' }}>여행 스타일과 관심 지역을 알려주시면<br/>딱 맞는 모집을 먼저 보여드려요.</div>
 
+          {/* 후보를 못 받으면 칩을 지어내지 않는다 — 로딩/실패만 그린다(R1). */}
+          {optionsStatus !== 'ready' && (
+            <div role="status" data-testid="auth-taste-options-state" style={{ padding: '48px 0', textAlign: 'center', fontSize: 13, color: T.text500 }}>
+              {optionsStatus === 'loading' ? '불러오는 중이에요…' : '불러오지 못했어요.'}
+              {optionsStatus === 'error' && (
+                <div style={{ marginTop: 12 }}>
+                  <Btn variant="secondary" onClick={() => setReloadKey((key) => key + 1)} testId="auth-taste-options-retry">다시 시도</Btn>
+                </div>
+              )}
+            </div>
+          )}
+
+          {optionsStatus === 'ready' && (
+          <React.Fragment>
           <div style={{ marginTop: 26 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, marginBottom: 10 }}>여행 스타일 <span style={{ color: T.danger }}>*</span> <span style={{ color: T.text500, fontWeight: 400 }}>· 1개 이상</span></div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {serverMode
-                ? serverOptions.travelStyles.map((style) => (
-                  <TasteChip key={style.id} label={style.label} testId={"auth-taste-style-" + style.label} on={styleIds.includes(style.id)} onClick={() => toggleId(styleIds, setStyleIds, style.id)}/>
-                ))
-                : TASTE_STYLES.map(style => (
-                  <TasteChip key={style} label={style} testId={"auth-taste-style-" + style} on={styles.includes(style)} onClick={() => toggle(styles, setStyles, style)}/>
-                ))}
+              {styleOptions.map((style) => (
+                <TasteChip key={style.id} label={style.label} testId={"auth-taste-style-" + style.label} on={styleIds.includes(style.id)} onClick={() => toggleId(styleIds, setStyleIds, style.id)}/>
+              ))}
             </div>
           </div>
 
           <div style={{ marginTop: 26 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, marginBottom: 10 }}>관심 지역 <span style={{ color: T.danger }}>*</span> <span style={{ color: T.text500, fontWeight: 400 }}>· 경북 안에서 1곳 이상</span></div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, maxHeight: serverMode ? 160 : undefined, overflow: serverMode ? 'auto' : undefined }}>
-              {serverMode
-                ? serverOptions.interestedRegions.map((region) => (
-                  <TasteChip key={region.id} label={region.signguName} testId={"auth-taste-region-" + region.signguName} on={regionIds.includes(region.id)} onClick={() => toggleId(regionIds, setRegionIds, region.id)}/>
-                ))
-                : TASTE_REGIONS.map(region => (
-                  <TasteChip key={region} label={region} testId={"auth-taste-region-" + region} on={regions.includes(region)} onClick={() => toggle(regions, setRegions, region)}/>
-                ))}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, maxHeight: 160, overflow: 'auto' }}>
+              {regionOptions.map((region) => (
+                <TasteChip key={region.id} label={region.signguName} testId={"auth-taste-region-" + region.signguName} on={regionIds.includes(region.id)} onClick={() => toggleId(regionIds, setRegionIds, region.id)}/>
+              ))}
             </div>
           </div>
 
           <div style={{ marginTop: 22, padding: 12, borderRadius: 12, background: T.bgSubtle, fontSize: 12, color: T.text500, lineHeight: '18px' }}>
             여행 스타일과 관심 지역은 마이 &gt; 프로필 수정에서 언제든 함께 바꿀 수 있어요.
           </div>
+          </React.Fragment>
+          )}
         </div>
         <div style={{ flex: 1 }}/>
         <div style={{ padding: '0 20px 12px', fontSize: 12, color: T.text500, textAlign: 'center' }}>
-          여행 스타일 {serverMode ? styleIds.length : styles.length}개 · 관심 지역 {serverMode ? regionIds.length : regions.length}곳 선택
+          여행 스타일 {styleIds.length}개 · 관심 지역 {regionIds.length}곳 선택
         </div>
         <div style={{ padding: '0 20px 32px', display: 'flex', gap: 8 }}>
           <Btn variant="secondary" onClick={() => nav.back()}>이전</Btn>
@@ -499,45 +551,95 @@ function ScreenProfileTaste() {
 }
 
 // ───────── 15 · 약관 동의 ─────────
+// 약관은 **서버가 주는 목록**을 그대로 그린다 (GET /api/v1/terms · 인증 불필요).
+// 클라가 약관을 따로 갖지 않는다 — 서버에서 늘거나 줄면 화면도 따라 바뀐다.
+// 동의한 termId 는 회원가입 요청의 `agreedTermIds` 로 보낸다(없으면 400 40012).
+// "만 18세 이상"은 서버 약관이 아니라 별도 확인이다 — 서버는 birthDate 로 나이를 본다.
 function ScreenTerms() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
-  const [agreed, setAgreed] = React.useState(new Set());
+  const [terms, setTerms] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [loadFailed, setLoadFailed] = React.useState(false);
+  const [agreedIds, setAgreedIds] = React.useState(new Set());
+  const [confirmedAge, setConfirmedAge] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState('');
-  const requiredKeys = ['age', 'service', 'privacy'];
-  const allKeys = [...requiredKeys, 'location', 'marketing'];
-  const requiredReady = requiredKeys.every((key) => agreed.has(key));
-  const Row = ({ itemKey, required, text, master, detailRoute }) => {
-    const checked = master ? allKeys.every((key) => agreed.has(key)) : agreed.has(itemKey);
-    const toggle = () => {
-      if (submitting) return;
-      if (master) {
-        setAgreed(checked ? new Set() : new Set(allKeys));
-        return;
-      }
-      setAgreed((current) => {
-        const next = new Set(current);
-        if (next.has(itemKey)) next.delete(itemKey); else next.add(itemKey);
-        return next;
-      });
-    };
-    return <div style={{ width: '100%', height: 52, display: 'flex', alignItems: 'center', borderTop: master ? 'none' : `1px solid ${T.line100}` }}>
-      <button type="button" onClick={toggle} aria-label={`${text} ${checked ? '동의 해제' : '동의'}`} style={{ flex: 1, alignSelf: 'stretch', display: 'flex', alignItems: 'center', gap: 12, padding: '0 4px', border: 0, background: 'transparent', color: T.text900, textAlign: 'left', fontFamily: T.fontStack, cursor: 'pointer' }}>
-        <span style={{ width: 24, height: 24, borderRadius: 6, background: checked ? T.primary500 : 'transparent', border: checked ? 'none' : `1.5px solid ${T.line300}`, display: 'grid', placeItems: 'center' }}>{checked && <Icon name="check" size={16} color="#fff" strokeWidth={2.5}/>}</span>
-        <span style={{ flex: 1, fontSize: master ? 16 : 14, fontWeight: master ? 600 : 400 }}>{text} {required && !master && <span style={{ color: T.text500, fontSize: 12, fontWeight: 400 }}>(필수)</span>}{!required && !master && <span style={{ color: T.text500, fontSize: 12, fontWeight: 400 }}>(선택)</span>}</span>
-      </button>
-      {detailRoute && <button type="button" aria-label={`${text} 내용 보기`} data-testid={`terms-open-${itemKey}`} onClick={() => nav.go(detailRoute)} style={{ alignSelf: 'stretch', width: 44, border: 0, background: 'transparent', display: 'grid', placeItems: 'center', cursor: 'pointer' }}><Icon name="arrow" size={16} color={T.text400}/></button>}
-    </div>;
+
+  const loadTerms = React.useCallback(async () => {
+    setLoading(true);
+    setLoadFailed(false);
+    try {
+      const list = await window.MoyeoApi.terms();
+      setTerms(Array.isArray(list) ? list : []);
+    } catch (requestError) {
+      // 임의의 약관을 지어내지 않는다 — 비운 채 다시 불러오기를 띄운다.
+      setTerms([]);
+      setLoadFailed(true);
+      setError(requestError?.message || '약관을 불러오지 못했어요.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  React.useEffect(() => { loadTerms(); }, [loadTerms]);
+
+  const requiredIds = terms.filter((term) => term.required).map((term) => term.termId);
+  const requiredReady = terms.length > 0 && confirmedAge && requiredIds.every((id) => agreedIds.has(id));
+  const allAgreed = terms.length > 0 && confirmedAge && terms.every((term) => agreedIds.has(term.termId));
+
+  const toggleAll = () => {
+    if (submitting) return;
+    const turningOff = allAgreed;
+    setConfirmedAge(!turningOff);
+    setAgreedIds(turningOff ? new Set() : new Set(terms.map((term) => term.termId)));
   };
+  const toggleTerm = (termId) => {
+    if (submitting) return;
+    setAgreedIds((current) => {
+      const next = new Set(current);
+      if (next.has(termId)) next.delete(termId); else next.add(termId);
+      return next;
+    });
+  };
+  const displayTitle = (title) => String(title || '').replace('[필수]', '').replace('[선택]', '').trim();
+
+  const Row = ({ text, hint, checked, onToggle, onOpenDetail, master, testId }) => (
+    <div style={{ width: '100%', minHeight: 52, display: 'flex', alignItems: 'center', borderTop: master ? 'none' : `1px solid ${T.line100}` }}>
+      <button type="button" onClick={onToggle} data-testid={testId} aria-label={`${text} ${checked ? '동의 해제' : '동의'}`} style={{ flex: 1, alignSelf: 'stretch', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 4px', border: 0, background: 'transparent', color: T.text900, textAlign: 'left', fontFamily: T.fontStack, cursor: 'pointer' }}>
+        <span style={{ width: 24, height: 24, flexShrink: 0, borderRadius: 6, background: checked ? T.primary500 : 'transparent', border: checked ? 'none' : `1.5px solid ${T.line300}`, display: 'grid', placeItems: 'center' }}>{checked && <Icon name="check" size={16} color="#fff" strokeWidth={2.5}/>}</span>
+        <span style={{ flex: 1, fontSize: master ? 16 : 14, fontWeight: master ? 600 : 400 }}>{text} {hint && <span style={{ color: T.text500, fontSize: 12, fontWeight: 400 }}>{hint}</span>}</span>
+      </button>
+      {onOpenDetail && <button type="button" aria-label={`${text} 내용 보기`} data-testid={`terms-open-${testId}`} onClick={onOpenDetail} style={{ alignSelf: 'stretch', width: 44, border: 0, background: 'transparent', display: 'grid', placeItems: 'center', cursor: 'pointer' }}><Icon name="arrow" size={16} color={T.text400}/></button>}
+    </div>
+  );
+
   const finish = async () => {
     if (!requiredReady || submitting) return;
     setSubmitting(true);
     setError('');
-    window.setTimeout(() => {
+    try {
+      const basics = window.__moyeoSignupBasics || {};
+      // 07 취향 단계에서 고른 서버 id 다. 가입 요청이 이 값을 싣는 **유일한** 경로이므로
+      // 여기서 빠지면 사용자가 고른 취향이 그대로 사라진다.
+      const taste = window.__moyeoSignupTaste || {};
+      const tokens = await window.MoyeoAuth.signup({
+        nickname: window.__moyeoSelectedNickname,
+        nicknameSelectionToken: window.__moyeoNicknameSelectionToken,
+        gender: basics.gender,
+        birthDate: basics.birthDate,
+        agreedTermIds: [...agreedIds],
+        travelStyleIds: taste.travelStyleIds,
+        interestedRegionIds: taste.interestedRegionIds,
+      });
+      // 서버가 받아 저장했으므로 다음 가입(계정 전환)에 지난 선택이 섞이지 않게 비운다.
+      delete window.__moyeoSignupTaste;
+      nav.go(tokens.signupState === 'PROFILE_IMAGE_REQUIRED' ? 'prof-2' : 'home', { replace: tokens.signupState !== 'PROFILE_IMAGE_REQUIRED' });
+    } catch (requestError) {
+      setError(requestError?.message || '회원가입을 완료하지 못했어요. 다시 시도해주세요.');
+    } finally {
       setSubmitting(false);
-      nav.back();
-    }, 240);
+    }
   };
+
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0, paddingTop: 60 }}>
@@ -547,119 +649,28 @@ function ScreenTerms() {
         <div style={{ padding: '8px 20px' }}>
           <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, letterSpacing: '-0.5px' }}>약관 동의</div>
           <div style={{ fontSize: 13, color: T.text500, marginBottom: 20 }}>모여트립 이용을 위해 동의가 필요해요</div>
-          <Row master text="모두 동의"/>
+          <Row master text="모두 동의" checked={allAgreed} onToggle={toggleAll} testId="auth-terms-all"/>
           <div style={{ height: 1, background: T.line200, margin: '4px 0' }}/>
-          <Row itemKey="age" required text="만 14세 이상"/>
-          <Row itemKey="service" required text="이용약관 동의" detailRoute="terms-detail"/>
-          <Row itemKey="privacy" required text="개인정보 처리방침" detailRoute="terms-privacy"/>
-          <Row itemKey="location" required={false} text="위치정보 이용" detailRoute="terms-location"/>
-          <Row itemKey="marketing" required={false} text="마케팅 정보 수신" detailRoute="terms-marketing"/>
+          <Row text="만 18세 이상" hint="(필수)" checked={confirmedAge} onToggle={() => !submitting && setConfirmedAge((value) => !value)} testId="age"/>
+          {terms.map((term) => (
+            <Row
+              key={term.termId}
+              text={displayTitle(term.title)}
+              hint={term.required ? '(필수)' : '(선택)'}
+              checked={agreedIds.has(term.termId)}
+              onToggle={() => toggleTerm(term.termId)}
+              onOpenDetail={() => nav.go('terms-detail', { termId: term.termId })}
+              testId={String(term.termId)}
+            />
+          ))}
+          {loading && <div style={{ minHeight: 52, display: 'flex', alignItems: 'center', color: T.text500, fontSize: 13 }}>약관을 불러오는 중이에요</div>}
           <div role="status" style={{ minHeight: 20, marginTop: 12, fontSize: 12, color: T.danger, textAlign: 'center' }}>{error}</div>
+          {loadFailed && <button type="button" onClick={loadTerms} style={{ width: '100%', height: 44, border: 0, background: 'transparent', color: T.primary600, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>약관 다시 불러오기</button>}
         </div>
         <div style={{ position: 'absolute', bottom: 32, left: 20, right: 20 }}>
           <Btn variant="primary" full disabled={!requiredReady || submitting} onClick={finish} testId="auth-terms-finish">
             {submitting ? '계정을 만들고 있어요...' : '동의하고 시작'}
           </Btn>
-        </div>
-      </div>
-    </Phone>
-  );
-}
-
-// ───────── 16 · 코스 상세 ─────────
-function ScreenCourseDetail() {
-  const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
-  const itinerary = [
-    { day: 'Day 1 · 11/8 (토)', items: [
-      { time: '10:00', name: '불국사', desc: '천년 고찰 단풍길' },
-      { time: '13:00', name: '첨성대', desc: '경주의 상징, 가을 사진' },
-      { time: '16:30', name: '황리단길', desc: '느긋한 카페와 골목 산책' },
-      { time: '19:00', name: '월정교', desc: '물 위로 비치는 야경 포인트' },
-    ] },
-    { day: 'Day 2 · 11/9 (일)', items: [
-      { time: '09:30', name: '동궁과 월지', desc: '아침 산책과 연못 풍경' },
-      { time: '12:00', name: '경주 교촌마을', desc: '한옥 골목과 점심 코스' },
-      { time: '14:30', name: '감포 바다 산책', desc: '동해 바람을 느끼는 마무리' },
-      { time: '17:00', name: '경주역', desc: '일정 정리와 귀가' },
-    ] },
-  ];
-  return (
-    <Phone>
-      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
-        <ImgPlaceholder height={280} hue="autumn" radius={0} label="course hero"/>
-        <div style={{ position: 'absolute', top: 60, left: 16, right: 16, display: 'flex', justifyContent: 'space-between' }}>
-          <div style={{ width: 40, height: 40, borderRadius: 999, background: T.overlayPanel, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)' }}><div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={20}/></div></div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 999, background: T.overlayPanel, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="share" size={18}/></div>
-            <div style={{ width: 40, height: 40, borderRadius: 999, background: T.overlayPanel, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="bookmark" size={18}/></div>
-          </div>
-        </div>
-        <div style={{ position: 'absolute', top: 240, left: 0, right: 0, bottom: 88, background: T.bgBase, borderRadius: '24px 24px 0 0', padding: '24px 20px', overflow: 'auto' }}>
-          <div style={{ display: 'inline-block', padding: '4px 8px', borderRadius: 8, background: T.primary100, color: T.primary700, fontSize: 12, fontWeight: 500, marginBottom: 8 }}>경주</div>
-          <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1.3 }}>경주 1박 2일<br/>단풍·야경 코스</div>
-          <div style={{ fontSize: 13, color: T.text500, marginTop: 6 }}>가을 주말, 한옥에서 보내는 차분한 이틀</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: 16, background: T.bgSubtle, borderRadius: 16, marginTop: 16 }}>
-            <div><div style={{ fontSize: 11, color: T.text500 }}>일정</div><div style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>2일</div></div>
-            <div><div style={{ fontSize: 11, color: T.text500 }}>방문지</div><div style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>4개</div></div>
-            <div><div style={{ fontSize: 11, color: T.text500 }}>총 이동</div><div style={{ fontSize: 14, fontWeight: 600, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>120 km</div></div>
-            <div><div style={{ fontSize: 11, color: T.text500 }}>1인 예상</div><div style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>15만원</div></div>
-          </div>
-          <div style={{ fontSize: 16, fontWeight: 600, marginTop: 24, marginBottom: 12 }}>코스 일정</div>
-          {itinerary.map((group) => (
-            <React.Fragment key={group.day}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: T.primary700, margin: '16px 0 8px' }}>{group.day}</div>
-              {group.items.map((s) => (
-                <div key={`${group.day}-${s.time}-${s.name}`} style={{ display: 'flex', gap: 12, padding: '12px 0', borderBottom: `1px solid ${T.line100}` }}>
-                  <div style={{ width: 50, fontSize: 12, color: T.text500, fontVariantNumeric: 'tabular-nums', paddingTop: 2 }}>{s.time}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{s.name}</div>
-                    <div style={{ fontSize: 12, color: T.text500, marginTop: 2 }}>{s.desc}</div>
-                  </div>
-                  <div style={{ width: 56, height: 56, borderRadius: 12, overflow: 'hidden' }}><ImgPlaceholder height={56} hue="autumn" radius={12}/></div>
-                </div>
-              ))}
-            </React.Fragment>
-          ))}
-        </div>
-        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '12px 20px 32px', background: T.bgBase, borderTop: `1px solid ${T.line100}` }}>
-          <Btn variant="primary" full icon="plus">이 코스로 모집 만들기</Btn>
-        </div>
-      </div>
-    </Phone>
-  );
-}
-
-// ───────── 17 · 모집 생성 Step 5 (리뷰) ─────────
-function ScreenCreateReview() {
-  const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
-  return (
-    <Phone>
-      <div style={{ position: 'absolute', inset: 0, paddingTop: 60 }}>
-        <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>새 모집 만들기</div>
-          <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="close" size={24}/></div>
-        </div>
-        <div style={{ padding: '8px 20px 16px', display: 'flex', gap: 6 }}>
-          {[0,1,2,3,4].map(i => <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: T.primary500 }}/>)}
-        </div>
-        <div style={{ padding: '8px 20px 20px', overflow: 'auto', maxHeight: 600 }}>
-          <div style={{ fontSize: 13, color: T.text500, marginBottom: 4 }}>마지막이에요 (5/5)</div>
-          <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.3, letterSpacing: '-0.5px' }}>이대로 모집을<br/>열어볼까요?</div>
-          <div style={{ marginTop: 24, padding: 20, borderRadius: 16, background: T.bgSubtle, fontSize: 14, lineHeight: 1.7, color: T.text700 }}>
-            <span style={{ color: T.primary700, fontWeight: 600 }}>경주 1박 2일 단풍·야경 코스</span>로<br/>
-            <span style={{ color: T.text900, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>11/8(토)~11/9(일)</span>에 떠나요.<br/><br/>
-            최소 <span style={{ fontWeight: 600 }}>3명</span> · 최대 <span style={{ fontWeight: 600 }}>8명</span> · 25~35세<br/>
-            성별 제한 없음 · <span style={{ color: T.primary700 }}>자동 승인</span>
-          </div>
-          <div style={{ marginTop: 16, padding: 14, borderRadius: 12, background: T.primary50, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-            <Icon name="sparkle" size={18} color={T.primary600}/>
-            <div style={{ fontSize: 12, color: T.primary700, lineHeight: 1.5 }}>마감까지 인원이 채워지면 자동으로 채팅방이 만들어져요. 미달 시엔 자연스럽게 소멸돼요.</div>
-          </div>
-        </div>
-        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '12px 20px 32px', background: T.bgBase, borderTop: `1px solid ${T.line100}`, display: 'flex', gap: 8 }}>
-          <Btn variant="ghost">이전</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full>모집 열기</Btn></div>
         </div>
       </div>
     </Phone>
@@ -718,6 +729,24 @@ function ScreenHostManage() {
     applicant.age != null ? `${applicant.age}세` : null,
     { M: '남성', F: '여성', MALE: '남성', FEMALE: '여성' }[applicant.gender] || null,
   ].filter(Boolean).join(' · ');
+  // 서버 모집을 못 받으면 예시 신청자·동행자를 그리지 않는다.
+  if (!serverMode) {
+    return (
+      <Phone>
+        <div style={{ position: 'absolute', inset: 0, paddingTop: 60, background: T.bgSubtle }}>
+          <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: T.bgBase, borderBottom: `1px solid ${T.line100}` }}>
+            <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>모집 관리</div>
+            <span aria-hidden="true" style={{ width: 24, height: 24 }}/>
+          </div>
+          <div role="status" style={{ padding: '48px 20px', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '21px' }}>
+            {liveMode ? '지금 모집 중인 모임이 없어요.' : '로그인하면 모집 중인 모임을 볼 수 있어요.'}
+          </div>
+        </div>
+      </Phone>
+    );
+  }
+
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0, paddingTop: 60, background: T.bgSubtle }}>
@@ -728,11 +757,11 @@ function ScreenHostManage() {
           <span aria-hidden="true" style={{ width: 24, height: 24 }}/>
         </div>
         <div style={{ padding: 20, background: T.bgBase, borderBottom: `1px solid ${T.line100}` }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>{serverMode ? room.title : '경주 단풍·야경 1박 2일'}</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{room.title}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 13, color: T.text500, fontVariantNumeric: 'tabular-nums' }}>
-            <span>{serverMode ? `${room.participantCount} / ${room.maxParticipants}명` : '4 / 8명'}</span>
+            <span>{`${room.participantCount} / ${room.maxParticipants}명`}</span>
             <span style={{ color: T.line300 }}>·</span>
-            <Chip variant="accent">D-{serverMode ? room.recruitmentDDay : 3}</Chip>
+            <Chip variant="accent">D-{room.recruitmentDDay}</Chip>
           </div>
           <button type="button" data-testid="host-course-edit" onClick={() => nav.go('course-edit')} style={{
             width: '100%', marginTop: 14, borderRadius: 12, border: `1px solid ${T.primary100}`, background: T.primary50,
@@ -742,25 +771,40 @@ function ScreenHostManage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               {/* 서버 모드에서는 방문지 수·코스 출처·마감 D-day 를 모두 방의 값으로 쓴다.
                   D-day 는 확정·취소된 방에서 null 로 오므로 그럴 땐 D 표기 없이 문장만 남긴다. */}
-              <div style={{ fontSize: 13, fontWeight: 600, color: T.primary700 }}>{serverMode && course ? `여행 경로 · 방문지 ${course.places?.length || 0}곳` : '여행 경로 · 방문지 4곳'}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.primary700 }}>{course ? `여행 경로 · 방문지 ${course.places?.length || 0}곳` : '여행 경로'}</div>
               <div style={{ fontSize: 11, color: T.primary600, marginTop: 3 }}>
-                {serverMode && course
+                {course
                   ? `확정 전${room.recruitmentDDay != null ? `(D-${room.recruitmentDDay})` : ''}까지 수정할 수 있어요 · ${course.type === 'CUSTOM' ? '호스트 직접 코스' : '등록된 코스'}`
-                  : '확정 전(D-3)까지 수정할 수 있어요 · 호스트 직접 코스'}
+                  : ''}
               </div>
             </div>
             <Icon name="arrow" size={16} color={T.primary600}/>
           </button>
+          {/* 18-4 여행 확정/불발 · 18-5 집합 정보 수정 — 둘 다 호스트만 할 수 있고
+              여기가 유일한 진입점이다 (ATTACH-COMPOSER-CANON §6-1).
+              확정·불발은 모집 중일 때만 가능하다 (서버 INVALID_CHAT_ROOM_STATUS). */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            {room.status === 'RECRUITING' && (
+              <button type="button" data-testid="host-trip-status" onClick={() => nav.go('trip-status')} style={{
+                flex: 1, height: 42, borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent',
+                color: T.text700, fontSize: 13, fontWeight: 700, fontFamily: T.fontStack, cursor: 'pointer',
+              }}>여행 확정하기</button>
+            )}
+            <button type="button" data-testid="host-meeting-edit" onClick={() => nav.go('meeting-edit')} style={{
+              flex: 1, height: 42, borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent',
+              color: T.text700, fontSize: 13, fontWeight: 700, fontFamily: T.fontStack, cursor: 'pointer',
+            }}>집합 정보 수정</button>
+          </div>
         </div>
         <div style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: T.text700 }}>승인 대기 ({serverMode ? applications.length : 2})</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: T.text700 }}>승인 대기 ({applications.length})</div>
             <div style={{ fontSize: 11, color: T.text500 }}>48시간 후 자동 거절</div>
           </div>
-          {serverMode && applications.length === 0 && (
+          {applications.length === 0 && (
             <div style={{ background: T.bgBase, borderRadius: 16, padding: 20, marginBottom: 12, border: `1px solid ${T.line100}`, textAlign: 'center', fontSize: 13, color: T.text500 }}>승인 대기 중인 신청이 없어요.</div>
           )}
-          {serverMode && applications.map((item) => (
+          {applications.map((item) => (
             <div key={item.applicationId} data-testid={`host-application-${item.applicationId}`} style={{ background: T.bgBase, borderRadius: 16, padding: 16, marginBottom: 12, border: `1px solid ${T.line100}` }}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                 <ProfileAvatar src={item.applicant?.profileImageUrl} size={48}/>
@@ -780,38 +824,7 @@ function ScreenHostManage() {
               </div>
             </div>
           ))}
-          {!serverMode && (
-          <>
-          <div style={{ background: T.bgBase, borderRadius: 16, padding: 16, marginBottom: 12, border: `1px solid ${T.line100}` }}>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-              <AnimalAvatar kind="bear" size={48} bg={T.primary50}/>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>우직한 곰 7821</div>
-                <div style={{ fontSize: 12, color: T.text500, marginTop: 2, display: 'flex', gap: 6, alignItems: 'center' }}>
-                  31세 · 남성 <span style={{ color: T.line300 }}>·</span> 매너 <Icon name="star" size={12} color={T.warning}/> 4.9 <span style={{ color: T.line300 }}>·</span> 여행 8회
-                </div>
-                <div style={{ fontSize: 12, color: T.text700, marginTop: 8, padding: 10, background: T.bgSubtle, borderRadius: 10, lineHeight: 1.5 }}>
-                  "단풍 보러 가요. 사진 좋아해서 풍경 잘 담아드릴 수 있어요!"
-                </div>
-              </div>
-              <Icon name="more" size={20} color={T.text500}/>
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-              <button style={{ flex: 1, height: 40, borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', fontSize: 13, fontWeight: 600, color: T.text700, fontFamily: T.fontStack }}>거절</button>
-              <button style={{ flex: 1, height: 40, borderRadius: 10, border: 'none', background: T.primary500, fontSize: 13, fontWeight: 600, color: '#fff', fontFamily: T.fontStack }}>승인</button>
-            </div>
-          </div>
-          <div style={{ background: T.bgBase, borderRadius: 16, padding: 14, marginBottom: 16, border: `1px solid ${T.line100}`, display: 'flex', gap: 12, alignItems: 'center' }}>
-            <AnimalAvatar kind="raccoon" size={40} bg={T.primary50}/>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>호기심 많은 너구리 9027</div>
-              <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>26세 · 여성 · 매너 4.7</div>
-            </div>
-            <Icon name="arrow" size={16} color={T.text400}/>
-          </div>
-          </>
-          )}
-          {serverMode && memberList && (
+          {memberList && (
             <>
               <div style={{ fontSize: 13, fontWeight: 600, color: T.text700, marginTop: 24, marginBottom: 12 }}>승인된 동행자 ({memberList.participantCount})</div>
               <div style={{ background: T.bgBase, borderRadius: 16, padding: 16, border: `1px solid ${T.line100}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -826,21 +839,6 @@ function ScreenHostManage() {
               </div>
             </>
           )}
-          {!serverMode && (
-          <>
-          <div style={{ fontSize: 13, fontWeight: 600, color: T.text700, marginTop: 24, marginBottom: 12 }}>승인된 동행자 (4)</div>
-          <div style={{ background: T.bgBase, borderRadius: 16, padding: 16, border: `1px solid ${T.line100}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex' }}>
-              {['deer', 'turtle', 'rabbit', 'crane'].map((k, i) => (
-                <div key={i} style={{ marginLeft: i === 0 ? 0 : -10, border: `2px solid ${T.bgBase}`, borderRadius: 999 }}>
-                  <AnimalAvatar kind={k} size={36} bg={T.primary50}/>
-                </div>
-              ))}
-            </div>
-            <div style={{ fontSize: 12, color: T.text500 }}>본인 외 3명</div>
-          </div>
-          </>
-          )}
         </div>
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '12px 20px 32px', background: T.bgBase, borderTop: `1px solid ${T.line100}` }}>
           <Btn variant="primary" full icon="chat" onClick={() => nav.go('chat')}>채팅방 들어가기</Btn>
@@ -853,23 +851,22 @@ function ScreenHostManage() {
 // ───────── 19 · 채팅방 목록 ─────────
 function ScreenChatList({ initialTab = 'live' }) {
   const nav = (window.useNav ? window.useNav() : { go: () => {} });
-  const [tab, setTab] = React.useState(initialTab);
-  const [cancelled, setCancelled] = React.useState([]);
+  // 모임은 "보던 상태 유지" 탭이다 (TAB-STATE-CANON R3) — 고른 탭도 목록도 그대로 남는다.
+  // 19-1(신청중 바로 진입)은 다른 화면이라 보관 키를 나눈다 —
+  // 한 키를 쓰면 앞서 19 에서 고른 탭이 19-1 의 진입 탭을 덮어쓴다.
+  const [tab, setTab] = window.useTabState(`meeting.tab:${initialTab}`, initialTab);
+  const listScroll = window.useTabScroll('meeting.list');
   // 로그인 상태: GET chat-rooms/my(진행중·확정·종료) + chat-rooms/my-waiting(신청중)으로 대체한다.
   const liveMode = window.MoyeoApi?.live();
-  const [serverRooms, setServerRooms] = React.useState(null);
-  const [serverWaiting, setServerWaiting] = React.useState(null);
-  React.useEffect(() => {
-    if (!liveMode) return undefined;
-    let active = true;
-    window.MoyeoApi.myRooms()
-      .then((result) => { if (active && Array.isArray(result)) setServerRooms(result); })
-      .catch(() => {});
-    window.MoyeoApi.myWaitingRooms()
-      .then((result) => { if (active && Array.isArray(result)) setServerWaiting(result); })
-      .catch(() => {});
-    return () => { active = false; };
-  }, [liveMode]);
+  // 마이(my.rooms)와 같은 응답이라 키를 공유한다 — 두 탭이 같은 목록을 두 번 부르지 않는다.
+  const roomsData = window.useTabData('my.rooms', () => window.MoyeoApi.myRooms(), {
+    enabled: liveMode, mode: 'keep', accept: Array.isArray,
+  });
+  const waitingData = window.useTabData('meeting.waiting', () => window.MoyeoApi.myWaitingRooms(), {
+    enabled: liveMode, mode: 'keep', accept: Array.isArray,
+  });
+  const serverRooms = roomsData.value || null;
+  const serverWaiting = waitingData.value || null;
   const serverMode = Boolean(serverRooms || serverWaiting);
   const serverTabRooms = serverRooms ? {
     live: serverRooms.filter((room) => !room.ended && room.status !== 'CONFIRMED'),
@@ -881,18 +878,27 @@ function ScreenChatList({ initialTab = 'live' }) {
     window.MoyeoApi.selectRoom(room.roomId);
     nav.go(room.chatAvailable ? 'chat' : 'detail');
   };
-  const cancelServerApplication = async (roomId) => {
-    try {
-      await window.MoyeoApi.cancelMyApplication(roomId);
-      setServerWaiting((current) => (current || []).filter((item) => item.roomId !== roomId));
-    } catch (_) { /* 실패 시 목록 유지 */ }
+  // 19-2 참가 신청 취소 확인으로 보낸다. 대기 순번을 잃는 행동이라 확인 없이 바로 실행하면 안 된다
+  // (ATTACH-COMPOSER-CANON §6-1). 실제 DELETE 는 19-2 가 부른다.
+  const askCancelApplication = (item) => {
+    window.MoyeoApi.selectApplication({
+      roomId: item.roomId,
+      title: item.title,
+      waitlistPosition: item.waitlistPosition ?? null,
+    });
+    nav.go('apply-cancel');
   };
   const ServerRow = ({ room }) => (
     <button type="button" onClick={() => openServerRoom(room)} style={{ width: '100%', minHeight: 84, padding: '14px 20px', display: 'flex', gap: 12, alignItems: 'center', border: 0, borderBottom: `1px solid ${T.line100}`, background: RF.card, cursor: 'pointer', fontFamily: T.fontStack, textAlign: 'left' }}>
       <div style={{ width: 56, height: 56, borderRadius: 16, overflow: 'hidden', flexShrink: 0, background: T.primary50 }}>
-        {room.thumbnail
-          ? <img src={room.thumbnail} alt="" loading="lazy" style={{ display: 'block', width: 56, height: 56, objectFit: 'cover' }}/>
-          : <ImgPlaceholder height={56} hue="forest" radius={16}/>}
+        {/* 서버가 썸네일을 주지 않은 모임 — 그라디언트 대신 공용 마스코트(1:1)로 채운다 */}
+        <img
+          src={room.thumbnail || window.MoyeoImageCache.placeholderSources.square}
+          alt=""
+          loading="lazy"
+          onError={(event) => { event.currentTarget.src = window.MoyeoImageCache.placeholderSources.square; }}
+          style={{ display: 'block', width: 56, height: 56, objectFit: 'cover' }}
+        />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -908,43 +914,6 @@ function ScreenChatList({ initialTab = 'live' }) {
       </div>
     </button>
   );
-  // 목데이터는 4개 플랫폼 공통 값이다 (docs/alignment/MOCKDATA-CANON.md)
-  const rows = {
-    live: [
-      ['autumn', '가을 경주 야경 같이 봐요', '3:42', '4/8명', '마감 D-3', '우직한 곰: 내일 오후 2시 만나요', 3, '경주 단풍·야경 1박 2일'],
-      ['coast', '바다 보면서 드라이브해요', '1:20', '6/6명', '확정', '잔잔한 거북이: 오늘 사진 올릴게요', null, '포항·영덕 동해 드라이브'],
-      ['coast', '섬에서 이틀 더 걷기', '방금', '3/5명', '확정', '잔잔한 거북이: 배편 시간 다시 확인했어요', null, '울릉도 2박 3일 섬 여행'],
-      ['forest', '한옥에서 하룻밤 어때요', '어제', '3/6명', '확정', '고요한 두루미: 내일 출발이에요!', 1, '안동 하회마을 한옥체험'],
-      ['forest', '그늘만 골라 걷는 서원 길', '어제', '2/4명', '모집중', '초록 여우: 그늘 길 위주로 천천히 걸어요', null, '안동 도산서원 그늘 코스'],
-      ['autumn', '천천히 걷는 단풍길', '월', '2/5명', '마감 D-1', '시스템: 모집이 마감 임박입니다', null, '문경 새재 단풍 트레킹'],
-      ['forest', '30대끼리 느긋하게 힐링 여행가요~', '09:32', '2/5명', '마감 D-3', '숲속여행자: 주산지 물안개 시간에 맞춰 출발해요.', null, '주왕산 & 주산지 힐링 트레킹'],
-      ['coast', '눈꽃 보러 부석사 갈까요', '어제', '4/5명', '마감 D-2', '느긋한 토끼: 눈길이라 이동 시간을 조금 더 잡을게요', null, '영주 부석사 눈꽃 산책'],
-    ],
-    fixed: [
-      ['coast', '바다 보면서 드라이브해요', '1:20', '6/6명', '확정', '잔잔한 거북이: 오늘 사진 올릴게요', null, '포항·영덕 동해 드라이브'],
-      ['coast', '섬에서 이틀 더 걷기', '방금', '3/5명', '확정', '잔잔한 거북이: 배편 시간 다시 확인했어요', null, '울릉도 2박 3일 섬 여행'],
-      ['forest', '한옥에서 하룻밤 어때요', '어제', '3/6명', '확정', '고요한 두루미: 내일 출발이에요!', 1, '안동 하회마을 한옥체험'],
-    ],
-    done: [
-      ['forest', '안동 봄날 고택 산책', '4월', '5/5명', '종료', '시스템: 여행 기록이 피드에 저장됐어요', null, '안동 봄날 고택 산책'],
-      ['coast', '첫 울릉도 함께 다녀왔어요', '3월', '5/5명', '종료', '시스템: 도감 친구 3명이 추가됐어요', null, '울릉도 2박 3일 섬 여행'],
-    ],
-  };
-  const Row = ({ item }) => (
-    <button type="button" onClick={() => nav.go('chat')} style={{ width: '100%', minHeight: 96, padding: '16px 20px', display: 'flex', gap: 12, alignItems: 'center', border: 0, borderBottom: `1px solid ${T.line100}`, background: RF.card, cursor: 'pointer', fontFamily: T.fontStack, textAlign: 'left' }}>
-      <div style={{ width: 56, height: 56, borderRadius: 16, overflow: 'hidden', flexShrink: 0 }}><ImgPlaceholder height={56} hue={item[0]} radius={16}/></div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}><b style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item[1]}</b><span style={{ fontSize: 11, color: T.text400 }}>{item[2]}</span></div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: T.text500, marginTop: 3 }}><Icon name="map" size={11} color={T.text500}/><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item[7]}</span></div>
-        <div style={{ fontSize: 12, color: T.text500, marginTop: 3 }}>{item[3]} · {item[4]}</div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 5 }}><span style={{ flex: 1, fontSize: 13, color: T.text700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item[5]}</span>{item[6] && <span style={{ minWidth: 20, height: 20, borderRadius: 999, background: T.accent500, color: '#fff', fontSize: 11, display: 'grid', placeItems: 'center' }}>{item[6]}</span>}</div>
-      </div>
-    </button>
-  );
-  const applications = [
-    { id: 'waiting', hue: 'hanok', name: '안동 한옥 골목 야행', state: '승인 대기', when: '6/7(토) 당일치기 · 14:00-21:00', meet: '13:50 안동역 1번 출구 집합', desc: '호스트가 확인하면 참여 여부가 정해져요. 보통 24시간 이내에 응답해요.' },
-    { id: 'queued', hue: 'coast', name: '포항·영덕 동해안 드라이브', state: '대기열 2번', when: '6/14(토)-6/15(일) · 1박 2일', meet: '09:30 포항역 앞 집합', desc: '정원이 차서 대기 중이에요. 자리가 나면 순서대로 자동 합류돼요.' },
-  ].filter((item) => !cancelled.includes(item.id));
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0, paddingTop: 60, background: RF.bg, display: 'flex', flexDirection: 'column' }}>
@@ -963,16 +932,13 @@ function ScreenChatList({ initialTab = 'live' }) {
           <Icon name="arrow" size={18} color={T.text500}/>
         </button>
         <div role="tablist" aria-label="모임 상태" style={{ padding: '0 20px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderBottom: `1px solid ${T.line100}`, flexShrink: 0 }}>
-          {(serverMode
-            ? [['live','진행중',serverTabRooms.live.length],['applied','신청중',(serverWaiting || []).length],['fixed','확정',serverTabRooms.fixed.length],['done','종료',serverTabRooms.done.length]]
-            : [['live','진행중',8],['applied','신청중',applications.length],['fixed','확정',3],['done','종료',2]]
-          ).map(([id,label,count]) => {
+          {[['live','진행중',serverTabRooms.live.length],['applied','신청중',(serverWaiting || []).length],['fixed','확정',serverTabRooms.fixed.length],['done','종료',serverTabRooms.done.length]].map(([id,label,count]) => {
             const active = tab === id;
             return <button key={id} type="button" role="tab" aria-selected={active} data-testid={`meeting-tab-${id}`} onClick={() => setTab(id)} style={{ minHeight: 48, padding: '10px 0', border: 0, borderBottom: active ? `2px solid ${T.primary500}` : '2px solid transparent', background: 'transparent', color: active ? T.primary600 : T.text500, fontFamily: T.fontStack, cursor: 'pointer' }}><span style={{ fontSize: 13, fontWeight: 700 }}>{label}</span><span style={{ fontSize: 11, marginLeft: 3 }}>{count}</span></button>;
           })}
         </div>
         {/* 탭 바로 아래에서 목록이 시작한다 — 절대 위치 매직넘버는 탭 높이가 바뀌면 유격이 생긴다 */}
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingBottom: 96 }}>
+        <div ref={listScroll.ref} onScroll={listScroll.onScroll} style={{ flex: 1, minHeight: 0, overflow: 'auto', paddingBottom: 96 }}>
           {serverMode && tab !== 'applied' && (
             serverTabRooms[tab].length === 0
               ? <div style={{ padding: 40, textAlign: 'center', color: T.text500, fontSize: 13 }}>{tab === 'live' ? '진행 중인 모임이 없어요.' : tab === 'fixed' ? '확정된 모임이 없어요.' : '종료된 모임이 없어요.'}</div>
@@ -989,9 +955,14 @@ function ScreenChatList({ initialTab = 'live' }) {
                 return (
                   <div key={item.roomId} data-testid={`application-room-${item.roomId}`} style={{ padding: '16px 20px', display: 'flex', gap: 12, borderBottom: `1px solid ${T.line100}` }}>
                     <div style={{ width: 56, height: 56, borderRadius: 16, overflow: 'hidden', flexShrink: 0, background: T.primary50 }}>
-                      {item.thumbnail
-                        ? <img src={item.thumbnail} alt="" loading="lazy" style={{ display: 'block', width: 56, height: 56, objectFit: 'cover' }}/>
-                        : <ImgPlaceholder height={56} hue="coast" radius={16}/>}
+                      {/* 신청한 모임 썸네일 — 없거나 실패하면 공용 마스코트(1:1) */}
+                      <img
+                        src={item.thumbnail || window.MoyeoImageCache.placeholderSources.square}
+                        alt=""
+                        loading="lazy"
+                        onError={(event) => { event.currentTarget.src = window.MoyeoImageCache.placeholderSources.square; }}
+                        style={{ display: 'block', width: 56, height: 56, objectFit: 'cover' }}
+                      />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1004,7 +975,7 @@ function ScreenChatList({ initialTab = 'live' }) {
                       </div>
                       {item.meetingDetails && <div style={{ fontSize: 12, color: T.text500, marginTop: 2 }}>{item.meetingDetails}</div>}
                       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                        <button type="button" data-testid={`cancel-application-room-${item.roomId}`} onClick={() => cancelServerApplication(item.roomId)} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>신청 취소</button>
+                        <button type="button" data-testid={`cancel-application-room-${item.roomId}`} onClick={() => askCancelApplication(item)} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>신청 취소</button>
                         <button type="button" onClick={() => openServerRoom({ roomId: item.roomId })} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>모집 상세</button>
                       </div>
                     </div>
@@ -1014,29 +985,16 @@ function ScreenChatList({ initialTab = 'live' }) {
               <div style={{ padding: '14px 20px 24px', fontSize: 11, color: T.text400, lineHeight: 1.6 }}>신청 상태에서는 아직 채팅방에 들어갈 수 없어요. 승인되거나 자리가 나면 알림으로 알려드릴게요.</div>
             </div>
           )}
-          {!serverMode && (tab === 'applied' ? <div>
-            {applications.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: T.text500, fontSize: 13 }}>신청 중인 모임이 없어요.</div>}
-            {applications.some((item) => item.id === 'waiting') && <div style={{ padding: '14px 20px 0', fontSize: 12, fontWeight: 800, color: T.text500 }}>호스트 승인을 기다리는 중</div>}
-            {applications.map((item) => {
-              // 승인 대기는 "기다리는 중"이라 경고 틴트, 대기열은 "자리가 나면 합류"라 브랜드 틴트를 쓴다
-              const waiting = item.id === 'waiting';
-              const badgeBg = waiting ? T.warningBg : T.primary50;
-              const badgeFg = waiting ? T.warningText : T.primary700;
-              return <div key={item.id} data-testid={`application-${item.id}`} style={{ padding: '16px 20px', display: 'flex', gap: 12, borderBottom: `1px solid ${T.line100}` }}>
-              <div style={{ width: 56, height: 56, borderRadius: 16, overflow: 'hidden', flexShrink: 0 }}><ImgPlaceholder height={56} hue={item.hue} radius={16}/></div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><b style={{ fontSize: 14 }}>{item.name}</b><span style={{ height: 22, padding: '0 9px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', background: badgeBg, color: badgeFg, fontSize: 11, fontWeight: 800 }}>{item.state}</span></div>
-                <div style={{ fontSize: 12, color: T.text500, marginTop: 4 }}>{item.when}</div><div style={{ fontSize: 12, color: T.text500, marginTop: 2 }}>{item.meet}</div>
-                <div style={{ marginTop: 8, padding: '9px 11px', borderRadius: 10, background: badgeBg, color: badgeFg, fontSize: 12, lineHeight: 1.5 }}>{item.desc}</div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                  <button type="button" data-testid={`cancel-application-${item.id}`} onClick={() => setCancelled((current) => [...current, item.id])} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>신청 취소</button>
-                  <button type="button" onClick={() => nav.go('detail')} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>모집 상세</button>
-                </div>
-              </div>
-            </div>;
-            })}
-            <div style={{ padding: '14px 20px 24px', fontSize: 11, color: T.text400, lineHeight: 1.6 }}>신청 상태에서는 아직 채팅방에 들어갈 수 없어요. 승인되거나 자리가 나면 알림으로 알려드릴게요.</div>
-          </div> : rows[tab].map((item) => <Row key={item[1]} item={item}/>))}
+          {/* 목 모임 카드는 없다 — 미로그인이면 로그인 안내만, 로그인했는데 아직 못 받았으면
+              로딩 문구만 남는다 (TAB-STATE-CANON R2 · NO-MOCK-CANON §2). */}
+          {!serverMode && (
+            <TabDataNotice
+              status={tab === 'applied' ? waitingData.status : roomsData.status}
+              signedOut={!liveMode}
+              onRetry={tab === 'applied' ? waitingData.reload : roomsData.reload}
+              style={{ padding: 40, textAlign: 'center', fontSize: 13 }}
+            />
+          )}
         </div>
         <BottomNav active="group"/>
       </div>
@@ -1106,6 +1064,38 @@ function ScreenNotifications() {
       }
     } catch (_) { /* 이동 실패는 조용히 무시 */ }
   };
+  // ── FRIEND_REQUEST 알림의 수락·거절 ──
+  // 알림의 referenceId 가 곧 친구 요청 id 다(2026-09-02 실서버 확인: 알림 200·199 → requestId 43·42,
+  // GET users/me/friend-requests/received 의 requestId 와 같은 값이다).
+  // 부르는 API 는 27-2 친구 관리(ScreenFriends)와 같다 — 두 화면이 다르게 동작하면 그게 결함이다.
+  // 답한 요청은 서버에서 사라지지만 알림은 그대로 남으므로, 답한 것을 기억해 버튼 대신 결과를 남긴다.
+  const [answered, setAnswered] = React.useState({});
+  const [answering, setAnswering] = React.useState(null);
+  const [answerError, setAnswerError] = React.useState({});
+  const answerFriendRequest = async (item, accept) => {
+    const requestId = item?.referenceId;
+    if (requestId == null || answering != null) return;
+    setAnswering(requestId);
+    setAnswerError((current) => ({ ...current, [requestId]: '' }));
+    try {
+      if (accept) await window.MoyeoApi.acceptFriendRequest(requestId);
+      else await window.MoyeoApi.rejectFriendRequest(requestId);
+      setAnswered((current) => ({ ...current, [requestId]: accept ? 'accepted' : 'rejected' }));
+      // 읽지 않은 알림이었으면 답한 것으로 읽음 처리까지 맞춰 준다.
+      if (!item.read) {
+        await window.MoyeoApi.readNotification(item.notificationId).catch(() => {});
+        setServerPage((current) => (current ? {
+          ...current,
+          unreadCount: Math.max(0, (current.unreadCount || 1) - 1),
+          notifications: current.notifications.map((n) => (n.notificationId === item.notificationId ? { ...n, read: true } : n)),
+        } : current));
+      }
+    } catch (error) {
+      setAnswerError((current) => ({ ...current, [requestId]: error?.message || '친구 요청을 처리하지 못했어요.' }));
+    } finally {
+      setAnswering(null);
+    }
+  };
   const toneColors = {
     primary: { color: T.primary600, bg: T.primary100 },
     accent: { color: T.accent700, bg: T.accent100 },
@@ -1113,20 +1103,6 @@ function ScreenNotifications() {
     danger: { color: T.dangerText, bg: T.dangerBg },
     info: { color: T.info, bg: T.bgSubtle },
   };
-  // 목데이터는 13 화면기획 목록이 기준 — 이 목록에 없는 행을 추가로 두지 않는다 (changeLog14)
-  const todayItems = [
-    { icon: 'sparkle', color: T.primary600, bg: T.primary100, title: <><b>주왕산 & 주산지</b> 여행이 확정됐어요 🎉</>, time: '방금 전', onClick: () => nav.go('trip-confirmed') },
-    { icon: 'users', color: T.primary600, bg: T.primary100, title: <><b>경주 단풍·야경</b> 모임이 만들어졌어요 ✨</>, time: '10분 전', onClick: () => nav.go('chat') },
-    { icon: 'chat', color: T.accent700, bg: T.accent100, title: <>우직한 곰 7821님이 <b>메시지</b>를 보냈어요</>, time: '1시간 전', onClick: () => nav.go('chat') },
-    { icon: 'note', color: T.primary600, bg: T.primary100, title: <>여행 잘 마치셨죠? 함께 걸은 친구에게 <b>한 줄</b> 남겨볼까요</>, time: '2시간 전', onClick: () => nav.go('trip-message') },
-    { icon: 'clock', color: T.warningText, bg: T.warningBg, title: <>마감 <b>D-1</b> · 현재 4/8명이에요</>, time: '3시간 전' },
-  ];
-  const yesterdayItems = [
-    { icon: 'user', color: T.info, bg: T.bgSubtle, title: <>엉뚱한 토끼 1457님이 <b>친구 요청</b>을 보냈어요</>, time: '어제 오후 4시', action: true },
-    // 강퇴 알림 — 탭하면 13-1 내보내기 안내(사유 조회)로 간다 (changeLog14)
-    { icon: 'warning', color: T.dangerText, bg: T.dangerBg, title: <><b>감포 바다 일출 모임</b>에서 내보내졌어요 · 사유 확인</>, time: '어제 오후 6시', onClick: () => nav.go('removal-reason'), testId: 'notif-removal' },
-    { icon: 'heart', color: T.accent500, bg: T.accent100, title: <><b>3명</b>이 내 피드에 좋아요를 눌렀어요</>, time: '어제 오전 11시' },
-  ];
   const Item = ({ icon, color, bg, title, time, action, last, onClick, testId }) => (
     <div onClick={onClick} data-testid={testId} style={{ padding: '14px 20px', display: 'flex', gap: 12, borderBottom: last ? 'none' : `1px solid ${T.line100}`, cursor: onClick ? 'pointer' : 'default' }}>
       <div style={{ width: 36, height: 36, borderRadius: 999, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -1135,12 +1111,19 @@ function ScreenNotifications() {
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 13, color: T.text900, lineHeight: 1.5 }}>{title}</div>
         <div style={{ fontSize: 11, color: T.text500, marginTop: 4 }}>{time}</div>
-        {action && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button style={{ height: 32, padding: '0 14px', borderRadius: 8, border: `1px solid ${T.line200}`, background: 'transparent', fontSize: 12, fontWeight: 600, fontFamily: T.fontStack }}>거절</button>
-            <button style={{ height: 32, padding: '0 14px', borderRadius: 8, border: 'none', background: T.primary500, color: '#fff', fontSize: 12, fontWeight: 600, fontFamily: T.fontStack }}>수락</button>
+        {action && action.state && (
+          <div style={{ fontSize: 11.5, color: T.primary600, fontWeight: 600, marginTop: 8 }}>
+            {action.state === 'accepted' ? '친구 신청을 수락했어요' : '친구 신청을 거절했어요'}
           </div>
         )}
+        {action && !action.state && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            {/* 행 전체가 알림 열기라서 버튼 클릭이 위로 새면 상세로 튄다 — 여기서 끊는다. */}
+            <button type="button" data-testid={`notif-friend-reject-${action.requestId}`} disabled={action.busy} onClick={(event) => { event.stopPropagation(); action.onReject(); }} style={{ height: 32, padding: '0 14px', borderRadius: 8, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontSize: 12, fontWeight: 600, fontFamily: T.fontStack, cursor: action.busy ? 'default' : 'pointer' }}>거절</button>
+            <button type="button" data-testid={`notif-friend-accept-${action.requestId}`} disabled={action.busy} onClick={(event) => { event.stopPropagation(); action.onAccept(); }} style={{ height: 32, padding: '0 14px', borderRadius: 8, border: 'none', background: T.primary500, color: '#fff', fontSize: 12, fontWeight: 600, fontFamily: T.fontStack, cursor: action.busy ? 'default' : 'pointer' }}>수락</button>
+          </div>
+        )}
+        {action && action.error && <div role="alert" style={{ fontSize: 11.5, color: T.danger, marginTop: 8 }}>{action.error}</div>}
       </div>
       <Icon name="arrow" size={16} color={T.text400}/>
     </div>
@@ -1155,12 +1138,12 @@ function ScreenNotifications() {
         </div>
         <div style={{ padding: '8px 20px 12px', display: 'flex', gap: 8 }}>
           <Chip variant="primary" size="md">전체</Chip>
-          <Chip variant="neutral" size="md">안읽음 {serverPage ? serverPage.unreadCount : 4}</Chip>
+          <Chip variant="neutral" size="md">안읽음 {serverPage ? serverPage.unreadCount : 0}</Chip>
         </div>
         {serverPage ? (
           <>
             {serverPage.notifications.length === 0 && (
-              <div style={{ padding: '72px 20px', textAlign: 'center', color: T.text500, fontSize: 13 }}>새로운 알림이 없어요.</div>
+              <div style={{ padding: '72px 20px', textAlign: 'center', color: T.text500, fontSize: 13 }}>새 알림이 없어요.</div>
             )}
             {serverPage.notifications.map((item, index) => {
               const style = NOTIFICATION_TYPE_STYLES[item.type] || { icon: 'bell', tone: 'primary' };
@@ -1176,17 +1159,22 @@ function ScreenNotifications() {
                   onClick={() => openServerNotification(item)}
                   testId={`notif-${item.notificationId}`}
                   last={index === serverPage.notifications.length - 1}
+                  // 친구 신청 알림에만 수락·거절 두 버튼이 붙는다. referenceId 가 요청 id 다.
+                  action={item.type === 'FRIEND_REQUEST' && item.referenceId != null ? {
+                    requestId: item.referenceId,
+                    state: answered[item.referenceId] || null,
+                    busy: answering === item.referenceId,
+                    error: answerError[item.referenceId] || '',
+                    onAccept: () => answerFriendRequest(item, true),
+                    onReject: () => answerFriendRequest(item, false),
+                  } : null}
                 />
               );
             })}
           </>
         ) : (
-          <>
-            <div style={{ padding: '8px 20px 4px', fontSize: 11, fontWeight: 600, color: T.text500, letterSpacing: 0.5 }}>오늘</div>
-            {todayItems.map((item) => <Item key={`${item.time}-${String(item.title)}`} {...item}/>)}
-            <div style={{ padding: '12px 20px 4px', fontSize: 11, fontWeight: 600, color: T.text500, letterSpacing: 0.5 }}>어제</div>
-            {yesterdayItems.map((item, index) => <Item key={`${item.time}-${String(item.title)}`} {...item} last={index === yesterdayItems.length - 1}/>)}
-          </>
+          /* 목 알림은 없다 — 미로그인이면 로그인 안내만 남는다. */
+          <div style={{ padding: '72px 20px', textAlign: 'center', color: T.text500, fontSize: 13 }}>로그인하면 모집 중인 모임을 볼 수 있어요.</div>
         )}
         <div style={{ height: 28 }}/>
       </div>
@@ -1199,8 +1187,36 @@ function ScreenNotifications() {
 function ScreenRemovalReason() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
   // 로그인 상태: 알림 센터에서 조회한 강퇴 이력(GET notifications/{id}/kick-history)을 보여준다.
+  //
+  // 13 알림을 거치지 않고 이 화면으로 바로 들어오면(라이브 캡처·QA·딥링크) 세션 보관소가 비어 있어
+  // `불러오지 못했어요.` 만 찍혔다 — 화면기획대로 그려지는 화면이 실제로는 통째로 오류로 보였다.
+  // 근거 API 는 있다: GET /api/v1/chat-rooms/my-kick-histories 가 내 강퇴 이력을 전부 준다
+  // (MoyeoApi.myKickHistories — 웹이 이미 갖고 있으면서 호출부만 없었다).
+  // 알림에서 넘어온 이력이 있으면 그것을 그대로 쓰고, 없을 때만 목록의 최신 1건으로 채운다.
   const liveMode = window.MoyeoApi?.live();
-  const kick = liveMode ? window.MoyeoApi.recalledKickHistory() : null;
+  const remembered = liveMode ? window.MoyeoApi.recalledKickHistory() : null;
+  const [fetched, setFetched] = React.useState(null);
+  const [status, setStatus] = React.useState(() => {
+    if (!liveMode) return 'signed-out';
+    return remembered ? 'live' : 'loading';
+  });
+  React.useEffect(() => {
+    if (!liveMode || remembered) return undefined;
+    let active = true;
+    setStatus('loading');
+    window.MoyeoApi.myKickHistories()
+      .then((result) => {
+        if (!active) return;
+        const list = Array.isArray(result) ? result : (result?.kickHistories || []);
+        // 가장 최근 강퇴 1건. 없으면 지어내지 않고 빈 상태로 남긴다.
+        const latest = [...list].sort((a, b) => String(b?.kickedAt || '').localeCompare(String(a?.kickedAt || '')))[0] || null;
+        setFetched(latest);
+        setStatus(latest ? 'live' : 'empty');
+      })
+      .catch(() => { if (active) setStatus('error'); });
+    return () => { active = false; };
+  }, [liveMode, remembered]);
+  const kick = remembered || fetched;
   const kickedAtLabel = kick?.kickedAt ? `${window.MoyeoApi.formatRelative(kick.kickedAt)} · 호스트 결정` : '호스트 결정';
 
   if (kick) {
@@ -1239,6 +1255,17 @@ function ScreenRemovalReason() {
                 </div>
               ))}
             </div>
+            {/* 13-2 내보내진 기록 — 이 화면은 **가장 최근 한 건**만 보여준다.
+                두 번 이상 내보내졌으면 지난 사유를 다시 볼 길이 없었다 (정본 §6-5). */}
+            <button type="button" data-testid="removal-reason-history" onClick={() => nav.go('kick-history')} style={{
+              marginTop: 12, width: '100%', height: 46, borderRadius: 12, cursor: 'pointer',
+              border: `1px solid ${T.line100}`, background: T.bgRaised, fontFamily: T.fontStack,
+              display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px',
+            }}>
+              <Icon name="note" size={16} color={T.text700}/>
+              <span style={{ flex: 1, textAlign: 'left', fontSize: 13, fontWeight: 700, color: T.text900 }}>내보내진 기록 전체 보기</span>
+              <Icon name="arrow" size={15} color={T.text400}/>
+            </button>
           </div>
           <div style={{ flex: 1 }}/>
           <div style={{ padding: '0 20px 32px' }}>
@@ -1248,6 +1275,7 @@ function ScreenRemovalReason() {
       </Phone>
     );
   }
+  // 강퇴 이력을 못 받으면 모임 이름·사유를 지어내지 않는다.
   return (
     <Phone>
       <div style={{ position: 'absolute', inset: 0, paddingTop: 60, display: 'flex', flexDirection: 'column', background: T.bgBase }}>
@@ -1256,37 +1284,11 @@ function ScreenRemovalReason() {
           <div style={{ fontSize: 15, fontWeight: 600 }}>내보내기 안내</div>
           <div style={{ width: 24 }}/>
         </div>
-        <div style={{ padding: '12px 20px 0', overflow: 'auto' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '18px 0 22px' }}>
-            <div style={{ width: 64, height: 64, borderRadius: 999, background: T.dangerBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="warning" size={30} color={T.dangerText}/>
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 14, textAlign: 'center', lineHeight: '26px' }}>감포 바다 일출 모임에서<br/>내보내졌어요</div>
-            <div style={{ fontSize: 12, color: T.text500, marginTop: 6 }}>2026.08.22 (토) 오후 6:02 · 호스트 결정</div>
-          </div>
-
-          {/* iOS 다크 표면 위계 기준: 페이지(bgBase) < 인용(bgSubtle) < 카드(bgRaised+softLine) */}
-          <div style={{ borderRadius: 14, background: T.bgRaised, border: `1px solid ${T.line100}`, padding: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>호스트가 남긴 사유</div>
-            <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: T.bgSubtle, fontSize: 13, color: T.text700, lineHeight: '20px' }}>
-              “모임 컨셉과 맞지 않는 대화가 반복되어, 남은 멤버들을 위해 함께하기 어렵다고 판단했어요.”
-            </div>
-          </div>
-
-          <div style={{ marginTop: 12, borderRadius: 14, background: T.bgRaised, border: `1px solid ${T.line100}`, padding: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>내보내진 뒤에는</div>
-            {[
-              '이 모임에는 다시 신청할 수 없어요.',
-              '채팅방이 내 목록에서 사라져요. 이미 남긴 대화는 모임 채팅방에 그대로 남아요.',
-              '다른 모임을 찾고 신청하는 데에는 아무 영향이 없어요.',
-            ].map(line => (
-              <div key={line} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                <div style={{ width: 4, height: 4, borderRadius: 999, background: T.text500, marginTop: 7, flexShrink: 0 }}/>
-                <div style={{ fontSize: 12.5, color: T.text700, lineHeight: '18px' }}>{line}</div>
-              </div>
-            ))}
-          </div>
-
+        <div role="status" data-testid="removal-reason-state" style={{ padding: '48px 20px', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '21px' }}>
+          {status === 'signed-out' && '로그인하면 모집 중인 모임을 볼 수 있어요.'}
+          {status === 'loading' && '불러오는 중이에요…'}
+          {status === 'empty' && '내보내진 모임이 없어요.'}
+          {status === 'error' && '불러오지 못했어요.'}
         </div>
         <div style={{ flex: 1 }}/>
         <div style={{ padding: '0 20px 32px' }}>
@@ -1297,86 +1299,50 @@ function ScreenRemovalReason() {
   );
 }
 
-// ───────── 21 · 검색 ─────────
-// 최근 검색어는 서버 API가 없어 100% 클라이언트 구현이다 — localStorage 에 영구 저장한다.
-// 캡처·QA 라우트(?screen= / ?route= / capture=1 / uitest=1 / mockAuth=1)에서는 화면기획의
-// 목데이터를 그대로 보여주고 저장소를 건드리지 않는다. (개발 중 실제 동작을 보려면 ?liveData=1)
-// 인기 검색어는 서버 데이터가 없어 목데이터가 유일한 근거다 — 값은 그대로 두고 탭 동작만 붙인다.
-const SEARCH_CAPTURE_RECENT = ['경주', '단풍', '황리단길', '안동 한옥', '주왕산'];
-const SEARCH_CAPTURE_KEYWORD = '경주 단풍';
-const SEARCH_POPULAR = [
-  { n: 1, w: '주왕산', up: true },
-  { n: 2, w: '안동 한옥마을', up: true },
-  { n: 3, w: '경주 야경', up: false },
-  { n: 4, w: '포항 호미곶', up: true },
-  { n: 5, w: '문경 새재', up: false },
-];
-
 function ScreenSearch() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
   const store = window.MoyeoRecentSearches;
-  const captureMode = Boolean(window.MoyeoApi?.deterministicParams?.());
-  const liveMode = Boolean(window.MoyeoApi?.live());
   const inputRef = React.useRef(null);
 
-  const [recent, setRecent] = React.useState(
-    () => (captureMode ? SEARCH_CAPTURE_RECENT : (store?.read() || []))
-  );
-  const [draft, setDraft] = React.useState(captureMode ? SEARCH_CAPTURE_KEYWORD : '');
-  const [keyword, setKeyword] = React.useState('');
-  const [serverRooms, setServerRooms] = React.useState(null);
-  const [searching, setSearching] = React.useState(false);
+  const [recent, setRecent] = React.useState(() => store?.read() || []);
+  const [draft, setDraft] = React.useState('');
 
-  // 캡처 모드에서는 저장소를 쓰지 않고 화면 안에서만 목록을 다룬다 (규칙은 store 와 동일).
-  const commitRecent = (next) => setRecent(store ? store.normalize(next) : next);
-  const rememberSearch = (text) => {
-    if (captureMode) commitRecent([text, ...recent]);
-    else setRecent(store ? store.add(text) : []);
-  };
-  const forgetSearch = (text) => {
-    if (captureMode) commitRecent(recent.filter((item) => item !== text));
-    else setRecent(store ? store.remove(text) : []);
-  };
-  const forgetAllSearches = () => {
-    if (captureMode) setRecent([]);
-    else setRecent(store ? store.clear() : []);
-  };
+  // ── 인기 검색어 (GET /api/v1/search/popular-keywords?limit=10) ──
+  // 순위를 지어낼 수 없어 지웠던 섹션인데, 서버가 집계 API 를 열어 되살렸다.
+  // 그리는 값은 서버가 준 rank · keyword · searchCount **뿐**이다.
+  // 화면기획의 상승·하락 화살표(▲▼)는 목데이터였다 — 서버가 주지 않으므로 그리지 않는다.
+  // 0건(집계 전 · Redis 장애)이면 실패가 아니라 **섹션 자체를 그리지 않는다**. 새 빈 상태 문구를 만들지 않는다.
+  const liveMode = Boolean(window.MoyeoApi?.live());
+  const [popular, setPopular] = React.useState([]);
+  React.useEffect(() => {
+    if (!liveMode) return undefined;
+    let active = true;
+    window.MoyeoApi.popularKeywords(10)
+      .then((rows) => { if (active) setPopular(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (active) setPopular([]); });
+    return () => { active = false; };
+  }, [liveMode]);
 
+  // 캡처에서도 실제 저장소를 그대로 쓴다 — 화면 안에서만 도는 별도 경로를 두지 않는다.
+  const rememberSearch = (text) => setRecent(store ? store.add(text) : []);
+  const forgetSearch = (text) => setRecent(store ? store.remove(text) : []);
+  const forgetAllSearches = () => setRecent(store ? store.clear() : []);
+
+  // 검색어를 확정하면 12-1 검색 결과 화면으로 간다 (ATTACH-COMPOSER-CANON §3).
+  // 12 는 "검색어를 넣는 화면"이고, 결과는 코스·모집 탭을 가진 12-1 이 그린다.
   const runSearch = (raw) => {
     const text = (raw || '').trim();
     if (!text) return;
     setDraft(text);
-    setKeyword(text);
     rememberSearch(text);
+    window.MoyeoApi?.selectSearchKeyword?.(text);
+    nav.go('search-results');
   };
 
   const clearDraft = () => {
     setDraft('');
-    setKeyword('');
     inputRef.current?.focus();
   };
-
-  // 로그인 상태에서는 GET /api/v1/chat-rooms/search 결과를 쓴다. 비로그인·실패는 목데이터 유지.
-  React.useEffect(() => {
-    if (!keyword || !liveMode) {
-      setServerRooms(null);
-      return undefined;
-    }
-    let active = true;
-    setSearching(true);
-    window.MoyeoApi.searchRooms({ keyword })
-      .then((rooms) => { if (active && Array.isArray(rooms)) setServerRooms(rooms); })
-      .catch(() => { if (active) setServerRooms(null); })
-      .finally(() => { if (active) setSearching(false); });
-    return () => { active = false; };
-  }, [keyword, liveMode]);
-
-  // 비로그인 결과는 10 탐색의 목데이터 모집 목록을 검색어로 거른다 (카드도 같은 컴포넌트).
-  const mockResults = keyword
-    ? (window.MOYEO_EXPLORE_ROOMS || []).filter((room) => `${room.title} ${room.area}`.includes(keyword))
-    : [];
-  const RoomCard = window.ExploreRoomCard;
-  const ServerRoomCard = window.ExploreServerRoomCard;
 
   return (
     <Phone>
@@ -1387,7 +1353,11 @@ function ScreenSearch() {
             onSubmit={(event) => { event.preventDefault(); runSearch(draft); }}
             style={{ flex: 1, height: 44, borderRadius: 12, background: T.bgSubtle, display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px' }}
           >
-            <button type="submit" aria-label="검색" data-testid="search-submit" data-network-action="true" style={{ padding: 0, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+            {/* 돋보기도 그 자리에서 검색을 실행한다. form 의 onSubmit 으로도 같은 일이 일어나지만
+                (Enter), 버튼 자신에게 핸들러가 없으면 "눌러도 아무 일 없는 버튼" 감사에 걸리고
+                무엇보다 코드를 읽는 사람이 동작을 확인할 수 없다. type=button 으로 두어
+                제출이 두 번 일어나지 않게 한다. */}
+            <button type="button" aria-label="검색" data-testid="search-submit" data-network-action="true" onClick={() => runSearch(draft)} style={{ padding: 0, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
               <Icon name="search" size={18} color={T.text500}/>
             </button>
             <input
@@ -1409,21 +1379,6 @@ function ScreenSearch() {
           <div onClick={() => nav.back()} style={{ fontSize: 14, color: T.text500, cursor: 'pointer' }}>취소</div>
         </div>
         <div style={{ height: 'calc(100% - 116px)', overflow: 'auto', padding: '12px 20px 44px' }}>
-          {keyword ? (
-            <div data-testid="search-results">
-              {searching && <div style={{ padding: '14px 0', fontSize: 12, color: T.text500 }}>검색 중이에요…</div>}
-              {serverRooms
-                ? serverRooms.map((room) => (
-                  <ServerRoomCard key={room.roomId} room={room} testId={`search-result-${room.roomId}`} onClick={() => { window.MoyeoApi.selectRoom(room.roomId); nav.go('detail'); }}/>
-                ))
-                : mockResults.map((room) => (
-                  <RoomCard key={room.title} room={room} testId={`search-result-${room.title}`} onClick={() => nav.go('detail')}/>
-                ))}
-              {!searching && (serverRooms ? serverRooms.length === 0 : mockResults.length === 0) && (
-                <div style={{ padding: '48px 0', textAlign: 'center', color: T.text500, fontSize: 13 }}>검색 결과가 없어요</div>
-              )}
-            </div>
-          ) : (
             <React.Fragment>
               {/* 비어 있으면 제목·전체 삭제·칩 영역을 통째로 숨긴다 (기획에 빈 상태 문구가 없다) */}
               {recent.length > 0 && (
@@ -1441,86 +1396,43 @@ function ScreenSearch() {
                   </div>
                 </div>
               )}
-              <div style={{ fontSize: 13, fontWeight: 600, marginTop: recent.length > 0 ? 28 : 0, marginBottom: 12 }}>인기 검색어</div>
-              {SEARCH_POPULAR.map(r => (
-                <div key={r.n} onClick={() => runSearch(r.w)} data-testid={`search-popular-${r.n}`} style={{ height: 44, display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: r.n <= 3 ? T.primary600 : T.text500, width: 16, fontVariantNumeric: 'tabular-nums' }}>{r.n}</div>
-                  <div style={{ flex: 1, fontSize: 14 }}>{r.w}</div>
-                  <div style={{ fontSize: 11, color: r.up ? T.accent500 : T.text400 }}>{r.up ? '▲' : '—'}</div>
+              {recent.length === 0 && (
+                <div style={{ padding: popular.length > 0 ? '28px 0' : '48px 0', textAlign: 'center', fontSize: 13, color: T.text500 }}>
+                  최근 검색어가 없어요.
                 </div>
-              ))}
+              )}
+              {/* 인기 검색어. 0건이면 이 블록이 통째로 사라진다 — 빈 상태 문구를 두지 않는다. */}
+              {popular.length > 0 && (
+                <div data-testid="search-popular" style={{ marginTop: recent.length > 0 ? 24 : 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>인기 검색어</div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {popular.map((row) => (
+                      <button
+                        key={`${row.rank}-${row.keyword}`}
+                        type="button"
+                        data-testid={`search-popular-${row.rank}`}
+                        onClick={() => runSearch(row.keyword)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 12, height: 40, padding: 0,
+                          border: 0, background: 'transparent', cursor: 'pointer', fontFamily: T.fontStack, textAlign: 'left',
+                        }}
+                      >
+                        <span style={{ width: 18, fontSize: 13, fontWeight: 800, color: T.primary600 }}>{row.rank}</span>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, color: T.text900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.keyword}</span>
+                        {/* 서버가 주는 값은 여기까지다. 상승·하락 표시는 근거가 없어 그리지 않는다. */}
+                        <span style={{ fontSize: 11, color: T.text400 }}>{row.searchCount}회</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </React.Fragment>
-          )}
         </div>
       </div>
     </Phone>
   );
 }
 
-// ───────── 22 · 탐색 지도 뷰 ─────────
-function ScreenExploreMap() {
-  const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
-  return (
-    <Phone>
-      <div style={{ position: 'absolute', inset: 0 }}>
-        <div style={{ position: 'absolute', inset: 0, background: T.bgSubtle }}>
-          <MiniMap height={852} withRoute={false} pins={[]}/>
-          {/* Multi pins for explore */}
-          <svg width="100%" height="100%" viewBox="0 0 393 852" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-            {[
-              { x: 80, y: 320, n: 4 },
-              { x: 180, y: 280, n: 6 },
-              { x: 270, y: 380, n: 3 },
-              { x: 140, y: 460, n: 8 },
-              { x: 230, y: 520, n: 5, on: true },
-              { x: 310, y: 460, n: 2 },
-            ].map((p, i) => (
-              <g key={i}>
-                <circle cx={p.x} cy={p.y + 2} r={p.on ? 18 : 16} fill="rgba(0,0,0,0.18)"/>
-                {p.on && <circle cx={p.x} cy={p.y} r="22" fill="none" stroke={T.accent500} strokeWidth="3"/>}
-                <circle cx={p.x} cy={p.y} r={p.on ? 18 : 16} fill={T.primary500}/>
-                <text x={p.x} y={p.y + 4} fontSize="11" fontWeight="700" textAnchor="middle" fill="#fff" fontFamily={T.fontStack}>{p.n}</text>
-              </g>
-            ))}
-          </svg>
-        </div>
-        <div style={{ position: 'absolute', top: 60, left: 16, right: 16, display: 'flex', gap: 8 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 999, background: T.bgBase, boxShadow: T.l2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={20}/></div></div>
-          <div style={{ flex: 1, height: 40, borderRadius: 999, background: T.bgBase, boxShadow: T.l2, display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px' }}>
-            <Icon name="search" size={16} color={T.text500}/>
-            <div style={{ fontSize: 13 }}>경북 전체</div>
-          </div>
-        </div>
-        <div style={{ position: 'absolute', top: 116, left: 16, right: 16, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {['지역', '일정', '인원', '성별'].map(c => (
-            <div key={c} style={{ padding: '6px 12px', borderRadius: 999, background: T.bgBase, boxShadow: T.l1, fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}>
-              {c} <Icon name="arrow" size={12} color={T.text500}/>
-            </div>
-          ))}
-        </div>
-        <div style={{ position: 'absolute', right: 16, top: 320, width: 40, height: 40, borderRadius: 999, background: T.bgBase, boxShadow: T.l2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="pin" size={20} color={T.primary600}/>
-        </div>
-        <div style={{ position: 'absolute', left: 12, right: 12, bottom: 100, height: 124, borderRadius: 16, background: T.bgBase, boxShadow: T.l2, padding: 12, display: 'flex', gap: 12 }}>
-          <div style={{ width: 100, borderRadius: 12, overflow: 'hidden' }}><ImgPlaceholder height={100} hue="autumn" radius={12}/></div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-              <Chip variant="accent">D-3</Chip>
-              <div style={{ fontSize: 11, color: T.text500 }}>4/8명</div>
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 600, marginTop: 8, lineHeight: 1.3 }}>경주 단풍·야경 1박 2일</div>
-            <div style={{ fontSize: 11, color: T.text500, marginTop: 4 }}>고요한 두루미 1130</div>
-            <div style={{ marginTop: 10 }}><ProgressBar current={4} max={8} min={3}/></div>
-          </div>
-        </div>
-        <div style={{ position: 'absolute', left: '50%', bottom: 36, transform: 'translateX(-50%)', height: 44, padding: '0 18px', borderRadius: 999, background: '#1A2320', color: '#fff', display: 'flex', alignItems: 'center', gap: 8, boxShadow: T.l2 }}>
-          <Icon name="feed" size={16} color="#fff"/>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>리스트 보기</span>
-        </div>
-      </div>
-    </Phone>
-  );
-}
 
 // ───────── 23 · 시스템 상태 (Empty/Loading/Error/Offline) ─────────
 function ScreenStates() {
@@ -1570,80 +1482,167 @@ function ScreenStates() {
   );
 }
 
-// ───────── 24 · 특수 메시지 카드 (장소·지도·정산·메모·투표 결과·시스템) ─────────
+// ───────── 21 · 특수 메시지 카드 6종 (장소·만날 위치·투표·정산 메모·사진·시스템) ─────────
+//
+// ⚠️ 예전 주석은 **틀렸다** — `대응 API 가 없다` 며 화면을 비워 두고 있었다. 6종 전부 API 가 있다:
+//   TOURISM_CONTENT   POST /chat-rooms/{roomId}/messages/tourism-contents  { contentId }
+//   LOCATION          POST /chat-rooms/{roomId}/messages/locations         (본문 없음 · 방의 집합 좌표)
+//   POLL              POST /chat-rooms/{roomId}/messages/polls             { question, options[], anonymous }
+//   SETTLEMENT_MEMO   POST /chat-rooms/{roomId}/messages/settlement-memos  { memo }
+//   IMAGE             POST /chat-rooms/{roomId}/messages/images            (multipart)
+//   SYSTEM            서버가 만든다 (개설·참여·공지 등록·여행 확정 등)
+// 읽기는 `GET /chat-rooms/{roomId}/messages` 하나로 끝난다 — 응답의 `type` 으로 종류를 가른다.
+//
+// 이 화면은 **카드 렌더링 견본**이라, 채팅방(20)과 같은 컴포넌트(SpecialMessageCard ·
+// SystemMessageNote)로 그린다. 두 화면이 다르게 생기면 그게 결함이다.
+// 서버가 이 방에 주지 않은 종류는 **카드를 그리지 않는다** — 예시로 채우지 않는다(NO-MOCK R1·R3).
+const SPECIAL_MESSAGE_KINDS = [
+  { type: 'TOURISM_CONTENT', label: '장소' },
+  { type: 'LOCATION', label: '지도 · 만남' },
+  { type: 'POLL', label: '투표' },
+  { type: 'SETTLEMENT_MEMO', label: '정산 메모' },
+  { type: 'IMAGE', label: '사진' },
+  { type: 'SYSTEM', label: '시스템' },
+];
+
 function ScreenSpecialMessages() {
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  const [messages, setMessages] = React.useState(null);
+  const [status, setStatus] = React.useState('loading');
+  const [reloadKey, setReloadKey] = React.useState(0);
+  React.useEffect(() => {
+    if (!liveMode || !roomId) return undefined;
+    let active = true;
+    setStatus('loading');
+    window.MoyeoApi.roomMessages(roomId, { limit: 50 })
+      .then((result) => {
+        if (!active) return;
+        if (!Array.isArray(result?.messages)) { setStatus('failed'); return; }
+        setMessages(result.messages);
+        setStatus('ready');
+      })
+      .catch(() => { if (active) setStatus('failed'); });
+    return () => { active = false; };
+  }, [liveMode, roomId, reloadKey]);
+
+  // 투표는 견본에서도 실제로 참여된다 — 채팅방(20)과 같은 엔드포인트를 쓴다.
+  // 응답이 갱신된 카드를 그대로 주므로 그 메시지만 바꿔 끼운다.
+  const [votingMessageId, setVotingMessageId] = React.useState(null);
+  const voteOnPoll = async (message, option) => {
+    if (votingMessageId != null || !roomId) return;
+    setVotingMessageId(message.messageId);
+    try {
+      const updated = option.votedByMe
+        ? await window.MoyeoApi.cancelPollVote(roomId, message.messageId)
+        : await window.MoyeoApi.votePollOption(roomId, message.messageId, option.optionId);
+      if (updated?.messageId != null) {
+        setMessages((current) => (current || []).map(
+          (item) => (item.messageId === updated.messageId ? updated : item),
+        ));
+      }
+    } catch (_) { /* 실패 시 카드를 그대로 둔다 */ }
+    setVotingMessageId(null);
+  };
+
+  // 종류별로 **가장 최근 한 건**을 견본으로 뽑는다. 없는 종류는 자리 자체가 없다.
+  const samples = SPECIAL_MESSAGE_KINDS.map((kind) => {
+    const found = (messages || []).filter((message) => message.type === kind.type);
+    return { ...kind, message: found.length > 0 ? found[found.length - 1] : null };
+  });
+  const drawn = samples.filter((kind) => kind.message);
+  const missing = samples.filter((kind) => !kind.message).map((kind) => kind.label);
+
   return (
     <div style={{ width: 393, height: 852, background: T.bgSubtle, borderRadius: 24, padding: 20, display: 'flex', flexDirection: 'column', gap: 14, fontFamily: T.fontStack, overflow: 'auto' }}>
       <div style={{ fontSize: 11, color: T.text500, fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>채팅방 · 특수 메시지 6종</div>
-      {/* Place */}
-      <div style={{ background: T.bgBase, borderRadius: 16, padding: 14, border: `1px solid ${T.line200}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-          <Icon name="pin" size={14} color={T.primary600}/>
-          <div style={{ fontSize: 12, fontWeight: 600, color: T.primary700 }}>장소</div>
+      {(!liveMode || status !== 'ready') && (
+        <TabDataNotice
+          status={status}
+          signedOut={!liveMode || !roomId}
+          onRetry={() => setReloadKey((value) => value + 1)}
+          style={{ padding: '40px 8px', textAlign: 'center', fontSize: 13, lineHeight: '21px' }}
+          testId="msgs-notice"
+        />
+      )}
+      {status === 'ready' && drawn.length === 0 && (
+        <div role="status" style={{ padding: '40px 8px', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '21px' }}>
+          아직 대화가 없어요.
         </div>
-        <div style={{ fontSize: 14, fontWeight: 600 }}>동궁과 월지</div>
-        <div style={{ fontSize: 12, color: T.text500, marginTop: 2 }}>경북 경주시 원화로 102</div>
-        <div style={{ marginTop: 10, height: 80, borderRadius: 10, overflow: 'hidden' }}><ImgPlaceholder height={80} hue="night" radius={10}/></div>
-        <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: T.text500 }}>
-          <span><Icon name="clock" size={11} color={T.text500}/> 09:00–22:00</span>
-          <span>지도 보기 →</span>
+      )}
+      {drawn.map((kind) => (kind.type === 'SYSTEM'
+        ? <SystemMessageNote key={kind.type} message={kind.message} style={{ margin: '0 auto' }}/>
+        : (
+          <div key={kind.type} data-testid={`msgs-sample-${kind.type}`}>
+            <div style={{ fontSize: 10.5, color: T.text500, marginBottom: 5, fontVariantNumeric: 'tabular-nums' }}>
+              {kind.message.senderNickname}
+              {window.MoyeoApi?.formatClock ? ` · ${window.MoyeoApi.formatClock(kind.message.createdAt)}` : ''}
+            </div>
+            <div style={{ background: T.bgBase, borderRadius: 14, padding: 13, border: `1px solid ${T.line200}` }}>
+              <SpecialMessageCard
+                message={kind.message}
+                voting={votingMessageId === kind.message.messageId}
+                onVote={voteOnPoll}
+              />
+            </div>
+          </div>
+        )))}
+      {status === 'ready' && drawn.length > 0 && missing.length > 0 && (
+        // 없는 종류를 예시로 채우지 않는다. 대신 **왜 비었는지**를 적는다 —
+        // 카드가 빠진 것과 그 방에 그 메시지가 없는 것은 다르다.
+        <div style={{ fontSize: 11, color: T.text500, lineHeight: '17px' }}>
+          이 모임에 아직 없는 카드: {missing.join(' · ')}
         </div>
-      </div>
-      {/* Map pin */}
-      <div style={{ background: T.bgBase, borderRadius: 16, padding: 14, border: `1px solid ${T.line200}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-          <Icon name="map" size={14} color={T.accent700}/>
-          <div style={{ fontSize: 12, fontWeight: 600, color: T.accent700 }}>11/8 14:00 만남</div>
-        </div>
-        <MiniMap height={120} pins={[1]}/>
-        <div style={{ fontSize: 14, fontWeight: 600, marginTop: 8 }}>경주역 2번 출구</div>
-        <div style={{ fontSize: 12, color: T.primary600, marginTop: 4 }}>길 찾기 →</div>
-      </div>
-      {/* Settlement */}
-      <div style={{ background: T.bgBase, borderRadius: 16, padding: 14, border: `1px solid ${T.line200}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-          <Icon name="money" size={14} color={T.text700}/>
-          <div style={{ fontSize: 12, color: T.text500 }}>우직한 곰 7821님이 결제했어요</div>
-        </div>
-        <div style={{ fontSize: 14, fontWeight: 600 }}>한옥스테이 1박</div>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 6 }}>
-          <div style={{ fontSize: 12, color: T.text500 }}>120,000원 · 4명</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: T.primary700, fontVariantNumeric: 'tabular-nums' }}>1인 30,000원</div>
-        </div>
-      </div>
-      {/* Notice */}
-      <div style={{ background: T.primary50, borderRadius: 16, padding: 14, border: `1px solid ${T.primary100}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-          <Icon name="note" size={14} color={T.primary700}/>
-          <div style={{ fontSize: 12, fontWeight: 600, color: T.primary700 }}>공지 · 호스트</div>
-        </div>
-        <div style={{ fontSize: 13, color: T.text900, lineHeight: 1.6 }}>집합: 경주역 2번 출구<br/>시간: 11/8 (토) 14:00<br/>함께 출발하면 좋아요 🙌</div>
-      </div>
-      {/* System: 여행 확정 */}
-      <div style={{ background: T.primary100, borderRadius: 16, padding: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Icon name="sparkle" size={20} color={T.primary600}/>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: T.primary700 }}>여행이 확정됐어요!</div>
-          <div style={{ fontSize: 11, color: T.primary700, opacity: 0.8, marginTop: 2 }}>좋은 여행 되세요 ✨</div>
-        </div>
-      </div>
-      {/* System: 마감 미달 소멸 */}
-      <div style={{ background: T.warningBg, borderRadius: 16, padding: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ fontSize: 18 }}>🍃</div>
-        <div style={{ fontSize: 12, color: T.warningText, lineHeight: 1.5 }}>아쉬운 모임이에요. 다음에 또 봐요!<br/><span style={{ opacity: 0.7 }}>14일 후 채팅방이 사라져요</span></div>
-      </div>
+      )}
     </div>
   );
 }
 
-// ───────── 25 · 모임 나가기 Alert ─────────
-function ScreenLeaveAlert() {
+// ───────── 31 · 채팅방 나가기 확인 (31-1 참가자 · 호스트) ─────────
+//
+// **호스트와 참가자는 결과가 전혀 다르다.** 호스트가 나가면 모임이 없어지고,
+// 참가자가 나가면 자리가 하나 비어 대기자가 들어온다. 그런데 문구가 호스트 기준으로
+// **고정**돼 있어서, 참가자가 이 화면을 보면 자기가 모임을 없애는 것으로 읽혔다 —
+// 정작 20-1 사이드 메뉴의 부제는 "나가면 대기 중인 다음 신청자가 자동으로 합류해요"(참가자 관점)였다.
+// 그래서 화면을 새로 만들지 않고 **role 로 가른다** (ATTACH-COMPOSER-CANON §6-5).
+//
+// 근거: DELETE /api/v1/chat-rooms/{roomId}/members/me
+//       — "채팅방 나가기 **또는 대기 취소**" (호출자 역할에 따라 결과가 다르다)
+// ⚠️ 파괴적 호출이라 QA 방에서 실행해 검증하지 않았다 — 배선만 해 둔다.
+// 본문은 없다 — 팝업의 "나가는 이유"는 기획 문구이고 서버가 사유를 받지 않아 전송하지 않는다.
+function ScreenLeaveAlert({ role = null }) {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
-  // ⚠️ 파괴적 호출이라 QA 방에서 실행해 검증하지 않았다 — 배선만 해 둔다.
-  // DELETE chat-rooms/{roomId}/members/me. 본문은 없다 — 팝업의 "나가는 이유"는 기획 문구이고
-  // 서버가 사유를 받지 않아 전송하지 않는다.
   const liveMode = window.MoyeoApi?.live();
   const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  // 역할은 서버 멤버 목록의 me && host 로 정한다. 지정 role(캡처·프로토타입 진입)이 있으면 그것을 쓴다.
+  // 서버가 답하기 전에는 문구를 고르지 않는다 — 잘못된 쪽을 먼저 보여주면 그게 더 나쁘다.
+  const [serverIsHost, setServerIsHost] = React.useState(null);
+  React.useEffect(() => {
+    if (role || !liveMode || !roomId) return undefined;
+    let active = true;
+    window.MoyeoApi.roomMembers(roomId)
+      .then((result) => {
+        if (!active) return;
+        const me = (result?.members || []).find((member) => member.me);
+        setServerIsHost(me ? Boolean(me.host) : false);
+      })
+      .catch(() => { if (active) setServerIsHost(false); });
+    return () => { active = false; };
+  }, [role, liveMode, roomId]);
+  const isHost = role ? role === 'host' : (serverIsHost ?? true);
+  const copy = isHost
+    ? {
+      title: <React.Fragment>호스트가 나가면<br/>이 모임은 종료돼요</React.Fragment>,
+      desc: '승인된 동행자 모두에게 알림이 가고, 채팅방은 14일 동안 읽기 전용으로 유지된 후 사라져요.',
+      reasonLabel: '나가는 이유 (필수)',
+      confirm: '모임 종료',
+    }
+    : {
+      title: <React.Fragment>이 모임에서<br/>나갈까요?</React.Fragment>,
+      desc: '내 자리가 비면서 대기 중인 다음 신청자가 자동으로 합류해요. 다시 신청하면 맨 뒤부터예요.',
+      reasonLabel: '나가는 이유 (선택)',
+      confirm: '나가기',
+    };
   const [busy, setBusy] = React.useState(false);
   const leave = async () => {
     if (!roomId) { nav.go('chat-list'); return; }
@@ -1651,6 +1650,8 @@ function ScreenLeaveAlert() {
     setBusy(true);
     try {
       await window.MoyeoApi.leaveRoom(roomId);
+      // TAB-STATE-CANON R4: 나간 방이 목록에 남으면 안 된다 — 그 키만 덜어낸다.
+      window.MoyeoTabCache?.invalidate?.(window.MoyeoTabCache.ROOM_LIST_KEYS);
       window.MoyeoApi.selectRoom(null);
       nav.go('chat-list');
     } catch (_) {
@@ -1658,33 +1659,40 @@ function ScreenLeaveAlert() {
     }
   };
   return (
-    <div style={{ width: 393, height: 852, borderRadius: 24, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.fontStack, overflow: 'hidden' }}>
+    <div data-testid={isHost ? 'leave-alert-host' : 'leave-alert-member'} style={{ width: 393, height: 852, borderRadius: 24, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.fontStack, overflow: 'hidden' }}>
       {/* 이전 화면(20-1 모임 정보)이 딤 아래에 그대로 깔려 있어야 팝업이 "위에 떠 있다"고 읽힌다 (changeLog14) */}
       <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}><ChatMenuBody/></div>
       <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
       {/* 중앙 팝업 표면도 시트와 같이 bgRaised — 다크 모드에서 bgBase는 화면 배경과 같은 값이다 */}
       <div style={{ position: 'relative', width: 320, background: T.bgRaised, borderRadius: 20, border: `1px solid ${T.line200}`, padding: 24, boxShadow: T.l3 }}>
         <div style={{ width: 48, height: 48, borderRadius: 999, background: T.dangerBg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, fontSize: 22 }}>⚠</div>
-        <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.4, letterSpacing: '-0.3px' }}>호스트가 나가면<br/>이 모임은 종료돼요</div>
-        <div style={{ fontSize: 13, color: T.text500, marginTop: 10, lineHeight: 1.6 }}>승인된 4명에게 알림이 가고, 채팅방은 14일 동안 read-only로 유지된 후 사라져요.</div>
+        <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.4, letterSpacing: '-0.3px' }}>{copy.title}</div>
+        <div style={{ fontSize: 13, color: T.text500, marginTop: 10, lineHeight: 1.6 }}>{copy.desc}</div>
+        {/* 사유 칸은 기획 문구다 — 서버가 사유를 받지 않아 입력으로 만들지 않는다(값을 지어내지 않는다) */}
         <div style={{ marginTop: 16, padding: 12, borderRadius: 10, background: T.bgSubtle, fontSize: 12, color: T.text700 }}>
-          <div style={{ fontSize: 11, color: T.text500, marginBottom: 6 }}>나가는 이유 (필수)</div>
-          <div style={{ fontSize: 13 }}>일정 변동으로 어렵게 됐어요...</div>
+          <div style={{ fontSize: 11, color: T.text500 }}>{copy.reasonLabel}</div>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
           <button type="button" data-testid="leave-cancel" onClick={() => nav.back()} style={{ flex: 1, height: 44, borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', fontSize: 14, fontWeight: 600, color: T.text900, fontFamily: T.fontStack, cursor: 'pointer' }}>취소</button>
-          <button type="button" data-testid="leave-confirm" disabled={busy} onClick={leave} style={{ flex: 1, height: 44, borderRadius: 10, border: 'none', background: T.danger, color: '#fff', fontSize: 14, fontWeight: 600, fontFamily: T.fontStack, cursor: 'pointer' }}>모임 종료</button>
+          <button type="button" data-testid="leave-confirm" disabled={busy} onClick={leave} style={{ flex: 1, height: 44, borderRadius: 10, border: 'none', background: T.danger, color: '#fff', fontSize: 14, fontWeight: 600, fontFamily: T.fontStack, cursor: 'pointer' }}>{copy.confirm}</button>
         </div>
       </div>
     </div>
   );
 }
 
+// 31-1 참가자 나가기 — 같은 화면을 역할만 바꿔 연다 (캡처·프로토타입 진입용).
+function ScreenLeaveMember() { return <ScreenLeaveAlert role="member"/>; }
+
 Object.assign(window, {
-  ScreenLogin, ScreenEmailAuth, ScreenProfileBasic, ScreenProfileTaste, ScreenTerms, ScreenCourseDetail,
-  ScreenCreateReview, ScreenHostManage, ScreenChatList, ScreenChatListApplied, ScreenNotifications,
-  ScreenRemovalReason, ScreenSearch, ScreenExploreMap, ScreenStates, ScreenSpecialMessages, ScreenLeaveAlert,
+  ScreenLogin, ScreenEmailAuth, ScreenProfileBasic, ScreenProfileTaste, ScreenTerms,
+  // ScreenCreateReview 는 여기 있었지만 screens-refined.jsx 가 같은 이름으로 다시 정의해
+  // (index.html 에서 뒤에 로드된다) 이 파일 것은 화면에 뜬 적이 없다. 17 create-review 는
+  // 코스 출처를 고르는 Step 1 이고, 지운 쪽은 기획 예시가 박힌 Step 5 요약이었다.
+  // 실제 Step 5 는 screens-additions.jsx 의 ScreenCreateSummary(create-summary)가 담당한다.
+  ScreenHostManage, ScreenChatList, ScreenChatListApplied, ScreenNotifications,
+  ScreenRemovalReason, ScreenSearch, ScreenStates, ScreenSpecialMessages, ScreenLeaveAlert, ScreenLeaveMember,
 });
 
 // ─── window export ───
-Object.assign(window, { ScreenLogin, ScreenEmailAuth, ScreenProfileBasic, ScreenProfileTaste, ScreenTerms, ScreenCourseDetail, ScreenCreateReview, ScreenHostManage, ScreenChatList, ScreenChatListApplied, ScreenNotifications, ScreenRemovalReason, ScreenSearch, ScreenExploreMap, ScreenStates, ScreenSpecialMessages, ScreenLeaveAlert });
+Object.assign(window, { ScreenLogin, ScreenEmailAuth, ScreenProfileBasic, ScreenProfileTaste, ScreenTerms, ScreenHostManage, ScreenChatList, ScreenChatListApplied, ScreenNotifications, ScreenRemovalReason, ScreenSearch, ScreenStates, ScreenSpecialMessages, ScreenLeaveAlert, ScreenLeaveMember });

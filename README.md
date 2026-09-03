@@ -88,6 +88,27 @@ http://127.0.0.1:5174/?screen=chat&theme=light&capture=1&liveData=1&roomId=22
   합니다. 3초대에서는 늦게 도착한 응답(예: 09 홈의 코스 태그, 08-C 약관 원문)이 화면에 못 올라옵니다.
 
 
+## 탭 전환 상태 보관소 (`src/tab-cache.js`)
+
+정본: 워크스페이스의 `docs/alignment/TAB-STATE-CANON.md`.
+
+라우터가 라우트마다 화면 컴포넌트를 갈아끼우므로 화면 안의 `useState`는 탭을 떠나면 사라집니다. 그대로 두면
+하단 탭을 오갈 때마다 조회가 다시 나가고 `불러오는 중이에요…`가 다시 뜹니다. 그래서 탭 데이터를 **탭 바깥**
+(모듈 스코프)에 두고 화면은 그 보관소를 읽기만 합니다. 보관소에는 **서버에서 받은 값만** 담습니다
+(목데이터로 채우지 않습니다).
+
+- `window.useTabData(key, load, { enabled, mode, accept })` → `{ status, value, reload, replace }`
+  - `mode: 'keep'` — 탐색 · 모임 · 피드. 보관소에 값이 있으면 **다시 부르지 않습니다**.
+  - `mode: 'revalidate'` — 홈 · 마이. 가진 값을 즉시 그리고 뒤에서 조용히 갱신합니다.
+  - `status`는 `ready` · `loading` · `failed` · `idle`이고, **값이 있으면 갱신 중에도 항상 `ready`**입니다
+    (로딩·오류가 이전 내용을 덮지 않습니다). 화면의 상태 줄은 `TabDataNotice`가 그립니다.
+- `window.useTabState(key, initial)` — 고른 필터 · 세그먼트 · 탭. 탭을 떠났다 와도 그대로입니다.
+- `window.useTabScroll(key)` — `{ ref, onScroll }`. 스크롤 위치를 되돌립니다.
+- 목록 자체를 바꾸는 동작(모집 만들기 · 신청 · 나가기)은 `MoyeoTabCache.invalidate(MoyeoTabCache.ROOM_LIST_KEYS)`로
+  해당 키만 덜어냅니다. 찜 토글처럼 항목 하나만 바뀌는 것은 `MoyeoTabCache.patch(key, update)`입니다.
+- 로그아웃 · 계정 전환 시 보관소를 비웁니다. `MoyeoAuth.signOut()`이 `clear()`를 부르고, 훅이 매 진입마다
+  `MoyeoAuth.currentUserId()`로 주인이 바뀌었는지 확인합니다.
+
 ## 오픈소스 라이선스 화면 (29-4 · 29-4a)
 
 `설정 › 정보 › 오픈소스 라이선스`에서 들어갑니다. 데이터는 서버 호출 없이 `src/oss-licenses.js`에 내장돼 오프라인에서도
@@ -145,6 +166,14 @@ Firebase Console에서 Email/Password, Google, Apple 제공자를 활성화하�
 
 화면 기획 및 자동화 테스트에서만 `?mockAuth=1`을 붙여 인증을 모킹할 수 있습니다. 배포 기본값은 목업이 아닙니다.
 
+### 가입 게이트 (409)
+
+서버는 인증이 필요한 일반 API마다 가입 단계와 실제 프로필 이미지 보유 여부를 함께 검증합니다(`docs/alignment/SIGNUP-GATE-CANON.md`).
+
+- `40902` → 회원 정보 입력 단계(`prof-1`), `40918` → 프로필 이미지 단계(`prof-2`)로 되돌립니다. **토큰 문제가 아니므로 재발급하지 않습니다** — `auth-api.jsx`의 `request()`가 401 판정보다 먼저 걸러 `moyeo:signup-gate` 이벤트를 쏘고, `prototype.jsx`의 라우터가 현재 화면을 교체합니다.
+- `40919`는 프로필 이미지 3종에서만 나오고 "이미 끝났다"는 뜻이라 오류로 띄우지 않고 홈으로 넘깁니다.
+- 07 취향 단계는 가입 전이라 `GET /users/me/profile/options`를 부를 수 없어 `MoyeoApi.SIGNUP_TRAVEL_STYLES`(12종)·`SIGNUP_INTERESTED_REGIONS`(경북 24곳)를 씁니다. 목데이터가 아니라 **서버 시드의 거울인 계약 상수**이며, 서버가 목록을 바꾸면 함께 바꿔야 합니다. 고른 id는 `POST /auth/signup`의 `travelStyleIds`·`interestedRegionIds`로 전송됩니다. 28 프로필 수정은 토큰이 있으므로 서버 응답만 씁니다.
+
 ## Web FCM 설정
 
 웹 알림은 Firebase Messaging compat SDK와 저장소 루트의 `firebase-messaging-sw.js`를 사용합니다. 서비스 워커 주소와 알림 클릭 주소는 `document.baseURI`/등록 scope를 기준으로 계산하므로 `https://사용자.github.io/저장소명/`처럼 GitHub Pages 하위 경로에서도 저장소 prefix를 유지합니다.
@@ -152,7 +181,7 @@ Firebase Console에서 Email/Password, Google, Apple 제공자를 활성화하�
 1. Firebase Console에서 이 웹 앱의 Cloud Messaging을 활성화하고 `프로젝트 설정 > 클라우드 메시징 > 웹 푸시 인증서`에서 VAPID 키 쌍을 생성합니다.
 2. 로컬 `src/runtime-config.local.js`에는 Firebase Web 앱 설정과 공개 VAPID 키인 `firebaseVapidKey`를 넣습니다. 알림 권한과 서비스 워커는 `localhost` 또는 HTTPS에서만 동작합니다.
 3. GitHub Actions에는 `FIREBASE_WEB_API_KEY` Secret과 `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_WEB_APP_ID`, `FIREBASE_WEB_VAPID_KEY` Variables를 등록합니다.
-4. 로그인/회원가입 요청에는 얻을 수 있는 경우 `fcmToken`이 함께 전송됩니다. BE에 로그인과 별도의 토큰 갱신 API가 생기면 Repository Variable `MOYEO_FCM_TOKEN_REGISTRATION_PATH`에 `/api/...` 경로를 넣습니다. 비어 있으면 별도 API를 추측해 호출하지 않고 `MoyeoPush.setTokenRegistrar()` 경계만 유지합니다.
+4. 로그인/회원가입 요청에는 얻을 수 있는 경우 `fcmToken`이 함께 전송됩니다. 토큰이 없거나 공백뿐이면 필드를 생략합니다 — 공백 토큰은 `40016 FCM_TOKEN_BLANK`입니다. 같은 기기에서 계정을 바꿔도 서버가 기존 소유자에게서 토큰을 이관하므로 클라이언트가 삭제 후 재시도하지 않습니다. BE에 로그인과 별도의 토큰 갱신 API가 생기면 Repository Variable `MOYEO_FCM_TOKEN_REGISTRATION_PATH`에 `/api/...` 경로를 넣습니다. 비어 있으면 별도 API를 추측해 호출하지 않고 `MoyeoPush.setTokenRegistrar()` 경계만 유지합니다.
 
 설정 화면에서 사용자가 직접 알림을 켤 때만 권한을 요청합니다. 미지원 브라우저, HTTP, 권한 거부, Firebase 설정 누락은 각각 안내 문구로 대체되며 반복해서 권한 창을 띄우지 않습니다. 포그라운드 메시지는 `moyeo:push-message`, 토큰은 `moyeo:push-token`, 상태 변화는 `moyeo:push-state` 이벤트로 앱 UI에 전달됩니다.
 

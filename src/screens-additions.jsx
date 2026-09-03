@@ -46,6 +46,36 @@ function AddFieldLabel({ children, required }) {
   );
 }
 
+// AddFieldBox 와 같은 모양이지만 **사용자가 직접 입력하는** 칸이다.
+// 모집 만들기의 이름·참가비처럼 서버에도, 화면기획에도 정답이 없는 값에 쓴다 —
+// 미리 채워 두면 그건 목데이터다 (NO-MOCK-CANON R1).
+function AddFieldInput({ icon, value, onChange, placeholder, caption, testId, inputMode }) {
+  return (
+    <div>
+      <div style={{
+        width: '100%', height: 48, borderRadius: 12,
+        border: `1px solid ${T.line200}`, background: RF.card,
+        display: 'flex', alignItems: 'center', gap: 9, padding: '0 13px',
+      }}>
+        {icon && <Icon name={icon} size={17} color={T.text500}/>}
+        <input
+          data-testid={testId}
+          value={value}
+          inputMode={inputMode}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          style={{
+            flex: 1, minWidth: 0, height: 46, border: 0, outline: 'none', background: 'transparent',
+            fontSize: 13, fontWeight: value ? 800 : 500, color: T.text900,
+            fontFamily: T.fontStack, fontVariantNumeric: 'tabular-nums', padding: 0,
+          }}
+        />
+      </div>
+      {caption && <div style={{ fontSize: 11, color: T.text500, marginTop: 6, lineHeight: '16px' }}>{caption}</div>}
+    </div>
+  );
+}
+
 function AddFieldBox({ icon, value, placeholder, caption, onClick, chevron = true, compact = false }) {
   const filled = Boolean(value);
   return (
@@ -122,27 +152,26 @@ function ScreenCreateSchedule() {
   const [type, setType] = React.useState('day');
   const day = type === 'day';
   // 로그인 상태에서는 실제로 등록될 일정(오늘 기준 미래 날짜)을 그대로 보여준다.
-  // 기획 목데이터(5/25)는 지난 날짜라 서버가 거절하므로 보이는 값과 보내는 값을 일치시킨다.
-  // 캡처 모드는 live() 가 false 라 아래 기획 목데이터 문구가 그대로 남는다.
+  // 보이는 값과 보내는 값을 일치시킨다 — 일정이 없으면 칸을 비워 둔다.
   const liveMode = window.MoyeoApi?.live();
   const schedule = React.useMemo(() => (liveMode ? window.MoyeoApi.defaultRoomSchedule() : null), [liveMode]);
   const dateText = (value) => window.MoyeoApi.formatDate(value);
-  // 17-4 에서 고른 집합 장소가 있으면 그 값을 보여준다 (없거나 캡처면 기획 목데이터 값 그대로).
+  // 17-4 에서 고른 집합 장소만 보여준다 — 고르기 전에는 기획 좌표를 대신 채우지 않는다.
   const meetDraft = liveMode ? (window.MoyeoApi?.roomDraft?.() || {}) : {};
-  const meetPoint = {
-    lat: Number.isFinite(Number(meetDraft.meetingLatitude)) ? Number(meetDraft.meetingLatitude) : 36.435612,
-    lng: Number.isFinite(Number(meetDraft.meetingLongitude)) ? Number(meetDraft.meetingLongitude) : 129.057214,
-  };
-  const meetingDetails = meetDraft.meetingDetails || '청송 시외버스터미널 앞';
-  const meetingSummary = `${schedule ? schedule.meetingTime : '07:50'} 집합 · ${meetPoint.lat.toFixed(4)}, ${meetPoint.lng.toFixed(4)}`;
+  const meetPoint = (Number.isFinite(Number(meetDraft.meetingLatitude)) && Number.isFinite(Number(meetDraft.meetingLongitude)))
+    ? { lat: Number(meetDraft.meetingLatitude), lng: Number(meetDraft.meetingLongitude) }
+    : null;
+  const meetingDetails = meetDraft.meetingDetails || '';
+  const meetingSummary = meetPoint && schedule
+    ? `${schedule.meetingTime} 집합 · ${meetPoint.lat.toFixed(4)}, ${meetPoint.lng.toFixed(4)}`
+    : '';
   const goNext = () => {
     window.MoyeoApi?.updateRoomDraft({
       tripType: day ? 'DAY_TRIP' : 'OVERNIGHT',
       ...(schedule || {}),
       // 이 화면에 보이는 집합 정보를 그대로 넘긴다 (17-4 에서 바꿨으면 그 값이 이미 들어 있다).
       meetingDetails,
-      meetingLatitude: meetPoint.lat,
-      meetingLongitude: meetPoint.lng,
+      ...(meetPoint ? { meetingLatitude: meetPoint.lat, meetingLongitude: meetPoint.lng } : {}),
     });
     nav.go('create-people');
   };
@@ -189,7 +218,7 @@ function ScreenCreateSchedule() {
                 borderRadius: 12, background: T.bgSubtle, border: `1px solid ${RF.softLine}`,
               }}>
                 <Chip variant="soft">당일치기</Chip>
-                <span style={{ fontSize: 12, fontWeight: 800, color: T.text700, fontVariantNumeric: 'tabular-nums' }}>{schedule ? `${dateText(schedule.startDate)} ${schedule.dayTripStartTime} – ${schedule.dayTripEndTime} · 10시간` : '5/25(토) 08:00 – 18:00 · 10시간'}</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: T.text700, fontVariantNumeric: 'tabular-nums' }}>{schedule ? `${dateText(schedule.startDate)} ${schedule.dayTripStartTime} – ${schedule.dayTripEndTime} · 10시간` : ''}</span>
               </div>
             </div>
           ) : (
@@ -209,7 +238,7 @@ function ScreenCreateSchedule() {
                 borderRadius: 12, background: T.bgSubtle, border: `1px solid ${RF.softLine}`,
               }}>
                 <Chip variant="soft">1박 2일</Chip>
-                <span style={{ fontSize: 12, fontWeight: 800, color: T.text700, fontVariantNumeric: 'tabular-nums' }}>{schedule ? `${dateText(schedule.startDate)} ~ ${dateText(schedule.endDate)}` : '5/25(토) ~ 5/26(일)'}</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: T.text700, fontVariantNumeric: 'tabular-nums' }}>{schedule ? `${dateText(schedule.startDate)} ~ ${dateText(schedule.endDate)}` : ''}</span>
               </div>
             </div>
           )}
@@ -302,15 +331,12 @@ function ScreenCreatePeople() {
 // ───────── 17-4 · 모집 만들기 Step 4 — 집합 장소 지정 ─────────
 function ScreenCreateMeetPoint() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
-  const [detail, setDetail] = React.useState('터미널 정문 앞');
-  const [point, setPoint] = React.useState({ lat: 36.435612, lng: 129.057214 });
-  // 실지도가 붙으면 카카오 드래그 핀이 좌표를 갱신한다. 목업일 때만 아래 탭 핀을 쓴다.
-  const [liveMap, setLiveMap] = React.useState(false);
+  // 상세 안내는 호스트가 직접 적는 값이다 — 예시 문구를 미리 채우면 그대로 저장된다.
+  const [detail, setDetail] = React.useState('');
+  // 지도의 첫 중심은 경북 중앙이다 — 특정 장소(기획의 청송 터미널)를 미리 고른 것처럼 두지 않는다.
+  const [point, setPoint] = React.useState({ lat: 36.4, lng: 128.9 });
+  // 좌표는 실지도의 드래그 핀만 바꾼다.
   const initialPoint = React.useRef(point);
-  const nudgePoint = () => setPoint((current) => ({
-    lat: Number((current.lat + 0.000121).toFixed(6)),
-    lng: Number((current.lng - 0.000094).toFixed(6)),
-  }));
   // 17-3 · 호스트가 기존 방의 집합 정보를 고치는 진입이면 PUT chat-rooms/{id}/meeting-info 로 저장한다.
   // 여행 확정 전까지만 허용된다(40913). 모집 만들기(2/5) 진입이면 아래 draft 경로가 그대로 남는다.
   const liveMode = window.MoyeoApi?.live();
@@ -381,36 +407,19 @@ function ScreenCreateMeetPoint() {
           <div style={{ position: 'relative' }}>
             <MiniMap
               height={244}
-              withRoute={false}
               level={4}
               center={initialPoint.current}
               draggablePin
               onPinMove={setPoint}
-              onLiveMap={setLiveMap}
             />
-            {!liveMap && (
-            <button type="button" onClick={nudgePoint} aria-label="지도 핀 위치 조정" data-testid="meeting-map-pin" style={{
-              position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -100%)',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', border: 0, background: 'transparent', padding: 0, cursor: 'pointer',
-            }}>
-              <div style={{
-                width: 40, height: 40, borderRadius: 999, background: T.primary500,
-                border: `3px solid ${T.avatarRing}`, boxShadow: T.l2,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <Icon name="pin" size={20} color="#fff"/>
-              </div>
-              <div style={{ width: 2, height: 12, background: T.primary500 }}/>
-              <div style={{ width: 12, height: 4, borderRadius: 999, background: 'rgba(15,23,20,0.25)' }}/>
-            </button>
-            )}
+            {/* 핀은 실제 카카오 지도의 드래그 마커다 — 목업 위에 얹던 가짜 핀 버튼은 지웠다(R4). */}
             <div style={{
               position: 'absolute', left: 14, right: 14, top: 14, height: 42, borderRadius: 12,
               background: T.overlayPanel, border: `1px solid ${T.line200}`, boxShadow: T.l1,
               display: 'flex', alignItems: 'center', gap: 9, padding: '0 13px',
             }}>
               <Icon name="search" size={17} color={T.text500}/>
-              <span style={{ fontSize: 13, color: T.text400 }}>장소 검색 (TourAPI)</span>
+              <span style={{ fontSize: 13, color: T.text400 }}>장소 검색</span>
             </div>
             <div style={{
               position: 'absolute', left: 14, bottom: 14,
@@ -421,10 +430,8 @@ function ScreenCreateMeetPoint() {
           </div>
 
           <div style={{ padding: '18px 20px 20px', display: 'grid', gap: 16 }}>
-            <div>
-              <AddFieldLabel required>집합 장소</AddFieldLabel>
-              <AddFieldBox icon="pin" value="청송 시외버스터미널" chevron={false}/>
-            </div>
+            {/* 집합 장소 이름은 좌표를 장소명으로 바꿔줄 API 가 없어 두지 않는다(§4) —
+                아래 좌표와 상세 안내가 실제로 저장되는 값이다. */}
 
             <div>
               <AddFieldLabel>상세 안내</AddFieldLabel>
@@ -494,66 +501,155 @@ function ScreenCreateMeetPoint() {
 function ScreenCustomCourse() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const [query, setQuery] = React.useState('');
-  const [stops, setStops] = React.useState([
-    { id: 1, time: '09:00', name: '청송 시외버스터미널', memo: '집합 장소' },
-    { id: 2, time: '10:30', name: '주왕산 국립공원', memo: '대전사 ~ 제3폭포' },
-    { id: 3, time: '14:00', name: '주산지', memo: '왕버들 산책로' },
-  ]);
-  const pool = [
-    { time: '16:30', name: '청송 얼음골', memo: '여름 인기 코스' },
-    { time: '17:20', name: '달기약수탕', memo: '백숙 거리' },
-    { time: '18:00', name: '청송 객주문학관', memo: '실내 대체 코스' },
-  ];
+  // 에디터는 빈 코스로 시작한다 — 예시 방문지 3곳을 미리 담아두면 사용자가 짜지 않은 코스가 저장된다.
+  const [stops, setStops] = React.useState([]);
+  // 1박 이상이면 일차가 늘어난다. customCourse 의 방문지마다 dayNumber 가 필수다.
+  const [days, setDays] = React.useState(1);
+  const [activeDay, setActiveDay] = React.useState(1);
 
-  const addStop = () => {
+  // ── 방문지 검색 (GET /tourism-contents?keyword=) ──
+  // 예전에는 `검색` 이 17-1a 장소 검색 화면으로 넘어가면서 **입력한 검색어를 버렸고**,
+  // 담긴 방문지는 사용자가 타이핑한 글자였다. 그래서 contentId 가 없어
+  // 17-5 요약이 "직접 만든 코스는 customCourse 를 조립할 수 없다"며 생성을 막고 있었다.
+  // 여기서 바로 검색해 **서버 콘텐츠를 고르게** 하면 contentId 가 함께 담긴다.
+  const [keyword, setKeyword] = React.useState('');
+  const [results, setResults] = React.useState([]);
+  const [searchStatus, setSearchStatus] = React.useState('idle');
+  React.useEffect(() => {
+    if (!keyword) { setResults([]); setSearchStatus('idle'); return undefined; }
+    let active = true;
+    setSearchStatus('loading');
+    window.MoyeoTourism.list({ keyword, size: 20 })
+      .then((result) => {
+        if (!active) return;
+        setResults(result.items || []);
+        setSearchStatus('done');
+      })
+      .catch(() => { if (active) { setResults([]); setSearchStatus('error'); } });
+    return () => { active = false; };
+  }, [keyword]);
+  const runSearch = () => setKeyword(query.trim());
+
+  const addStop = (place) => {
     if (stops.length >= 20) return;
-    const normalized = query.trim();
-    const next = normalized
-      ? { time: '16:30', name: normalized, memo: 'TourAPI 검색 결과' }
-      : pool[(stops.length - 3 + pool.length) % pool.length];
-    setStops((current) => [...current, { id: Date.now(), ...next }]);
+    // 서버 콘텐츠만 담는다 — 검색 결과를 고르지 않으면 담을 방문지가 없다.
+    if (!place?.contentId) return;
+    setStops((current) => [...current, {
+      id: `${place.contentId}-${Date.now()}`,
+      contentId: place.contentId,
+      name: place.title,
+      memo: place.address || '',
+      day: activeDay,
+      time: '',
+    }]);
     setQuery('');
+    setKeyword('');
   };
-  const removeStop = (id) => setStops((s) => (s.length <= 2 ? s : s.filter((x) => x.id !== id)));
+  const removeStop = (id) => setStops((s) => s.filter((x) => x.id !== id));
+  // 마지막 일차만 늘리고 줄인다. 중간 일차를 지우면 남은 방문지의 일차가 어긋난다.
+  const addDay = () => {
+    if (days >= 10) return;
+    setDays((d) => d + 1);
+    setActiveDay(days + 1);
+  };
+  // 순서 바꾸기는 **같은 일차 안에서만** 한다 — 일차 경계를 넘기면
+  // 방문지의 dayNumber 가 화면에 보이는 자리와 어긋난다.
   const moveStop = (index, direction) => {
     const target = index + direction;
     if (target < 0 || target >= stops.length) return;
+    if (stops[index].day !== stops[target].day) return;
     setStops((current) => {
       const next = [...current];
       [next[index], next[target]] = [next[target], next[index]];
       return next;
     });
   };
-  // 검색으로 추가한 방문지는 좌표를 못 찾을 수 있다 — 그때는 목업 지도로 남는다.
-  const courseRoute = React.useMemo(
-    () => window.MoyeoKakaoMap?.routeFromNames?.(stops.map((s) => s.name)) || null,
-    [stops],
-  );
-
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
         <Header title="코스 직접 만들기" left center onBack={nav.back}/>
 
         <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 96, overflow: 'auto', padding: '0 20px 20px' }}>
-          <div style={{ marginTop: 14, borderRadius: 12, overflow: 'hidden' }}>
-            <MiniMap height={160} pins={stops.slice(0, 4).map((_, i) => i + 1)} markers={courseRoute?.markers} polyline={courseRoute?.polyline}/>
-          </div>
+          {/* 방문지 좌표가 없으면 지도를 그리지 않는다 — 손으로 그린 지도는 두지 않는다(R4). */}
 
-          <form onSubmit={(event) => { event.preventDefault(); nav.go('place-search'); }} style={{ marginTop: 14, height: 42, borderRadius: 11, border: `1px solid ${T.line200}`, display: 'flex', alignItems: 'center', gap: 9, padding: '0 8px 0 13px' }}>
+          <form onSubmit={(event) => { event.preventDefault(); runSearch(); }} style={{ marginTop: 14, height: 42, borderRadius: 11, border: `1px solid ${T.line200}`, display: 'flex', alignItems: 'center', gap: 9, padding: '0 8px 0 13px' }}>
             <Icon name="search" size={17} color={T.text500}/>
             <input data-testid="tourapi-place-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="방문지 검색 (TourAPI · 경북 22개 시·군)" style={{ minWidth: 0, flex: 1, border: 0, outline: 0, background: 'transparent', color: T.text900, fontFamily: T.fontStack, fontSize: 13 }}/>
-            <button type="submit" style={{ height: 30, border: 0, borderRadius: 8, background: T.primary50, color: T.primary700, fontFamily: T.fontStack, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>검색</button>
+            {/* type=button — form onSubmit(Enter)과 같은 일을 하되 제출이 두 번 일어나지 않게 한다. */}
+            <button type="button" data-testid="custom-course-search" onClick={runSearch} style={{ height: 30, padding: '0 10px', border: 0, borderRadius: 8, background: T.primary50, color: T.primary700, fontFamily: T.fontStack, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>검색</button>
           </form>
 
+          {/* 검색 결과. 고르면 그 방문지가 지금 고른 일차에 담긴다.
+              서버가 준 콘텐츠만 그린다 — 결과가 없으면 예시 장소를 대신 두지 않는다(R1). */}
+          {searchStatus !== 'idle' && (
+            <div data-testid="custom-course-results" style={{ marginTop: 10 }}>
+              {searchStatus === 'loading' && <div role="status" style={{ padding: '18px 0', textAlign: 'center', fontSize: 12.5, color: T.text500 }}>불러오는 중이에요…</div>}
+              {searchStatus === 'error' && <div role="alert" style={{ padding: '18px 0', textAlign: 'center', fontSize: 12.5, color: T.text500 }}>불러오지 못했어요.</div>}
+              {searchStatus === 'done' && results.length === 0 && <div role="status" style={{ padding: '18px 0', textAlign: 'center', fontSize: 12.5, color: T.text500 }}>검색 결과가 없어요</div>}
+              {searchStatus === 'done' && results.length > 0 && (
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <div style={{ fontSize: 11, color: T.text500 }}>고르면 Day {activeDay} 에 담아요</div>
+                  {results.map((place) => (
+                    <button
+                      key={place.contentId}
+                      type="button"
+                      data-testid={`custom-course-result-${place.contentId}`}
+                      disabled={stops.length >= 20}
+                      onClick={() => addStop(place)}
+                      style={{
+                        width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 9,
+                        padding: '9px 11px', borderRadius: 11, border: `1px solid ${RF.softLine}`,
+                        background: RF.card, fontFamily: T.fontStack, cursor: stops.length >= 20 ? 'default' : 'pointer',
+                      }}
+                    >
+                      <Icon name="plus" size={15} color={T.primary600}/>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{place.title}</span>
+                        {place.address && <span style={{ display: 'block', fontSize: 10.5, color: T.text500, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{place.address}</span>}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 }}>
-            <div style={{ fontSize: 13, fontWeight: 900 }}>Day 1</div>
+            {/* 일차가 둘 이상이면 어느 날에 담을지 골라야 한다. 하루면 고를 것이 없어 이름만 둔다. */}
+            {days === 1
+              ? <div style={{ fontSize: 13, fontWeight: 900 }}>Day 1</div>
+              : (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {Array.from({ length: days }, (_, index) => index + 1).map((day) => {
+                    const on = day === activeDay;
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        data-testid={`custom-course-day-${day}`}
+                        aria-pressed={on}
+                        onClick={() => setActiveDay(day)}
+                        style={{
+                          height: 28, padding: '0 10px', borderRadius: 999, border: 0, cursor: 'pointer',
+                          background: on ? T.primary500 : T.primary50, color: on ? '#fff' : T.primary700,
+                          fontSize: 12, fontWeight: 900, fontFamily: T.fontStack,
+                        }}
+                      >Day {day}</button>
+                    );
+                  })}
+                </div>
+              )}
             <div data-testid="custom-course-count" style={{ fontSize: 11, color: T.text500, fontVariantNumeric: 'tabular-nums' }}>{stops.length}개 방문지 · 최소 2개 · 최대 20개</div>
           </div>
 
           <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
             {stops.map((s, i) => (
-              <div key={s.id} style={{
+              <React.Fragment key={s.id}>
+              {/* 일차가 바뀌는 자리에 머리글을 둔다 — 어느 방문지가 몇 일차인지 눈으로 보여야 한다. */}
+              {days > 1 && (i === 0 || stops[i - 1].day !== s.day) && (
+                <div style={{ fontSize: 12, fontWeight: 900, color: T.text700, marginTop: i === 0 ? 0 : 6 }}>Day {s.day}</div>
+              )}
+              <div style={{
                 borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card,
                 padding: '11px 12px', display: 'flex', alignItems: 'center', gap: 10,
               }}>
@@ -568,7 +664,8 @@ function ScreenCustomCourse() {
                   width: 26, height: 26, borderRadius: 999, background: T.primary500, color: '#fff',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 12, fontWeight: 800, fontVariantNumeric: 'tabular-nums', flexShrink: 0,
-                }}>{i + 1}</div>
+                  /* 번호는 그 일차 안의 순서다 — customCourse 의 sequence 와 같은 값이어야 한다. */
+                }}>{stops.slice(0, i).filter((other) => other.day === s.day).length + 1}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                     <span style={{ fontSize: 12, fontWeight: 800, color: T.primary700, fontVariantNumeric: 'tabular-nums' }}>{s.time}</span>
@@ -585,16 +682,19 @@ function ScreenCustomCourse() {
                   <Icon name="close" size={15} color={T.text400}/>
                 </button>
               </div>
+              </React.Fragment>
             ))}
           </div>
 
+          {/* 방문지는 위 검색 결과에서 고른다 — 예전의 자유 입력 `방문지 추가` 는
+              contentId 없는 방문지를 만들어 17-5 에서 코스를 조립할 수 없게 했다. */}
           <button
             type="button"
             data-testid="add-course-stop"
-            onClick={addStop}
+            onClick={() => document.querySelector('[data-testid="tourapi-place-search"]')?.focus()}
             disabled={stops.length >= 20}
             style={{
-              width: '100%', height: 46, marginTop: 10, borderRadius: 12, cursor: 'pointer',
+              width: '100%', height: 46, marginTop: 10, borderRadius: 12, cursor: stops.length >= 20 ? 'default' : 'pointer',
               border: `1px dashed ${T.line300}`, background: 'transparent', color: stops.length >= 20 ? T.text400 : T.primary600,
               fontFamily: T.fontStack, fontSize: 13, fontWeight: 800,
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -602,13 +702,17 @@ function ScreenCustomCourse() {
             <Icon name="plus" size={17} color={stops.length >= 20 ? T.text400 : T.primary600}/> {stops.length >= 20 ? '방문지는 최대 20개예요' : '방문지 추가'}
           </button>
 
+          {/* 일차를 늘린다. 서버 호출은 없다 — 초안에 날짜 한 칸이 늘어날 뿐이다. */}
           <button
             type="button"
+            data-testid="add-course-day"
+            onClick={addDay}
+            disabled={days >= 10}
             style={{
-              width: '100%', height: 42, marginTop: 8, borderRadius: 12, cursor: 'pointer',
-              border: `1px solid ${T.line200}`, background: RF.card, color: T.text700,
+              width: '100%', height: 42, marginTop: 8, borderRadius: 12, cursor: days >= 10 ? 'default' : 'pointer',
+              border: `1px solid ${T.line200}`, background: RF.card, color: days >= 10 ? T.text400 : T.text700,
               fontFamily: T.fontStack, fontSize: 12, fontWeight: 800,
-            }}>+ 다음 날 추가 (1박 이상일 때)</button>
+            }}>{days >= 10 ? '일정은 최대 10일까지예요' : '+ 다음 날 추가 (1박 이상일 때)'}</button>
 
           <div style={{ marginTop: 16 }}>
             <AddInfoBanner>
@@ -631,13 +735,12 @@ function ScreenCustomCourse() {
 // ───────── 20-2 · 공지 이력 ─────────
 function ScreenNoticeHistory() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
-  // 참여 중인 방이면 GET {id}/notices 로 대체하고, 호스트면 POST {id}/notices 로 등록한다
-  // (고정 토글은 PUT {id}/notices/{noticeId}). 비참여자는 403 → 목데이터 유지.
+  // 참여 중인 방이면 GET {id}/notices 로 그리고, 호스트면 20-2f 공지 작성 화면으로 보낸다.
+  // (고정 토글은 PUT {id}/notices/{noticeId}). 비참여자는 403 → 빈 상태.
+  // 방·코스 제목은 부르지 않는다 — 공지 카드에는 제목 자리가 없다(ATTACH-COMPOSER-CANON §2).
   const liveMode = window.MoyeoApi?.live();
   const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
   const [serverNotices, setServerNotices] = React.useState(null);
-  const [serverRoom, setServerRoom] = React.useState(null);
-  const [serverCourse, setServerCourse] = React.useState(null);
   const [isHost, setIsHost] = React.useState(false);
   const [noticeBusy, setNoticeBusy] = React.useState(false);
   const [noticeError, setNoticeError] = React.useState('');
@@ -651,120 +754,48 @@ function ScreenNoticeHistory() {
     window.MoyeoApi.roomNotices(roomId)
       .then((result) => { if (active && Array.isArray(result?.pinnedNotices)) setServerNotices(result); })
       .catch(() => { /* 403(미참여) 이면 목데이터 유지 */ });
-    window.MoyeoApi.roomDetail(roomId)
-      .then((result) => { if (active && result?.roomId != null) setServerRoom(result); })
-      .catch(() => {});
-    window.MoyeoApi.roomCourse(roomId)
-      .then((result) => { if (active && result?.course) setServerCourse(result.course); })
-      .catch(() => {});
     // 공지 작성은 호스트만 — members 응답의 host && me 로 판정한다.
     window.MoyeoApi.roomMembers(roomId)
       .then((result) => { if (active) setIsHost(Boolean((result?.members || []).some((member) => member.me && member.host))); })
       .catch(() => {});
     return () => { active = false; };
   }, [liveMode, roomId]);
-  const publishServerNotice = async (content, pinned) => {
-    if (!content.trim() || noticeBusy) return;
-    setNoticeBusy(true);
-    setNoticeError('');
-    try {
-      await window.MoyeoApi.createRoomNotice(roomId, content.trim(), pinned);
-      await reloadNotices();
-      setNoticeBusy(false);
-      return true;
-    } catch (error) {
-      setNoticeError(error?.message || '공지를 올리지 못했어요.');
-      setNoticeBusy(false);
-      return false;
-    }
-  };
+  // 상단 고정은 최대 1개다 (ATTACH-COMPOSER-CANON R5-1). 서버가 개수를 막지 않으므로
+  // 여기서 지킨다 — 다시 고정하면 이미 고정돼 있던 공지는 풀린다.
   const toggleServerPin = async (notice) => {
     if (noticeBusy) return;
     setNoticeBusy(true);
     setNoticeError('');
     try {
       await window.MoyeoApi.updateRoomNotice(roomId, notice.noticeId, { pinned: !notice.pinned });
+      if (!notice.pinned) {
+        const others = (serverNotices?.pinnedNotices || []).filter((item) => item.noticeId !== notice.noticeId);
+        await Promise.all(others.map((item) => window.MoyeoApi.updateRoomNotice(roomId, item.noticeId, { pinned: false }).catch(() => null)));
+      }
       await reloadNotices();
     } catch (error) {
       setNoticeError(error?.message || '고정 상태를 바꾸지 못했어요.');
     }
     setNoticeBusy(false);
   };
-  const [composing, setComposing] = React.useState(false);
-  const [title, setTitle] = React.useState('');
-  const [body, setBody] = React.useState('');
-  const [pinNew, setPinNew] = React.useState(true);
-  const [pinned, setPinned] = React.useState([
-    {
-      title: '집합 장소 · 시간',
-      body: '5/25(토) 07:50 청송 시외버스터미널 정문 앞\n08:00 정각에 출발해요. 늦으면 채팅방에 남겨주세요!',
-      author: '숲속여행자 (호스트)',
-      at: '5월 20일 오후 2:14',
-      map: true,
-    },
-    {
-      title: '준비물',
-      body: '편한 운동화, 얇은 바람막이, 물 500ml 정도면 충분해요.',
-      author: '숲속여행자 (호스트)',
-      at: '5월 21일 오전 10:02',
-    },
-  ]);
-
-  const [past, setPast] = React.useState([
-    { title: '주차 안내', body: '터미널 공영주차장 이용하시면 돼요 (하루 3,000원)', author: '숲속여행자 (호스트)', at: '5월 18일 오후 7:30' },
-    { title: '점심 메뉴 투표 결과', body: '달기약수탕 백숙으로 정해졌어요 🍲', author: '숲속여행자 (호스트)', at: '5월 17일 오후 9:12' },
-  ]);
-  const publishNotice = () => {
-    if (!title.trim() || !body.trim()) return;
-    const notice = {
-      title: title.trim(), body: body.trim(), author: '숲속여행자 (호스트)', at: '방금 전',
-    };
-    if (pinNew) setPinned((current) => [notice, ...current].slice(0, 3));
-    else setPast((current) => [notice, ...current]);
-    setTitle('');
-    setBody('');
-    setComposing(false);
+  // 서버에 고정이 여러 건 남아 있을 때(과거 데이터) 이 공지를 **그 하나**로 만든다.
+  // 이 공지는 이미 pinned 이므로 나머지 고정만 풀면 된다.
+  const promoteServerPin = async (notice) => {
+    if (noticeBusy) return;
+    setNoticeBusy(true);
+    setNoticeError('');
+    try {
+      const others = (serverNotices?.pinnedNotices || []).filter((item) => item.noticeId !== notice.noticeId);
+      await Promise.all(others.map((item) => window.MoyeoApi.updateRoomNotice(roomId, item.noticeId, { pinned: false }).catch(() => null)));
+      await reloadNotices();
+    } catch (error) {
+      setNoticeError(error?.message || '고정 상태를 바꾸지 못했어요.');
+    }
+    setNoticeBusy(false);
   };
-
-  const Card = ({ n, dim = false }) => (
-    <div style={{
-      borderRadius: 14, padding: 14,
-      background: dim ? T.bgSubtle : T.primary50,
-      border: `1px solid ${dim ? RF.softLine : T.primary100}`,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <Icon name="note" size={14} color={dim ? T.text500 : T.primary700}/>
-        <div style={{ flex: 1, fontSize: 12, fontWeight: 900, color: dim ? T.text700 : T.primary700 }}>{n.title}</div>
-        {dim
-          ? <Chip variant="neutral">고정 해제됨</Chip>
-          : <Chip variant="soft">📌 고정</Chip>}
-      </div>
-      <div style={{ fontSize: 13, lineHeight: '20px', color: T.text900, marginTop: 9, whiteSpace: 'pre-line' }}>{n.body}</div>
-      {n.map && (
-        <div style={{ marginTop: 10, borderRadius: 10, overflow: 'hidden', position: 'relative' }}>
-          {/* 집합 장소 미리보기 — 지도 중심이 집합 좌표이므로 중앙 핀이 그대로 그 지점을 가리킨다 */}
-          <MiniMap height={92} withRoute={false} level={4} center={window.MoyeoKakaoMap?.MEETING_POINT}/>
-          <div style={{
-            position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -60%)',
-            width: 30, height: 30, borderRadius: 999, background: T.primary500, border: `2.5px solid ${T.avatarRing}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: T.l2,
-          }}>
-            <Icon name="pin" size={16} color="#fff"/>
-          </div>
-        </div>
-      )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 11, color: T.text500 }}>
-        <span>{n.author}</span>
-        <span style={{ color: T.line300 }}>·</span>
-        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{n.at}</span>
-        <div style={{ flex: 1 }}/>
-        <span style={{ color: T.primary600, fontWeight: 800, cursor: 'pointer' }}>{dim ? '다시 고정' : '수정'}</span>
-      </div>
-    </div>
-  );
-
   // 서버 공지는 제목이 없다(content 한 필드) — 제목을 지어내지 않고 본문·작성자·시각만 보여준다.
-  const ServerCard = ({ notice, dim = false }) => (
+  // demoted = 서버에는 고정으로 남아 있지만 화면에서는 지난 공지로 내린 것(고정 최대 1개 규칙).
+  const ServerCard = ({ notice, dim = false, demoted = false }) => (
     <div style={{
       borderRadius: 14, padding: 14,
       background: dim ? T.bgSubtle : T.primary50,
@@ -773,7 +804,7 @@ function ScreenNoticeHistory() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <Icon name="note" size={14} color={dim ? T.text500 : T.primary700}/>
         <div style={{ flex: 1 }}/>
-        {dim ? <Chip variant="neutral">고정 해제됨</Chip> : <Chip variant="soft">📌 고정</Chip>}
+        {demoted ? <Chip variant="neutral">지난 공지</Chip> : dim ? <Chip variant="neutral">고정 해제됨</Chip> : <Chip variant="soft">📌 고정</Chip>}
       </div>
       <div style={{ fontSize: 13, lineHeight: '20px', color: T.text900, marginTop: 9, whiteSpace: 'pre-line' }}>{notice.content}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 11, color: T.text500 }}>
@@ -782,24 +813,39 @@ function ScreenNoticeHistory() {
         <span style={{ fontVariantNumeric: 'tabular-nums' }}>{window.MoyeoApi.formatDateTime(notice.createdAt)}</span>
         <div style={{ flex: 1 }}/>
         {isHost && (
-          <button type="button" disabled={noticeBusy} onClick={() => toggleServerPin(notice)} style={{ border: 0, background: 'transparent', padding: 0, color: T.primary600, fontWeight: 800, fontSize: 11, fontFamily: T.fontStack, cursor: noticeBusy ? 'default' : 'pointer' }}>{dim ? '다시 고정' : '고정 해제'}</button>
+          <React.Fragment>
+            <button type="button" disabled={noticeBusy} onClick={() => (demoted ? promoteServerPin(notice) : toggleServerPin(notice))} style={{ border: 0, background: 'transparent', padding: 0, color: T.primary600, fontWeight: 800, fontSize: 11, fontFamily: T.fontStack, cursor: noticeBusy ? 'default' : 'pointer' }}>{demoted ? '이 공지 고정' : dim ? '다시 고정' : '고정 해제'}</button>
+            {/* 20-3a 공지 수정·삭제. 예전에는 이 자리에 갈 곳 없는 링크만 있었다 (정본 §6-1). */}
+            <button type="button" data-testid={`notice-edit-${notice.noticeId}`} onClick={() => { window.MoyeoApi.selectNotice(notice); nav.go('notice-edit'); }} style={{ border: 0, background: 'transparent', padding: 0, color: T.primary600, fontWeight: 800, fontSize: 11, fontFamily: T.fontStack, cursor: 'pointer' }}>수정</button>
+          </React.Fragment>
         )}
       </div>
     </div>
   );
 
   if (serverNotices) {
-    const serverPinned = serverNotices.pinnedNotices || [];
-    const serverPast = serverNotices.unpinnedNotices || [];
+    // 고정은 최대 1개다(ATTACH-COMPOSER-CANON R5-1). 서버가 개수를 막지 않아 **이미 2건 고정된
+    // 방이 실제로 있다** — 머리글에 `고정 2 / 최대 1` 이라고 적으면 사용자에게 자기모순으로 읽힌다.
+    // 서버 데이터는 건드리지 않고(읽기 화면) 화면에서만 정리한다:
+    // 가장 최근 1건만 `📌 고정`, 나머지는 지난 공지로 내린다.
+    const newestFirst = (list) => [...list].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const pinnedSorted = newestFirst(serverNotices.pinnedNotices || []);
+    const serverPinned = pinnedSorted.slice(0, 1);
+    const demotedPinned = pinnedSorted.slice(1);
+    const serverPast = newestFirst([
+      ...demotedPinned.map((notice) => ({ notice, demoted: true })),
+      ...(serverNotices.unpinnedNotices || []).map((notice) => ({ notice, demoted: false })),
+    ].map((row) => ({ ...row, createdAt: row.notice.createdAt })));
     return (
       <Phone>
         <div data-testid="notice-history-live" style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
           <Header title="공지 이력" left center onBack={nav.back}/>
+          {/* 공지는 제목이 없다 — 코스·방 제목을 카드 제목 자리에 넣으면 모든 공지 제목이 같아진다
+              (ATTACH-COMPOSER-CANON §2). 머리글은 개수만 센다. 고정은 최대 1개다(R5-1). */}
           <div style={{ padding: '0 20px 12px', borderBottom: `1px solid ${RF.softLine}` }}>
-            <div style={{ fontSize: 13, fontWeight: 900 }}>{serverCourse?.title || serverRoom?.title || '공지'}</div>
-            <div style={{ fontSize: 11, color: T.text500, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>공지 {serverPinned.length + serverPast.length}개 · 고정 {serverPinned.length} / 최대 3</div>
+            <div style={{ fontSize: 11, color: T.text500, fontVariantNumeric: 'tabular-nums' }}>공지 {serverPinned.length + serverPast.length}개 · 고정 {serverPinned.length}</div>
           </div>
-          <div style={{ position: 'absolute', top: 126, left: 0, right: 0, bottom: isHost ? 96 : 0, overflow: 'auto', padding: '16px 20px 24px' }}>
+          <div style={{ position: 'absolute', top: 110, left: 0, right: 0, bottom: isHost ? 96 : 0, overflow: 'auto', padding: '16px 20px 24px' }}>
             {noticeError && <div role="alert" style={{ marginBottom: 12, fontSize: 12, color: T.danger }}>{noticeError}</div>}
             {serverPinned.length === 0 && serverPast.length === 0 && (
               <div style={{ padding: '48px 0', textAlign: 'center', fontSize: 13, color: T.text500 }}>아직 등록된 공지가 없어요.</div>
@@ -810,29 +856,15 @@ function ScreenNoticeHistory() {
             </div>
             {serverPast.length > 0 && <div style={{ fontSize: 12, fontWeight: 900, color: T.text500, marginTop: 24 }}>지난 공지</div>}
             <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
-              {serverPast.map((notice) => <ServerCard key={notice.noticeId} notice={notice} dim/>)}
+              {serverPast.map((row) => <ServerCard key={row.notice.noticeId} notice={row.notice} demoted={row.demoted} dim/>)}
             </div>
             <div style={{ fontSize: 11, color: T.text400, lineHeight: '17px', marginTop: 16 }}>
-              공지는 호스트만 올릴 수 있고, 고정은 최대 3개까지예요. 고정을 해제해도 이력에는 그대로 남아요.
+              공지는 호스트만 올릴 수 있고, 상단 고정은 하나만 둘 수 있어요. 새로 고정하면 먼저 고정된 공지가 풀려요. 고정을 해제해도 이력에는 그대로 남아요. 예전에 여러 건이 고정된 방은 가장 최근 하나만 고정으로 보여줘요.
             </div>
           </div>
           {isHost && (
             <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}` }}>
-              <Btn variant="primary" full icon="plus" onClick={() => setComposing(true)}>새 공지 작성 (호스트)</Btn>
-            </div>
-          )}
-          {isHost && composing && (
-            <div data-testid="notice-composer-live" style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(2,12,9,0.62)', display: 'flex', alignItems: 'flex-end' }}>
-              <div style={{ width: '100%', borderRadius: '18px 18px 0 0', background: RF.card, borderTop: `1px solid ${RF.softLine}`, padding: '18px 20px 30px' }}>
-                <div style={{ display: 'flex', alignItems: 'center' }}><b style={{ flex: 1, fontSize: 16 }}>새 공지 작성</b><IconButton name="close" onClick={() => setComposing(false)}/></div>
-                {/* 서버 공지는 제목 필드가 없다 — 내용 한 칸만 받는다 */}
-                <label style={{ display: 'grid', gap: 6, marginTop: 16, fontSize: 12, fontWeight: 800 }}>내용<textarea data-testid="notice-body" value={body} maxLength={300} onChange={(event) => setBody(event.target.value)} placeholder="멤버에게 알릴 내용을 적어주세요" style={{ minHeight: 100, resize: 'none', borderRadius: 10, border: `1px solid ${T.line200}`, background: RF.bg, color: T.text900, padding: 12, fontFamily: T.fontStack, lineHeight: 1.5 }}/></label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 9, margin: '12px 0 16px', fontSize: 12, color: T.text700 }}><input data-testid="notice-pin" type="checkbox" checked={pinNew} onChange={(event) => setPinNew(event.target.checked)}/>채팅방 상단에 고정하기 (최대 3개)</label>
-                {noticeError && <div role="alert" style={{ fontSize: 12, color: T.danger, marginBottom: 10 }}>{noticeError}</div>}
-                <Btn variant="primary" full disabled={!body.trim() || noticeBusy} onClick={async () => {
-                  if (await publishServerNotice(body, pinNew)) { setBody(''); setComposing(false); }
-                }}>{noticeBusy ? '올리는 중...' : '공지 올리기'}</Btn>
-              </div>
+              <Btn variant="primary" full icon="plus" onClick={() => nav.go('attach-notice')}>새 공지 작성 (호스트)</Btn>
             </div>
           )}
         </div>
@@ -840,52 +872,18 @@ function ScreenNoticeHistory() {
     );
   }
 
+  // 서버 공지를 못 받으면 예시 공지를 그리지 않는다.
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
-        {/* 우측 상단 더보기(⋯)는 항목이 정의되지 않아 두지 않는다 (앱과 동일) */}
         <Header title="공지 이력" left center onBack={nav.back}/>
-
-        <div style={{ padding: '0 20px 12px', borderBottom: `1px solid ${RF.softLine}` }}>
-          <div style={{ fontSize: 13, fontWeight: 900 }}>주왕산 &amp; 주산지 힐링 트레킹</div>
-          <div style={{ fontSize: 11, color: T.text500, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>공지 4개 · 고정 2 / 최대 3</div>
+        <div role="status" style={{ padding: '48px 20px', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '21px' }}>
+          {liveMode ? '아직 등록된 공지가 없어요.' : '로그인하면 모집 중인 모임을 볼 수 있어요.'}
         </div>
-
-        <div style={{ position: 'absolute', top: 126, left: 0, right: 0, bottom: 96, overflow: 'auto', padding: '16px 20px 20px' }}>
-          <div style={{ fontSize: 12, fontWeight: 900, color: T.text500 }}>상단 고정 중</div>
-          <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
-            {pinned.map((n) => <Card key={n.title} n={n}/>)}
-          </div>
-
-          <div style={{ fontSize: 12, fontWeight: 900, color: T.text500, marginTop: 24 }}>지난 공지</div>
-          <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
-            {past.map((n) => <Card key={n.title} n={n} dim/>)}
-          </div>
-
-          <div style={{ fontSize: 11, color: T.text400, lineHeight: '17px', marginTop: 16 }}>
-            공지는 호스트만 올릴 수 있고, 고정은 최대 3개까지예요. 고정을 해제해도 이력에는 그대로 남아요.
-          </div>
-        </div>
-
-        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}` }}>
-          <Btn variant="primary" full icon="plus" onClick={() => setComposing(true)}>새 공지 작성 (호스트)</Btn>
-        </div>
-        {composing && (
-          <div data-testid="notice-composer" style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(2,12,9,0.62)', display: 'flex', alignItems: 'flex-end' }}>
-            <div style={{ width: '100%', borderRadius: '18px 18px 0 0', background: RF.card, borderTop: `1px solid ${RF.softLine}`, padding: '18px 20px 30px' }}>
-              <div style={{ display: 'flex', alignItems: 'center' }}><b style={{ flex: 1, fontSize: 16 }}>새 공지 작성</b><IconButton name="close" onClick={() => setComposing(false)}/></div>
-              <label style={{ display: 'grid', gap: 6, marginTop: 16, fontSize: 12, fontWeight: 800 }}>제목<input data-testid="notice-title" value={title} maxLength={30} onChange={(event) => setTitle(event.target.value)} placeholder="공지 제목" style={{ height: 44, borderRadius: 10, border: `1px solid ${T.line200}`, background: RF.bg, color: T.text900, padding: '0 12px', fontFamily: T.fontStack }}/></label>
-              <label style={{ display: 'grid', gap: 6, marginTop: 12, fontSize: 12, fontWeight: 800 }}>내용<textarea data-testid="notice-body" value={body} maxLength={300} onChange={(event) => setBody(event.target.value)} placeholder="멤버에게 알릴 내용을 적어주세요" style={{ minHeight: 100, resize: 'none', borderRadius: 10, border: `1px solid ${T.line200}`, background: RF.bg, color: T.text900, padding: 12, fontFamily: T.fontStack, lineHeight: 1.5 }}/></label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 9, margin: '12px 0 16px', fontSize: 12, color: T.text700 }}><input data-testid="notice-pin" type="checkbox" checked={pinNew} onChange={(event) => setPinNew(event.target.checked)}/>채팅방 상단에 고정하기 (최대 3개)</label>
-              <Btn variant="primary" full disabled={!title.trim() || !body.trim()} onClick={publishNotice}>공지 올리기</Btn>
-            </div>
-          </div>
-        )}
       </div>
     </Phone>
   );
 }
-
 // ───────── 코스 출처 배지 (전 화면 공용) ─────────
 function CourseSourceBadge({ source = 'linked', size = 'sm' }) {
   const map = {
@@ -929,9 +927,9 @@ function ScreenCreateSummary({ source }) {
       payload.meetingDetails
         ? ['pin', '집합', `${window.MoyeoApi.formatTime(String(payload.meetingDateTime).split('T')[1])} ${payload.meetingDetails}`]
         : null,
-      payload.meetingLatitude != null && payload.meetingLongitude != null
-        ? ['map', '좌표', `${payload.meetingLatitude}, ${payload.meetingLongitude}`]
-        : null,
+      // 좌표 줄은 두지 않는다. 숫자쌍은 사용자에게 아무 의미가 없고 집합 장소는 위 '집합' 줄이 말해준다
+      // (15 모집 상세에서 같은 이유로 뺐다 — 좌표는 길 찾기의 입력값일 뿐이다).
+      // 좌표가 실제로 저장됐는지는 17-3 집합 장소 화면의 '좌표 (자동 저장)' 표시가 알려준다.
       // 최대 인원은 17-4 에서 고르기 전까지 초안에 없다 — 없으면 'undefined명' 을 찍지 말고 최소 인원만 남긴다.
       ['users', '인원', payload.maxParticipants != null
         ? `최소 ${draft.minParticipants || 3}명 · 최대 ${payload.maxParticipants}명`
@@ -940,15 +938,8 @@ function ScreenCreateSummary({ source }) {
       payload.participationFee != null ? ['money', '비용', `1인 ${Number(payload.participationFee).toLocaleString()}원 (예상)`] : null,
       ['clock', '마감', `${window.MoyeoApi.formatDate(payload.recruitmentDeadlineDate)} 23:59${dday != null ? ` · D-${dday}` : ''}`],
     ].filter(Boolean)
-    : [
-      ['calendar', '일정', '5/25(토) 당일치기 · 08:00 – 18:00'],
-      ['pin', '집합', '07:50 청송 시외버스터미널 정문 앞'],
-      ['map', '좌표', '36.435612, 129.057214'],
-      ['users', '인원', '최소 3명 · 최대 5명'],
-      ['user', '조건', '25~35세 · 성별 제한 없음'],
-      ['money', '비용', '1인 45,000원 (예상)'],
-      ['clock', '마감', '5/22(목) 23:59 · D-3'],
-    ];
+    // 초안이 없으면 요약할 값도 없다 — 예시 일정·집합 장소를 대신 보여주지 않는다.
+    : [];
   // 등록 성공 시 응답의 roomId 로 15 모집 상세로 이동한다.
   const openRecruitment = async () => {
     if (!canCreate) { nav.go('host-manage'); return; }
@@ -959,6 +950,9 @@ function ScreenCreateSummary({ source }) {
       const created = await window.MoyeoApi.createRoom(payload);
       const roomId = created?.roomId;
       if (roomId == null) throw new Error('생성된 모집을 찾지 못했어요.');
+      // TAB-STATE-CANON R4: 이 화면이 목록을 바꿨다 — 탭 보관소에서 덜어내
+      // 다음 진입에서 한 번만 다시 받게 한다.
+      window.MoyeoTabCache?.invalidate?.(window.MoyeoTabCache.ROOM_LIST_KEYS);
       window.MoyeoApi.clearRoomDraft();
       window.MoyeoApi.selectRoom(roomId);
       nav.go('detail');
@@ -980,9 +974,9 @@ function ScreenCreateSummary({ source }) {
 
           <div style={{ marginTop: 14, borderRadius: 14, border: `1px solid ${RF.softLine}`, background: RF.card, overflow: 'hidden' }}>
             <div style={{ padding: 14, borderBottom: `1px solid ${RF.softLine}` }}>
-              <div style={{ fontSize: 14, fontWeight: 900 }}>{payload?.title || '30대끼리 느긋하게 힐링 여행가요~'}</div>
+              <div style={{ fontSize: 14, fontWeight: 900 }}>{payload?.title || ''}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 6 }}>
-                <Icon name="map" size={14} color={T.text500}/><span style={{ flex: 1, fontSize: 12, color: T.text700, fontWeight: 800 }}>{draft?.courseTitle || '주왕산 & 주산지 힐링 트레킹'}</span><CourseSourceBadge source={resolvedSource}/>
+                <Icon name="map" size={14} color={T.text500}/><span style={{ flex: 1, fontSize: 12, color: T.text700, fontWeight: 800 }}>{draft?.courseTitle || ''}</span><CourseSourceBadge source={resolvedSource}/>
               </div>
             </div>
             <div style={{ padding: 14, display: 'grid', gap: 10 }}>
@@ -1035,15 +1029,10 @@ function ScreenCreateSummary({ source }) {
 function ScreenCourseEdit({ mode = 'custom' }) {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const editable = mode === 'custom';
-  const [stops, setStops] = React.useState([
-    { id: 1, time: '09:00', name: '청송 시외버스터미널', memo: '집합 장소' },
-    { id: 2, time: '10:30', name: '주왕산 국립공원', memo: '대전사 ~ 제3폭포' },
-    { id: 3, time: '14:00', name: '주산지', memo: '왕버들 산책로' },
-    { id: 4, time: '16:30', name: '달기약수탕', memo: '늦은 점심' },
-  ]);
+  // 경로는 서버 코스에서만 온다 — 예시 방문지 4곳을 미리 깔지 않는다.
+  const [stops, setStops] = React.useState([]);
   const [saved, setSaved] = React.useState(false);
   const removeStop = (id) => setStops((s) => (s.length <= 2 ? s : s.filter((x) => x.id !== id)));
-  const addStop = () => setStops((current) => current.length >= 20 ? current : [...current, { id: Date.now(), time: '17:30', name: '청송 객주문학관', memo: '비 올 때 대체 코스' }]);
   const moveStop = (index, direction) => {
     const target = index + direction;
     if (target < 0 || target >= stops.length) return;
@@ -1083,13 +1072,10 @@ function ScreenCourseEdit({ mode = 'custom' }) {
     nav.go('create-meet');
   };
   const serverPlaces = serverCourse?.places || null;
-  // 방문지 이름으로 실좌표를 찾아 순번 마커 + 경로선을 그린다. 못 찾으면 목업 지도가 남는다.
-  // 서버 코스가 있으면 서버가 준 좌표를 그대로 쓴다.
+  // 좌표는 서버 코스가 준 것만 쓴다. 좌표가 없으면 지도를 그리지 않는다(R4).
   const courseRoute = React.useMemo(
-    () => (serverPlaces
-      ? window.MoyeoKakaoMap?.routeFromPlaces?.(serverPlaces)
-      : window.MoyeoKakaoMap?.routeFromNames?.(stops.map((s) => s.name))) || null,
-    [serverPlaces, stops],
+    () => (serverPlaces ? window.MoyeoKakaoMap?.routeFromPlaces?.(serverPlaces) : null) || null,
+    [serverPlaces],
   );
   // 화면에 그릴 방문지 — 서버 코스에는 메모가 없어 메모 줄을 생략한다.
   const visibleStops = serverPlaces
@@ -1123,7 +1109,7 @@ function ScreenCourseEdit({ mode = 'custom' }) {
     custom: {
       icon: 'sparkle', bg: T.primary50, bd: T.primary100, fg: T.primary700,
       title: '마감 전까지 경로를 바꿀 수 있어요',
-      body: '5/22(목) 마감 전이라 방문지·시간·순서를 자유롭게 고칠 수 있어요. 저장하면 채팅방에 변경 내역이 공지로 남아요.',
+      body: '마감 전이라 방문지·시간·순서를 자유롭게 고칠 수 있어요. 저장하면 채팅방에 변경 내역이 공지로 남아요.',
     },
     linked: {
       icon: 'lock', bg: T.bgSubtle, bd: RF.softLine, fg: T.text700,
@@ -1151,8 +1137,8 @@ function ScreenCourseEdit({ mode = 'custom' }) {
         <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 96, overflow: 'auto', padding: '0 20px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0 14px' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{serverMode ? serverCourse.title : '주왕산 & 주산지 힐링 트레킹'}</div>
-              <div style={{ fontSize: 11, color: T.text500, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{serverMode ? serverMeta : '5/25(토) 당일치기 · 방문지 4개 · 2/5명'}</div>
+              <div style={{ fontSize: 14, fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{serverMode ? serverCourse.title : ''}</div>
+              <div style={{ fontSize: 11, color: T.text500, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{serverMode ? serverMeta : ''}</div>
             </div>
             <CourseSourceBadge source={serverMode ? (serverCourse.type === 'CUSTOM' ? 'custom' : 'linked') : (mode === 'linked' ? 'linked' : 'custom')}/>
           </div>
@@ -1166,7 +1152,7 @@ function ScreenCourseEdit({ mode = 'custom' }) {
           </div>
 
           <div style={{ marginTop: 14, borderRadius: 12, overflow: 'hidden', opacity: canEdit ? 1 : 0.92 }}>
-            <MiniMap height={150} pins={visibleStops.slice(0, 4).map((_, i) => i + 1)} markers={courseRoute?.markers} polyline={courseRoute?.polyline}/>
+            <MiniMap height={150} markers={courseRoute?.markers} polyline={courseRoute?.polyline}/>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 }}>
@@ -1214,29 +1200,17 @@ function ScreenCourseEdit({ mode = 'custom' }) {
             ))}
           </div>
 
-          {canEdit && (
-            <button
-              type="button"
-              onClick={addStop}
-              disabled={stops.length >= 20}
-              style={{
-                width: '100%', height: 46, marginTop: 10, borderRadius: 12, cursor: 'pointer',
-                border: `1px dashed ${T.line300}`, background: 'transparent', color: T.primary600,
-                fontFamily: T.fontStack, fontSize: 13, fontWeight: 800,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-              }}>
-              <Icon name="plus" size={17} color={T.primary600}/> {stops.length >= 20 ? '방문지는 최대 20개예요' : '방문지 추가'}
-            </button>
-          )}
+          {/* 방문지 추가는 17-4 코스 에디터에서만 한다 — 여기 방문지는 서버 코스 읽기 전용이다 */}
 
           {/* 집합 정보 수정(17-3)은 호스트 · 확정 전(RECRUITING)만 열린다 — 확정 뒤엔 서버가 40913 을 준다 */}
           {(() => {
             const canEditMeeting = serverMode && isHost && serverRoom?.status === 'RECRUITING';
             const meetingTime = serverMode ? window.MoyeoApi.formatTime(String(serverRoom?.meetingDateTime || '').split('T')[1]) : '';
+            // 집합 정보도 서버 값만 쓴다 — 없으면 섹션 자체를 두지 않는다.
             const meetingLine = serverMode
               ? [meetingTime, serverRoom?.meetingDetails].filter(Boolean).join(' · ')
-              : '07:50 · 청송 시외버스터미널 정문 앞';
-            if (serverMode && !meetingLine && !canEditMeeting) return null;
+              : '';
+            if (!meetingLine && !canEditMeeting) return null;
             return (
               <>
                 <div style={{ marginTop: 18, fontSize: 13, fontWeight: 900 }}>집합 정보</div>
@@ -1246,9 +1220,8 @@ function ScreenCourseEdit({ mode = 'custom' }) {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 800 }}>{meetingLine}</div>
-                    {(!serverMode || (serverRoom.meetingLatitude != null && serverRoom.meetingLongitude != null)) && (
-                      <div style={{ fontSize: 11, color: T.text500, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{serverMode ? `${serverRoom.meetingLatitude}, ${serverRoom.meetingLongitude}` : '36.435612, 129.057214'}</div>
-                    )}
+                    {/* 18-1~3 은 경로를 고치는 화면이고 이 카드는 **참고용 집합 정보**다 —
+                        핀을 잡는 화면(18-5)이 아니므로 좌표를 노출하지 않는다. */}
                   </div>
                   {canEditMeeting
                     ? <button type="button" data-testid="meeting-info-edit" onClick={openMeetingEdit} style={{ border: 0, background: 'transparent', padding: 0, fontSize: 12, fontWeight: 800, color: T.primary600, fontFamily: T.fontStack, cursor: 'pointer' }}>수정</button>

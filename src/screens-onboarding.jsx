@@ -195,14 +195,6 @@ function ScreenOnboarding() {
 }
 
 // 1.4 Profile setup Step 1 - nickname cards
-const NICKNAME_CANDIDATE_BATCHES = [
-  ['따스한 사슴 3492', '잔잔한 거북이 1108', '호기심 많은 너구리 9027'],
-  ['명랑한 수달 4816', '포근한 여우 7350', '용감한 토끼 2641'],
-  ['차분한 두루미 6184', '씩씩한 고슴도치 5739', '다정한 판다 8206'],
-  ['산뜻한 다람쥐 4175', '빛나는 부엉이 9362', '느긋한 코알라 2058'],
-  ['행복한 해달 7643', '든든한 기린 3819', '수줍은 펭귄 5407'],
-];
-
 const DEFAULT_NICKNAME_DESCRIPTION = '함께 천천히 경북을 둘러보는 여행자예요';
 const NICKNAME_COLORS = {
   RED: { hex: '#E65B58', label: '빨강' }, ORANGE: { hex: '#ED8A3D', label: '주황' },
@@ -218,7 +210,8 @@ const ANIMAL_EMOJIS = {
   고슴도치: '🦔', 너구리: '🦝', 기린: '🦒',
 };
 
-function mockNicknameCandidate(nickname, index = 0) {
+// 서버가 후보를 문자열 배열로 주는 경우의 정규화 (객체 형태면 그대로 쓴다).
+function nicknameCandidateFromString(nickname, index = 0) {
   const words = nickname.split(' ');
   return {
     nickname,
@@ -234,7 +227,7 @@ function nicknameParts(nickname) {
   return match ? { name: match[1], number: match[2] } : { name: nickname, number: '' };
 }
 
-async function requestNicknameCandidates(nextBatchIndex) {
+async function requestNicknameCandidates() {
   const authConfig = window.MoyeoAuth?.getConfig?.() || {};
   const useRealBackend = !authConfig.mockBackend;
   const apiBase = String(authConfig.baseUrl || 'https://moyeo-trip-api.jayden-bin.cc').replace(/\/$/, '');
@@ -247,7 +240,7 @@ async function requestNicknameCandidates(nextBatchIndex) {
     }
     const candidates = payload.candidates.map((candidate) => (
       typeof candidate === 'string'
-        ? mockNicknameCandidate(candidate)
+        ? nicknameCandidateFromString(candidate)
         : {
             nickname: candidate?.nickname,
             adjective: candidate?.adjective,
@@ -262,20 +255,15 @@ async function requestNicknameCandidates(nextBatchIndex) {
     return { ...payload, candidates };
   }
 
-  await new Promise((resolve) => window.setTimeout(resolve, 560));
-  return {
-    selectionToken: `prototype-batch-${nextBatchIndex}`,
-    candidates: NICKNAME_CANDIDATE_BATCHES[nextBatchIndex].map(mockNicknameCandidate),
-  };
+  // 닉네임 후보를 만드는 곳은 서버뿐이다 — 예시 닉네임을 대신 내려주지 않는다.
+  throw new Error('nickname candidates: backend unavailable');
 }
 
 function ScreenProfileNickname() {
   const nav = (window.useNav ? window.useNav() : { go: () => {} });
-  const [candidates, setCandidates] = React.useState(
-    NICKNAME_CANDIDATE_BATCHES[0].map(mockNicknameCandidate)
-  );
+  // 후보는 서버 응답이 오기 전까지 비어 있다 — 예시 닉네임을 먼저 보여주지 않는다.
+  const [candidates, setCandidates] = React.useState([]);
   const [selectedNickname, setSelectedNickname] = React.useState('');
-  const [refreshCount, setRefreshCount] = React.useState(0);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [refreshError, setRefreshError] = React.useState(false);
 
@@ -285,7 +273,7 @@ function ScreenProfileNickname() {
     const loadInitialCandidates = async () => {
       setIsRefreshing(true);
       try {
-        const payload = await requestNicknameCandidates(0);
+        const payload = await requestNicknameCandidates();
         if (cancelled) return;
         window.__moyeoNicknameSelectionToken = payload.selectionToken;
         setCandidates(payload.candidates);
@@ -303,13 +291,11 @@ function ScreenProfileNickname() {
     if (isRefreshing) return;
     setIsRefreshing(true);
     setRefreshError(false);
-    const nextBatchIndex = (refreshCount + 1) % NICKNAME_CANDIDATE_BATCHES.length;
     try {
-      const payload = await requestNicknameCandidates(nextBatchIndex);
+      const payload = await requestNicknameCandidates();
       window.__moyeoNicknameSelectionToken = payload.selectionToken;
       setCandidates(payload.candidates);
       setSelectedNickname('');
-      setRefreshCount((count) => count + 1);
     } catch {
       setRefreshError(true);
     } finally {
@@ -483,7 +469,7 @@ function ProfileGenerationWaiting({ nickname }) {
 // Step 2 - character generated
 function ScreenProfileCharacter() {
   const nav = (window.useNav ? window.useNav() : { go: () => {} });
-  const nickname = window.__moyeoSelectedNickname || '따스한 사슴 3492';
+  const nickname = window.__moyeoSelectedNickname || '';
   const [candidates, setCandidates] = React.useState([]);
   const [selectedId, setSelectedId] = React.useState(null);
   const [remaining, setRemaining] = React.useState(3);
@@ -499,6 +485,9 @@ function ScreenProfileCharacter() {
     setError('');
     try {
       const response = await window.MoyeoAuth.generateProfileImage();
+      // 서버가 "이미 프로필 이미지 설정을 완료했습니다"(40919)로 답하면 이 단계는 이미 끝난 것이다.
+      // 오류로 보여주지 않고 조용히 다음 화면으로 넘긴다.
+      if (response.signupState === 'SIGNUP_COMPLETE') { nav.go('home', { replace: true }); return; }
       setCandidates((current) => [...current.filter((item) => item.profileImageId !== response.candidate.profileImageId), response.candidate]);
       setSelectedId(response.candidate.profileImageId);
       setRemaining(response.remainingGenerationCount);
@@ -519,6 +508,17 @@ function ScreenProfileCharacter() {
       try {
         const response = await window.MoyeoAuth.getProfileImages();
         if (cancelled) return;
+        // 40919 — 이미 프로필 이미지를 고른 계정이 이 화면으로 되돌아온 경우다.
+        // 후보를 다시 그리거나 오류를 띄우지 않고 홈으로 보낸다 (정본 R2).
+        // 다만 URL 로 이 화면을 직접 연 진입에서는 넘기지 않는다 — 넘기면 07 자리에 홈이 찍힌다.
+        // 후보를 지어내지 않는다. 남은 횟수도 **0** 이다 — 이미 마친 계정은 더 만들 수 없다.
+        // 초기 기본값 3 을 그대로 두면 만들 수 없는 화면에 "3회 남음" 이 뜬다(NO-MOCK R1).
+        // 안드로이드·iOS 도 이 경우 0 을 쓴다.
+        if (response.signupState === 'SIGNUP_COMPLETE') {
+          setRemaining(0);
+          if (!window.isDirectScreenEntry?.()) nav.go('home', { replace: true });
+          return;
+        }
         setCandidates(response.candidates || []);
         setRemaining(response.remainingGenerationCount ?? 3);
         const selected = response.candidates?.find((candidate) => candidate.selected);
@@ -556,7 +556,11 @@ function ScreenProfileCharacter() {
             여행에서 만날<br/>내 친구를 골라주세요
           </div>
           <div style={{ fontSize: 14, lineHeight: '21px', color: T.text500, marginTop: 10 }}>
-            {nickname} 닉네임을 바탕으로 후보를 하나씩 추가해요. 이전에 만든 후보는 사라지지 않아요.
+            {/* 닉네임을 모르는 진입(세션 복원·직접 진입)에서는 앞이 비어 " 닉네임을 바탕으로" 로 읽힌다.
+                iOS 와 같은 대체 문구를 쓴다. */}
+            {nickname
+              ? `${nickname} 닉네임을 바탕으로 후보를 하나씩 추가해요. 이전에 만든 후보는 사라지지 않아요.`
+              : '서버에 저장된 닉네임을 바탕으로 후보를 하나씩 추가해요.'}
           </div>
           {isGenerating && <ProfileGenerationWaiting nickname={nickname}/>}
           {/* 후보는 항상 수평 배치 — 1개는 가운데, 2개는 좌우, 3개는 3등분.
@@ -578,7 +582,9 @@ function ScreenProfileCharacter() {
                   style={{
                     flex: '1 1 0', minWidth: 0,
                     maxWidth: candidates.length === 1 ? 'calc((100% - 20px) / 3)' : 'none',
-                    aspectRatio: '1 / 1.16', borderRadius: 18,
+                    // 후보 이미지는 정사각이다. 1:1.16 이면 objectFit:cover 가 이미지를 잘라낸다
+                    // (앱에서는 정사각 이미지 위아래로 여백이 남아 테두리가 길쭉해 보였다).
+                    aspectRatio: '1 / 1', borderRadius: 18,
                     border: selected ? `2px solid ${T.primary500}` : `1px solid ${T.line200}`,
                     background: selected ? T.primary50 : T.bgRaised, padding: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
                     cursor: 'pointer', overflow: 'hidden',
@@ -590,12 +596,15 @@ function ScreenProfileCharacter() {
                 </button>
               );
             })}
-            {loading && !isGenerating && candidates.length === 0 && [0, 1, 2].map((index) => <div key={index} style={{ flex: 1, aspectRatio: '1 / 1.16', borderRadius: 18, background: T.line100, opacity: 0.6 }}/>) }
+            {loading && !isGenerating && candidates.length === 0 && [0, 1, 2].map((index) => <div key={index} style={{ flex: 1, aspectRatio: '1 / 1', borderRadius: 18, background: T.line100, opacity: 0.6 }}/>) }
           </div>
         </div>
         <div style={{ padding: '12px 20px 32px', display: 'grid', gap: 10 }}>
           <Btn variant="secondary" full icon="refresh" disabled={loading || remaining === 0} onClick={generate} testId="profile-image-generate">
-            {loading ? '새 후보를 만들고 있어요...' : `새 후보 만들기 · ${remaining}회 남음`}
+            {/* 0 이면 만들 수 없다 — 비활성 버튼에 "0회 남음" 은 읽기 어렵다. 세 플랫폼 공통 문구다. */}
+            {loading
+              ? '새 후보를 만들고 있어요...'
+              : (remaining === 0 ? '새 후보 생성 기회를 모두 사용했어요' : `새 후보 만들기 · ${remaining}회 남음`)}
           </Btn>
           <div role="status" style={{ minHeight: 18, fontSize: 12, color: error ? T.danger : T.text400, textAlign: 'center' }}>
             {error}
