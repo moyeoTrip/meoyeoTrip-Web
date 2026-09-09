@@ -199,6 +199,14 @@ function ScreenPlaceDetail() {
     ['map', current.latitude != null && current.longitude != null ? '지도에서 열기' : null, null],
     current.homepage ? ['share', current.homepage, '홈페이지'] : null,
   ].filter(Boolean);
+  // 공유는 iOS `ShareLink` 와 같은 내용을 보낸다. Web Share API 가 없으면 클립보드로 떨어진다.
+  const sharePlace = async () => {
+    const text = [current.title, current.address, current.homepage].filter(Boolean).join('\n');
+    try {
+      if (navigator.share) await navigator.share({ title: current.title, text });
+      else await navigator.clipboard?.writeText(text);
+    } catch (_) { /* 사용자가 취소했거나 권한이 없다 — 조용히 넘긴다 */ }
+  };
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, position: 'relative' }}>
@@ -207,7 +215,7 @@ function ScreenPlaceDetail() {
             웹이 정본이라 그대로 두고, 스크롤 컨테이너만 이미지 위로 올렸다.
             하단 CTA 는 계속 고정이다. */}
         <div data-testid="place-detail-scroll" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 88, overflow: 'auto' }}>
-        <div style={{ position: 'relative' }}><PlaceImage src={current.images?.[0] || current.thumbnailUrl} hue={current.hue} height={232} overlay shape="landscape"/><div style={{ position: 'absolute', top: 52, left: 18 }}><IconButton name="back" onClick={nav.back} bg={T.overlayPanel}/></div><span style={{ position: 'absolute', right: 18, bottom: 14, padding: '5px 9px', borderRadius: 999, background: 'rgba(0,0,0,.58)', color: '#fff', fontSize: 11, fontWeight: 800 }}>1 / {Math.max(1, current.images?.length || 1)}</span></div>
+        <div style={{ position: 'relative' }}><PlaceImage src={current.images?.[0] || current.thumbnailUrl} hue={current.hue} height={232} overlay shape="landscape"/><span style={{ position: 'absolute', right: 18, bottom: 14, padding: '5px 9px', borderRadius: 999, background: 'rgba(0,0,0,.58)', color: '#fff', fontSize: 11, fontWeight: 800 }}>1 / {Math.max(1, current.images?.length || 1)}</span></div>
         {/* 이미지 아래 20px 을 덮어 올라오는 카드 — 예전 top: 212 절대 배치와 같은 위치다. */}
         <div style={{ position: 'relative', marginTop: -20, minHeight: 'calc(100% - 212px)', borderRadius: '20px 20px 0 0', background: RF.bg, padding: '18px 20px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><h1 style={{ flex: 1, margin: 0, fontSize: 19, lineHeight: '26px' }}>{current.title}</h1><PlaceTypeBadge type={current.type}/></div>
@@ -222,6 +230,19 @@ function ScreenPlaceDetail() {
           <div style={{ display: 'grid', gridTemplateColumns: tab === 'photo' ? 'repeat(3,1fr)' : 'repeat(2,1fr)', gap: 7, marginTop: 12 }}>{(tab === 'photo' ? photoImages : menuImages).map((item, index) => <div key={`${tab}-${item || index}`} style={{ overflow: 'hidden', borderRadius: 8, border: `1px solid ${RF.softLine}` }}><PlaceImage src={item} hue={index % 2 ? 'pebble' : current.hue} height={tab === 'photo' ? 78 : 88}/></div>)}</div>
           {current.type === 'food' && <p style={{ margin: '14px 0 0', fontSize: 11, lineHeight: '17px', color: T.text400 }}>메뉴판 탭은 음식점 콘텐츠에서만 보여요.</p>}
         </div>
+        </div>
+        {/* 머리 줄은 **반투명 고정**이다 — 스크롤을 내려도 뒤로·공유가 남는다.
+            예전에는 뒤로 버튼을 히어로 이미지 위에 절대 배치해서 이미지와 함께 올라가 버렸고,
+            2쪽에서는 돌아갈 길이 화면에 없었다 (17-1b, 사용자 지적 2026-09-09).
+            앱 둘은 「방문지 상세」 제목이 있는 고정 머리 줄을 둔다 — 같은 자리·같은 문구로 맞춘다. */}
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, height: 56, zIndex: 3,
+          display: 'flex', alignItems: 'center', padding: '0 12px',
+          background: 'rgba(11,17,14,.62)', backdropFilter: 'blur(12px)',
+        }}>
+          <IconButton name="back" onClick={nav.back} bg={T.overlayPanel}/>
+          <div style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: 800, color: '#fff' }}>방문지 상세</div>
+          <IconButton name="share" onClick={sharePlace} bg={T.overlayPanel}/>
         </div>
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 24px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}><Btn variant="ghost" onClick={nav.back}>목록으로</Btn><div style={{ flex: 1 }}><Btn variant="primary" full icon="plus" onClick={() => nav.go('custom-course')}>이 장소를 코스에 담기</Btn></div></div>
       </div>

@@ -120,22 +120,51 @@ function FeedWriteCard({ title, children, tone = 'base' }) {
   );
 }
 
-// 제목·메모는 사용자가 쓰는 값이다 — 예시 후기를 미리 채우면 그대로 게시된다.
-// 본문은 POST /feeds 의 request.content 로 그대로 실린다 (최대 500자).
-function FeedWriteMemoCard({ value = '', onChange }) {
+// 제목·내용은 사용자가 쓰는 값이다 — 예시 후기를 미리 채우면 그대로 게시된다.
+//
+// **입력은 두 칸이다** (기획 24-3·24-5: 굵은 제목 줄 + 본문 줄). 예전에는 웹·안드로이드에
+// 본문 칸 하나만 있고 라벨도 없어서 무엇을 쓰는 칸인지 알 수 없었다
+// (사용자 지적 「제목과 내용 입력 뷰가 둘 다 있어야 하고 잘 구분되게」, 2026-09-09).
+//
+// 서버는 아직 `content` 하나만 받는다 — 제목은 **본문 첫 줄**로 실어 보낸다
+// (`제목\n\n내용`). 전용 필드 요청은 `docs/api/BE-요청사항-2026-09-04.md` §8-7.
+const FEED_TITLE_LIMIT = 60;
+const FEED_BODY_LIMIT = 500;
+
+function FeedWriteMemoCard({ title = '', value = '', onChangeTitle, onChange }) {
   return (
     <FeedWriteCard>
+      <div style={{ fontSize: 11.5, fontWeight: 900, color: T.text500, marginBottom: 6 }}>제목</div>
+      <input
+        type="text"
+        data-testid="feed-write-title"
+        value={title}
+        maxLength={FEED_TITLE_LIMIT}
+        onChange={(event) => onChangeTitle?.(event.target.value)}
+        placeholder="이번 여행을 한마디로"
+        style={{ width: '100%', height: 40, border: 0, outline: 'none', background: 'transparent', fontSize: 17, fontWeight: 800, color: T.text900, fontFamily: T.fontStack, padding: 0 }}
+      />
+      <div style={{ height: 1, background: RF.softLine, margin: '8px 0 12px' }}/>
+      <div style={{ fontSize: 11.5, fontWeight: 900, color: T.text500, marginBottom: 6 }}>내용</div>
       <textarea
         data-testid="feed-write-memo"
         value={value}
-        maxLength={500}
+        maxLength={FEED_BODY_LIMIT}
         onChange={(event) => onChange?.(event.target.value)}
         placeholder="여행 어땠는지 한 줄 남겨주세요."
         style={{ width: '100%', minHeight: 66, resize: 'vertical', border: 0, outline: 'none', background: 'transparent', fontSize: 14, lineHeight: '22px', color: T.text900, fontFamily: T.fontStack, padding: 0 }}
       />
-      <div style={{ fontSize: 11, color: T.text400, textAlign: 'right', marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{value.length} / 500</div>
+      <div style={{ fontSize: 11, color: T.text400, textAlign: 'right', marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{value.length} / {FEED_BODY_LIMIT.toLocaleString('ko-KR')}</div>
     </FeedWriteCard>
   );
+}
+
+/** 제목이 있으면 본문 첫 줄로 올려 보낸다 — 서버에 제목 필드가 없다 (BE §8-7). */
+function feedContentWithTitle(title, body) {
+  const head = String(title || '').trim();
+  const tail = String(body || '').trim();
+  if (!head) return tail;
+  return tail ? `${head}\n\n${tail}` : head;
 }
 
 // 사진은 사용자가 고른 것만 들어간다 — 자리표시자 3장을 "고른 사진"처럼 깔지 않는다.
@@ -366,6 +395,7 @@ function ScreenFeedWrite({ step = 3 }) {
   const [draft, setDraft] = React.useState(() => (window.MoyeoApi?.feedDraft?.() || {}));
   const patchDraft = (patch) => setDraft(window.MoyeoApi.updateFeedDraft(patch));
   const content = draft.content || '';
+  const feedTitle = draft.title || '';
   const visibility = draft.visibility || 'FRIENDS';
   const photos = draft.images || [];
 
@@ -406,7 +436,7 @@ function ScreenFeedWrite({ step = 3 }) {
     try {
       const created = await window.MoyeoApi.createFeed({
         chatRoomId: Number(roomId),
-        content: content.trim(),
+        content: feedContentWithTitle(feedTitle, content),
         visibility,
       }, photos);
       // TAB-STATE-CANON R4: 피드 목록이 바뀌었다 — 다음 진입에서 한 번만 다시 받게 한다.
@@ -448,11 +478,11 @@ function ScreenFeedWrite({ step = 3 }) {
             </>
           )}
           {meta.step === 2 && <><FeedWritePhotoGrid files={photos} onAdd={addPhotos} onRemove={removePhoto}/><FeedWriteRouteCard course={feed.course} route={feed.route}/></>}
-          {meta.step === 3 && <><FeedWriteMemoCard value={content} onChange={(value) => patchDraft({ content: value })}/><FeedWritePhotoGrid files={photos} onAdd={addPhotos} onRemove={removePhoto}/></>}
+          {meta.step === 3 && <><FeedWriteMemoCard title={feedTitle} value={content} onChangeTitle={(value) => patchDraft({ title: value })} onChange={(value) => patchDraft({ content: value })}/><FeedWritePhotoGrid files={photos} onAdd={addPhotos} onRemove={removePhoto}/></>}
           {meta.step === 4 && <><FeedWriteVisibilityCard value={visibility} onChange={(value) => patchDraft({ visibility: value })}/><FeedWriteMetaCard course={feed.course} route={feed.route} companions={feed.companions}/></>}
           {meta.step === 5 && (
             <>
-              <FeedWriteMemoCard value={content} onChange={(value) => patchDraft({ content: value })}/>
+              <FeedWriteMemoCard title={feedTitle} value={content} onChangeTitle={(value) => patchDraft({ title: value })} onChange={(value) => patchDraft({ content: value })}/>
               <FeedWritePhotoGrid files={photos} onAdd={addPhotos} onRemove={removePhoto}/>
               <FeedWriteRouteCard course={feed.course} route={feed.route}/>
               <FeedWriteMetaCard course={feed.course} route={feed.route} companions={feed.companions}/>
@@ -582,11 +612,18 @@ function ProfileEditBody() {
   // 프로필 이미지가 없으면 닉네임의 동물을 따른다 — 화면마다 동물을 고정하지 않는다(R5).
   const avatar = window.MoyeoApi?.avatarForNickname?.(profile?.nickname);
   const birthLabel = profile?.birthDate ? profile.birthDate.replaceAll('-', '.') : null;
+  // 라벨은 줄어들지 않게 하고 값은 한 줄로 줄인다.
+  // 예전에는 둘 다 줄어들 수 있어, **자기소개처럼 긴 값이 들어오면 라벨이
+  // 「자/기/소/개」로 세로로 쪼개졌다** (사용자가 실제로 그 화면을 봤다).
+  // 전체 내용은 눌러서 여는 편집 시트에서 본다 — 줄에서는 요약만 보인다.
   const Row = ({ label, value, locked, danger }) => (
-    <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${T.line100}` }}>
-      <div style={{ fontSize: 14, color: T.text700 }}>{label}</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ fontSize: 14, color: danger ? T.danger : locked ? T.text400 : T.text900, fontWeight: locked ? 400 : 500 }}>{value}</div>
+    <div style={{ minHeight: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${T.line100}` }}>
+      <div style={{ fontSize: 14, color: T.text700, flexShrink: 0, whiteSpace: 'nowrap' }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1, justifyContent: 'flex-end' }}>
+        <div style={{
+          fontSize: 14, color: danger ? T.danger : locked ? T.text400 : T.text900, fontWeight: locked ? 400 : 500,
+          minWidth: 0, textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>{value}</div>
         {locked ? <Icon name="check" size={14} color={T.text400}/> : <Icon name="arrow" size={16} color={T.text400}/>}
       </div>
     </div>
@@ -608,12 +645,10 @@ function ProfileEditBody() {
                 : avatar?.emoji
                   ? <span aria-hidden="true" style={{ width: 96, height: 96, borderRadius: 999, background: T.primary100, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 54, lineHeight: 1 }}>{avatar.emoji}</span>
                   : <span style={{ width: 96, height: 96, borderRadius: 999, background: T.primary100, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={44} color={T.primary600}/></span>}
-            <div style={{ position: 'absolute', bottom: 0, right: 0, width: 28, height: 28, borderRadius: 999, background: T.line200, border: `2px solid ${T.bgBase}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="lock" size={12} color={T.text500}/>
-            </div>
+            {/* 자물쇠 배지와 "바꿀 수 없어요" 경고를 두지 않는다 — 아래 비공개 정보의
+                `닉네임`·`캐릭터` 줄에 잠금 표시로 이미 있다 (기획 28 과 같다). */}
           </div>
           <div style={{ fontSize: 17, fontWeight: 700, marginTop: 12 }}>{profile?.nickname || ''}</div>
-          <div style={{ fontSize: 11, color: T.text500, marginTop: 4 }}>한 번 정한 친구는 바꿀 수 없어요</div>
         </div>
 
         <div style={{ fontSize: 11, fontWeight: 600, color: T.text500, padding: '20px 20px 8px', letterSpacing: 0.5 }}>공개 프로필</div>
@@ -1262,7 +1297,25 @@ function ScreenPublicProfile({ initialFlipped = false }) {
   };
 
   // 프로필 카드는 서버 값만 쓴다 — 못 받으면 카드를 그리지 않는다.
-  const dex = params.dex || null;
+  //
+  // 도감(24)에서 들어오면 동행 정보가 `params.dex` 로 함께 온다. 그런데 **userId 로 바로
+  // 들어오면**(캡처 라우트·딥링크) 그 값이 없어서 「N회 동행」 배지와 「최근 동행」 줄,
+  // 뒷면의 한 줄 평이 통째로 사라졌다 — 같은 화면이 진입 경로에 따라 달라 보였다
+  // (25, 사용자 지적 2026-09-09). `GET /users/me/travel-dex` 에 그 값이 다 있으니 찾아 쓴다.
+  const [dexCompanion, setDexCompanion] = React.useState(null);
+  React.useEffect(() => {
+    if (!liveMode || !userId || params.dex) return undefined;
+    let active = true;
+    window.MoyeoApi.travelDex()
+      .then((result) => {
+        if (!active) return;
+        const hit = (result?.companions || []).find((c) => Number(c.userId) === Number(userId));
+        if (hit) setDexCompanion(hit);
+      })
+      .catch(() => { /* 도감에 없으면 동행 정보가 없는 사람이다 — 지어내지 않는다 */ });
+    return () => { active = false; };
+  }, [liveMode, userId, params.dex]);
+  const dex = params.dex || dexCompanion;
 
   const subject = profile ? {
     kind: 'bear',
@@ -1272,8 +1325,12 @@ function ScreenPublicProfile({ initialFlipped = false }) {
     mannerRating: profile.mannerRating,
     introduction: profile.introduction,
     travelStyles: (profile.travelStyles || []).map((v) => v.label || v.name || v),
-    // 서버가 주지 않는 값은 넣지 않는다 → 칸이 만들어지지 않는다
-    completedTripCount: undefined, feedCount: undefined,
+    // 서버는 이 둘을 **준다** — `GET /users/{id}/profile` → `completedTripCount` · `feedCount`
+    // (2026-09-09 실서버: `{"mannerRating":5.0,"completedTripCount":1,"feedCount":1}`).
+    // 예전 주석은 「서버가 주지 않는다」였고 그래서 웹 카드만 여행·피드 칸이 없었다
+    // (25 「웹 항목 빠짐」, 사용자 지적 2026-09-09).
+    completedTripCount: profile.completedTripCount ?? undefined,
+    feedCount: profile.feedCount ?? undefined,
     tripCount: dex?.tripCount ?? null,
     latestTripTitle: dex?.latestTripTitle || null,
     latestTripDate: dex?.latestTripDate || null,
@@ -1300,7 +1357,6 @@ function ScreenPublicProfile({ initialFlipped = false }) {
   // 뒤집힘을 **부호 있는 반회전 수**로 센다 — 부호가 방향이다.
   // `Bool` 이던 동안에는 어느 쪽으로 밀어도 늘 같은 방향으로 돌았다.
   const [flipTurns, setFlipTurns] = React.useState(initialFlipped ? 1 : 0);
-  const flipped = Math.abs(flipTurns) % 2 === 1;
   const cardRef = React.useRef(null);
   const swipeStart = React.useRef(null);
 
@@ -1458,7 +1514,7 @@ function ScreenPublicProfile({ initialFlipped = false }) {
                 </div>
 
                 <div style={{ padding: '10px 14px 13px', display: 'flex', flexDirection: 'column', gap: 7 }}>
-                  {subject.mannerRating != null && metaRow('매너 점수', `${subject.mannerRating}점`)}
+                  {subject.mannerRating != null && metaRow('매너 점수', `${Number(subject.mannerRating).toFixed(1)}점`)}
                   {stats.length > 0 && (
                     <div style={{
                       display: 'grid', gridTemplateColumns: `repeat(${stats.length}, 1fr)`,
@@ -1534,7 +1590,7 @@ function ScreenPublicProfile({ initialFlipped = false }) {
                   <div style={{ fontSize: 13.5, fontWeight: 900, color: T.text900, flex: 1, letterSpacing: '-0.2px' }}>
                     {subject.nickname}
                   </div>
-                  <div style={{ fontSize: 9.5, fontWeight: 800, color: T.text500 }}>카드 뒷면</div>
+                  {/* 「카드 뒷면」 문구를 두지 않는다 — 뒤집힌 것은 화면이 이미 보여준다. */}
                 </div>
 
                 <div style={{ flex: 1, overflow: 'auto', padding: '0 14px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
@@ -1544,7 +1600,7 @@ function ScreenPublicProfile({ initialFlipped = false }) {
                       background: pal.chipBg, border: `1px solid ${pal.frame}`,
                     }}>
                       <div style={{ fontSize: 19, fontWeight: 900, color: pal.chipText, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-                        {subject.mannerRating}
+                        {Number(subject.mannerRating).toFixed(1)}
                       </div>
                       <div style={{ fontSize: 10.5, fontWeight: 800, color: pal.chipText }}>점</div>
                       <div style={{ fontSize: 10, color: T.text500, fontWeight: 700, marginLeft: 'auto' }}>동행자들이 준 평균</div>

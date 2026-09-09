@@ -36,10 +36,13 @@ function GapConfirmSheet({
       <div data-testid={testId} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
         {/* 이전 화면이 딤 아래에 깔려 있어야 시트가 "위에 떠 있다"고 읽힌다 */}
         <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>{under}</div>
-        <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
+        {/* **겹침 순서를 명시한다.** 뒤에 깔리는 화면(`under`)이 자기 하단 탭바를
+            `position: absolute; bottom: 0` 으로 그린다 — 그 화면이 스택 문맥을 만들면
+            탭바가 시트 위로 올라와 **버튼이 가려졌다** (19-2 웹 · 사용자 지적 2026-09-09). */}
+        <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay, zIndex: 2 }}/>
         <div style={{
           position: 'absolute', left: 0, right: 0, bottom: 0, background: T.bgRaised,
-          borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3,
+          borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3, zIndex: 3,
         }}>
           <div style={{ width: 36, height: 4, borderRadius: 999, background: T.line300, margin: '0 auto 16px' }}/>
           <div style={{ fontSize: 17, fontWeight: 900 }}>{title}</div>
@@ -87,7 +90,9 @@ function GapNoteBox({ lines }) {
 
 // 헤더 + 스크롤 본문 + 하단 고정 CTA 한 개 (정본 R1 · AttachFrame 과 같은 골격).
 // CTA 가 없는 열람 화면(26-1 · 13-2 · 20-1c)은 cta 를 넘기지 않는다.
-function GapFrame({ title, hint, cta, ctaIcon = 'check', disabled, busy, busyLabel = '저장하는 중...', error, onBack, onSubmit, testId, children }) {
+// 하단 주 CTA 에는 아이콘을 두지 않는다 — iOS `AuthPrimaryButton` · 안드로이드 CTA 가
+// 글자만이라, 웹·기획만 체크 표시가 붙어 같은 버튼이 달라 보였다 (18-6 등, 2026-09-09).
+function GapFrame({ title, hint, cta, disabled, busy, busyLabel = '저장하는 중...', error, onBack, onSubmit, testId, children }) {
   return (
     <Phone>
       <div data-testid={testId} style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
@@ -103,7 +108,7 @@ function GapFrame({ title, hint, cta, ctaIcon = 'check', disabled, busy, busyLab
         {cta && (
           <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}` }}>
             {error && <div role="alert" data-testid={testId ? `${testId}-error` : undefined} style={{ fontSize: 11.5, color: T.danger, marginBottom: 7 }}>{error}</div>}
-            <Btn variant="primary" full icon={ctaIcon} disabled={disabled || busy} networkAction testId={testId ? `${testId}-submit` : undefined} onClick={onSubmit}>
+            <Btn variant="primary" full disabled={disabled || busy} networkAction testId={testId ? `${testId}-submit` : undefined} onClick={onSubmit}>
               {busy ? busyLabel : cta}
             </Btn>
           </div>
@@ -311,6 +316,8 @@ function ScreenCourseRating() {
   const liveMode = Boolean(window.MoyeoApi?.live());
   const [score, setScore] = React.useState(0);
   const [course, setCourse] = React.useState(null);
+  // 「2026.08.28 다녀옴」 — 예전에는 웹만 날짜가 빠져 있었다 (27-4, 2026-09-09).
+  const [visitedDate, setVisitedDate] = React.useState(null);
   const [status, setStatus] = React.useState(liveMode ? 'loading' : 'idle');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -341,6 +348,8 @@ function ScreenCourseRating() {
       .then((result) => {
         if (!active) return;
         setCourse(result?.course || null);
+        // 「언제 다녀온 코스인지」는 방 응답에 있다 — 기획·iOS 는 그 날짜를 먼저 적는다.
+        setVisitedDate(result?.room?.startDate || null);
         setStatus('ready');
       })
       // 코스를 못 읽어도 별점은 남길 수 있다 — 무엇을 평가하는지 카드만 빠진다.
@@ -375,7 +384,6 @@ function ScreenCourseRating() {
       testId="course-rating"
       title="코스 평가"
       cta={score === 0 ? '별점을 골라주세요' : '평가 남기기'}
-      ctaIcon="star"
       disabled={score === 0}
       busy={busy}
       busyLabel="보내는 중..."
@@ -403,9 +411,9 @@ function ScreenCourseRating() {
             <div style={{ fontSize: 13.5, fontWeight: 900 }}>{course.title}</div>
             <div style={{ fontSize: 11, color: T.text500, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
               {[
+                visitedDate ? `${visitedDate.replaceAll('-', '.')} 다녀옴` : null,
                 placeCount != null ? `${placeCount}곳` : null,
                 course.distanceKm != null ? `${course.distanceKm}km` : null,
-                course.travelTime || null,
               ].filter(Boolean).join(' · ')}
             </div>
           </div>
@@ -591,7 +599,7 @@ function ScreenTripStatus() {
           {error && <div role="alert" style={{ fontSize: 11.5, color: T.danger, marginBottom: 7 }}>{error}</div>}
           {pick === 'CONFIRMED'
             ? (
-              <Btn variant="primary" full icon="check" disabled={!enough} testId="trip-status-submit" onClick={() => setConfirming(true)}>
+              <Btn variant="primary" full disabled={!enough} testId="trip-status-submit" onClick={() => setConfirming(true)}>
                 {enough ? '여행 확정하기' : `최소 ${minimum}명이 필요해요`}
               </Btn>
             )
@@ -1298,7 +1306,13 @@ function ScreenFriendManage() {
             <ProfileAvatar src={friend.profileImageUrl} nickname={friend.nickname} size={44}/>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{friend.nickname}</div>
-              {/* 함께 간 여행 수·친구가 된 날은 친구 목록 응답에 없다 — 지어내지 않는다 (NO-MOCK §4) */}
+              {/* 부제는 **마지막 접속**(`lastActive`)이 먼저다 — iOS·안드 시트와 같은 근거다.
+                  함께 간 여행 수·친구가 된 날은 친구 목록 응답에 없어 지어내지 않는다 (NO-MOCK §4). */}
+              {(friend.lastActive || friend.introduction) && (
+                <div style={{ fontSize: 11.5, color: T.text500, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {friend.lastActive ? `${friend.lastActive} 접속` : friend.introduction}
+                </div>
+              )}
             </div>
           </div>
           <div style={{ height: 1, background: T.line100 }}/>

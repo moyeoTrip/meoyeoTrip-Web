@@ -210,6 +210,21 @@
     popularCourses: () => request('/api/v1/travel-courses/public/popular'),
     courseTags: () => request('/api/v1/travel-courses/tags'),
     roomCourse: (roomId) => request(`/api/v1/travel-courses/chat-rooms/${roomId}`),
+    // 18-1 경로 수정 · 18-7 이름·소개 수정 — 같은 엔드포인트다 (`PATCH`).
+    // 2026-09-04 BE 회신 §5 로 `title`·`description` 선택 필드가 붙었다.
+    // **생략하면 기존 값을 유지하는 부분 수정**이라 PUT 이 아니라 PATCH 다.
+    // `places` 만 보내던 예전 호출도 그대로 동작한다.
+    // 조건: 호스트가 직접 만든 `CUSTOM` 코스이고 **여행 확정 전**일 때만.
+    // 저장되면 방에 시스템 메시지가 남고 참가자에게 알림이 간다.
+    updateRoomCourse: (roomId, { title, description, places } = {}) => request(`/api/v1/travel-courses/chat-rooms/${roomId}`, {
+      method: 'PATCH',
+      body: {
+        // 안 보낸 것과 빈 문자열은 다르다 — 빈 제목은 서버가 400 으로 막는다.
+        ...(title === undefined || title === null ? {} : { title }),
+        ...(description === undefined || description === null ? {} : { description }),
+        ...(places ? { places } : {}),
+      },
+    }),
     courseDetail: (courseId) => request(`/api/v1/travel-courses/${courseId}`),
     // 12-1 검색 결과 · 코스. 서버는 **제목에 포함되거나 태그명이 일치**하는 공개 코스만 준다 —
     // 소개글(description)은 검색 대상이 아니다(ATTACH-COMPOSER-CANON R6, 실서버 확인).
@@ -331,6 +346,29 @@
       method: 'POST', body: { content, parentCommentId: parentCommentId || null },
     }),
 
+    // ── 수정·삭제 (2026-09-04 BE 회신으로 열렸다) ──
+    // 정본 `docs/api/BACKEND_REQUEST_CHANGES_2026-09-04.md` · 2026-09-07 실서버로 존재 확인.
+    //
+    // 피드 수정은 **본문만** 받는다 (`{ content }`). 사진도 공개 범위도 이 API 로 못 바꾼다 —
+    // 사진은 기존 첨부가 유지되고, 공개 범위는 댓글 쓴 사람이 갑자기 못 보게 되는 것을 막으려
+    // 생성 때 정한 값을 그대로 둔다. 그래서 24-6 화면에는 그 둘의 편집 UI 를 두지 않는다.
+    // 작성자 본인만 된다. 없는 피드는 404 `40417`.
+    updateFeed: (feedId, content) => request(`/api/v1/feeds/${feedId}`, {
+      method: 'PUT', body: { content },
+    }),
+    // 204 No Content. 사진·댓글·좋아요·신고 관계가 함께 정리되고, 커밋 뒤 이미지 파일도 지워진다.
+    // **되돌릴 수 없다** — 23-3 확인 단계를 거친 뒤에만 부른다.
+    deleteFeed: (feedId) => request(`/api/v1/feeds/${feedId}`, { method: 'DELETE' }),
+    // 댓글은 공백 불가 · **최대 500자**다(신고 details 의 300자와 다르다 — 헷갈리기 쉽다).
+    // 없는 댓글은 404 `40422`.
+    updateFeedComment: (feedId, commentId, content) => request(`/api/v1/feeds/${feedId}/comments/${commentId}`, {
+      method: 'PUT', body: { content },
+    }),
+    // 최상위 댓글을 지우면 **달린 답글도 함께** 사라진다 — 화면이 그 사실을 먼저 알려야 한다.
+    deleteFeedComment: (feedId, commentId) => request(`/api/v1/feeds/${feedId}/comments/${commentId}`, {
+      method: 'DELETE',
+    }),
+
     // ── 9. 내 모임 ──
     myRooms: (filter) => request(`/api/v1/chat-rooms/my${query({ filter })}`),
     myWaitingRooms: () => request('/api/v1/chat-rooms/my-waiting'),
@@ -393,6 +431,25 @@
     // 공지 삭제는 **전용 엔드포인트**다 (PUT 에 null 을 넣는 것이 아니다 — 백엔드 ChatRoomController 확인).
     // 되돌릴 수 없다: 20-3a 는 확인 단계를 거친 뒤에만 부른다.
     deleteRoomNotice: (roomId, noticeId) => request(`/api/v1/chat-rooms/${roomId}/notices/${noticeId}`, { method: 'DELETE' }),
+    // 내 메시지 삭제 — 204 No Content. 참가자가 **자기 메시지만** 지울 수 있다
+    // (시스템 메시지·남의 메시지는 안 된다). 행을 지우지 않고 본문을
+    // `삭제된 메시지입니다` 로 바꾸므로 **id·보낸 사람·보낸 시각·답글 관계는 그대로 남는다.**
+    // 없는 메시지는 404 `40423`.
+    deleteRoomMessage: (roomId, messageId) => request(`/api/v1/chat-rooms/${roomId}/messages/${messageId}`, {
+      method: 'DELETE',
+    }),
+    // 18-6 모집 내용 수정 — **multipart/form-data · PATCH** 다.
+    // request 파트가 application/json, 새 대표 사진은 선택적 `thumbnail` 파일 파트다.
+    // 썸네일을 생략하면 기존 값을 유지하므로 PUT 이 아니라 PATCH 다(비우는 길은 없다).
+    // **모집 중인 방의 호스트만** 된다 — 남의 방은 403 `40307`, 없는 방은 404 `40405`.
+    // 최대 인원을 현재 참가자 수보다 작게 줄일 수 없다.
+    // 저장되면 방에 `호스트가 모집 정보를 수정했어요.` 시스템 메시지가 남는다.
+    updateRoom: (roomId, payload, thumbnail = null) => {
+      const form = new global.FormData();
+      form.append('request', new global.Blob([JSON.stringify(payload)], { type: 'application/json' }));
+      if (thumbnail) form.append('thumbnail', thumbnail);
+      return request(`/api/v1/chat-rooms/${roomId}`, { method: 'PATCH', body: form });
+    },
 
     // ── 12. 20-2 첨부 시트 · 특수 메시지 5종 ──
     // 엔드포인트가 5개로 갈려 있고 본문 규칙이 서로 다르다.
@@ -593,7 +650,15 @@
       return api.friends()
         .then((result) => {
           const match = (result?.friends || []).find((item) => String(item.user?.userId) === String(friendUserId));
-          return match ? { userId: match.user.userId, nickname: match.user.nickname, profileImageUrl: match.user.profileImageUrl || null } : null;
+          // `lastActive` 까지 들고 온다 — 27-2a 시트의 부제가 iOS·안드로이드와 같은 근거여야 한다
+          // (앱 둘은 「4일 전 접속」을 적는데 웹만 닉네임뿐이었다).
+          return match ? {
+            userId: match.user.userId,
+            nickname: match.user.nickname,
+            profileImageUrl: match.user.profileImageUrl || null,
+            lastActive: match.lastActive || null,
+            introduction: match.user.introduction || null,
+          } : null;
         })
         .catch(() => null);
     },
@@ -622,6 +687,9 @@
     // ── 17 모집 만들기 5단계가 이어받는 입력값 ──
     // 단계 화면들이 각자 고른 값(코스·일정 유형·인원·승인 방식·집합 장소)을 여기에 쌓고,
     // 17-5 요약이 그대로 읽어 요청을 조립한다.
+    // **그대로 돌려준다.** 기본값을 여기서 섞으면 「담은 것만 들어 있다」는 성질이 깨지고
+    // `clearRoomDraft()` 뒤에도 값이 남는다(계약 테스트가 그것을 지킨다).
+    // 날짜 기본값은 **읽는 쪽**(일정 단계·요약 조립)에서 채운다.
     roomDraft: () => recall('moyeo.roomDraft', true) || {},
     updateRoomDraft(patch) {
       const next = { ...api.roomDraft(), ...(patch || {}) };
@@ -647,6 +715,10 @@
 
     // 17-2 일정 기본값. 기획 목데이터(출발 · 마감 D-3 · 08:00–18:00 · 07:50 집합)의 구조는 그대로 두고,
     // 지난 날짜는 서버가 거절하므로 오늘 기준 미래 날짜로 계산한다.
+    // 여행 날짜·모집 마감일의 **폼 기본값 정본** — 출발 2주 뒤 · 마감 출발 3일 전.
+    // iOS `RecruitmentDraft.defaultStartDate` · 안드 `defaultTravelDate()` 가 같은 규칙을 쓴다.
+    // 예전에는 앱 둘만 날짜를 비워 둬서 17-6 요약의 「마감」이 앱에서만 비었다
+    // (사용자 지적 2026-09-09).
     defaultRoomSchedule(now = new Date()) {
       const isoDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
       const shift = (days) => {
@@ -795,6 +867,20 @@
       if (Number.isNaN(then.getTime())) return String(dateTimeText);
       const date = `${then.getFullYear()}.${String(then.getMonth() + 1).padStart(2, '0')}.${String(then.getDate()).padStart(2, '0')}`;
       return `${date} ${String(then.getHours()).padStart(2, '0')}:${String(then.getMinutes()).padStart(2, '0')}`;
+    },
+    // 공지 작성 시각 — 「8월 29일 오후 1:02」.
+    // 기획(`5월 20일 오후 2:14`)·iOS(`ServerDateTime.noticeTimeText`)·
+    // 안드로이드(`moyeoNoticeTime`)가 같은 꼴을 쓴다. 예전에는 웹만 `2026.08.29 13:02`
+    // 라서 같은 카드가 표면마다 다른 시각 표기로 찍혔다 (20-3, 2026-09-09).
+    formatNoticeTime(dateTimeText) {
+      if (!dateTimeText) return '';
+      const then = new Date(dateTimeText);
+      if (Number.isNaN(then.getTime())) return String(dateTimeText);
+      const hour24 = then.getHours();
+      const meridiem = hour24 < 12 ? '오전' : '오후';
+      const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+      const minute = String(then.getMinutes()).padStart(2, '0');
+      return `${then.getMonth() + 1}월 ${then.getDate()}일 ${meridiem} ${hour12}:${minute}`;
     },
     formatRelative(dateTimeText) {
       if (!dateTimeText) return '';

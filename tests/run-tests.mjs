@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { access, readFile, stat } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { createReadStream } from "node:fs";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import vm from "node:vm";
@@ -401,8 +402,9 @@ async function staticTests() {
     "function ScreenCreateSummary",
     "function ScreenCourseEdit",
     "data-testid={`segment-${o.id}`}",
-    "meeting-latitude",
-    "meeting-longitude",
+    // 좌표 칸(`meeting-latitude`·`meeting-longitude`)은 **없앴다** — 위경도 숫자는
+    // 사용자가 읽을 값이 아니다(사용자 결정 2026-09-09, 17-3). 값 자체는 지도 핀이 잡아
+    // 그대로 저장되고 채팅방 지도 카드·길 찾기에 쓰인다. 그래서 이 두 표식도 함께 지운다.
     "tourapi-place-search",
     "custom-course-count",
     "move-stop-up-",
@@ -724,21 +726,35 @@ async function staticTests() {
   ], "12 search has no mock fallback");
   assert.ok(!extra.includes("<div style={{ fontSize: 14, color: T.text900 }}>경주 단풍</div>"), "12 search must not keep the static search field");
   // 인기 검색어 — 서버 집계 API 가 생겨 되살린 섹션 (BE 회신 반영 정본 §2-1).
+  // 검색 횟수(`searchCount`)는 **감췄다** — QA 검색이 만든 숫자(「주왕산 326」)가 그대로
+  // 보여 실제 인기와 무관해 보였다(사용자 결정). 등락은 서버가 열어줬다(2026-09-09):
+  // `rankTrend`(UP·DOWN·SAME·NEW) · `rankChange`(변동 폭, 신규는 null), 기준은 **전일 순위**.
   assertIncludes(extra, [
     "window.MoyeoApi.popularKeywords(10)",
     "popular.length > 0 &&",
     "search-popular",
     "{row.rank}",
     "{row.keyword}",
-    "{row.searchCount}회",
-  ], "12 인기 검색어는 서버가 준 rank·keyword·searchCount 만 그린다");
-  // 서버가 주지 않는 상승·하락 표시를 지어내면 R1 위반이다. 0건이면 빈 상태 문구가 아니라 섹션이 사라진다.
-  // 화살표는 **그려지는 JSX 안에** 없어야 한다 — "그리지 않는다"고 적은 주석까지 잡으면 안 되므로
-  // data-testid="search-popular" 블록만 떼어 본다.
+  ], "12 인기 검색어는 서버가 준 rank·keyword 를 그린다");
+  // 등락은 **서버 필드에서만** 나와야 한다. 화살표 글자가 있는 것으로는 부족하다 —
+  // 예전에는 이 자리를 클라가 지어낸 `up: true` 목데이터가 채웠다(R1 위반).
+  assertIncludes(extra, [
+    "row.rankTrend",
+    "row.rankChange",
+    "case 'UP':",
+    "case 'DOWN':",
+    "case 'SAME':",
+    "case 'NEW':",
+    // 낡은 응답(등락 없음)에서는 아무것도 그리지 않는다
+    "default: return null;",
+    "popularRankTrend(row)",
+    "전일 대비",
+  ], "12 인기 검색어의 등락은 서버 rankTrend·rankChange 에서만 나온다");
+  // 0건이면 빈 상태 문구가 아니라 섹션이 사라진다. 그리는 블록만 떼어 본다.
   const popularStart = extra.indexOf('data-testid="search-popular"');
   const popularBlock = extra.slice(popularStart, extra.indexOf("</React.Fragment>", popularStart));
   assert.ok(popularBlock.length > 200, "인기 검색어 블록을 찾지 못했다");
-  assertExcludes(popularBlock, ["▲", "▼", "인기 검색어가 없어요", "trend", "change"], "12 인기 검색어에 지어낸 순위 변동·빈 상태 문구가 없다");
+  assertExcludes(popularBlock, ["인기 검색어가 없어요", "up: true", "up: false"], "12 인기 검색어에 지어낸 순위 변동·빈 상태 문구가 없다");
   // ── 07 취향 · 28 취향 편집 (SIGNUP-GATE-CANON R4·R5) ──
   // 06-1 은 **가입 전에도** 후보 API 를 부른다 — profile/options 는 토큰 없이 200 이다(2026-08-30 확인).
   // 고른 id 는 그대로 가입 요청까지 들고 간다.
@@ -903,7 +919,9 @@ async function staticTests() {
     "MoyeoApi.createRoomPoll(roomId, { question: question.trim(), options: filled, anonymous })",
     "MoyeoApi.shareRoomSettlementMemo(roomId,",
     "MoyeoApi.createRoomNotice(roomId, content, pinned)",
-    "MoyeoTourism.list({ keyword, size: 20 })",
+    // 20-2b 는 30개를 받는다 — 앱 둘과 같은 크기다. 예전에는 20개였고, 검색어가 비면
+    // 아예 부르지 않아 웹만 빈 화면으로 찍혔다 (사용자 지적 2026-09-09).
+    "MoyeoTourism.list({ keyword, size: 30 })",
     "MoyeoApi.searchCourses(keyword)",
   ], "20-2a~20-2f · 12-1 은 서버 엔드포인트만 쓴다");
   // R4 정산은 송금이 아니다 · R5 투표는 2~5개 · 익명 기본
@@ -2530,18 +2548,69 @@ async function dumpDom(chrome, baseUrl, params, budgetMs = 5200) {
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
-  const { stdout } = await run(chrome, [
-    "--headless=new",
-    "--disable-gpu",
-    "--disable-dev-shm-usage",
-    "--no-sandbox",
-    "--hide-scrollbars",
-    "--window-size=393,852",
-    `--virtual-time-budget=${budgetMs}`,
-    "--dump-dom",
-    url.toString(),
-  ], { timeout: Math.max(18000, budgetMs + 12000), maxBuffer: 12 * 1024 * 1024 });
-  return stdout;
+  // **실행마다 프로필을 격리한다.** 이 함수는 `mapWithConcurrency` 로 병렬 호출되는데,
+  // `--user-data-dir` 이 없으면 Chrome 인스턴스들이 **기본 프로필 하나를 함께 쓴다.**
+  // 그러면 임의의 화면에서 `SIGTRAP` 으로 죽어(매번 다른 화면이라 코드 탓으로 오해했다)
+  // 테스트 전체가 실패한다 — 2026-09-07 에 `prof-1`·`search` 에서 번갈아 재현했다.
+  // 격리 프로필로 같은 명령을 돌리면 통과한다.
+  const profile = await mkdtemp(path.join(tmpdir(), "moyeo-web-test-chrome-"));
+  try {
+    const stdout = await dumpDomOnce(chrome, [
+      "--headless=new",
+      "--disable-gpu",
+      "--disable-dev-shm-usage",
+      "--no-sandbox",
+      "--no-first-run",
+      `--user-data-dir=${profile}`,
+      "--hide-scrollbars",
+      "--window-size=393,852",
+      `--virtual-time-budget=${budgetMs}`,
+      "--dump-dom",
+      url.toString(),
+      // 제한 시간은 **기동 시간**을 감당해야 한다. 에뮬레이터·시뮬레이터·캡처가 함께 도는
+      // 기계에서는 Chrome 이 뜨는 데만 20초가 넘어 「받은 길이 0」으로 끊겼다 (2026-09-09).
+    ], Math.max(45000, budgetMs + 30000));
+    return stdout;
+  } finally {
+    await rm(profile, { recursive: true, force: true });
+  }
+}
+
+/**
+ * `--dump-dom` 한 번. **DOM 을 다 받은 순간 프로세스를 죽인다.**
+ *
+ * ⚠️ 헤드리스 Chrome 은 DOM 을 다 뱉고도 끝나지 않는다 — macOS 에서
+ * `CVDisplayLinkCreateWithCGDisplay failed` 를 반복하며 0% CPU 로 살아남는다.
+ * `execFile` 로 종료를 기다리면 **모든 화면이 제한 시간(18초)을 꽉 채워** 이 묶음이
+ * 30분을 넘겼다(2026-09-09 실측: 같은 묶음이 이 수정 뒤 몇 분으로 줄었다).
+ * `</html>` 이 보이면 렌더가 끝난 것이므로 그 자리에서 끊는다.
+ */
+function dumpDomOnce(chrome, chromeArgs, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(chrome, chromeArgs, { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let settled = false;
+    const finish = (value, error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill("SIGKILL");
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const timer = setTimeout(
+      () => finish(null, new Error(
+        `Chrome 이 ${timeoutMs}ms 안에 DOM 을 내놓지 않았다 (${chromeArgs[chromeArgs.length - 1]}, 받은 길이 ${out.length})`,
+      )),
+      timeoutMs,
+    );
+    child.stdout.on("data", (chunk) => {
+      out += chunk;
+      if (out.includes("</html>")) finish(out);
+    });
+    child.on("error", (error) => finish(null, error));
+    child.on("close", () => finish(out));
+  });
 }
 
 async function mapWithConcurrency(items, concurrency, task) {
@@ -2589,7 +2658,11 @@ async function browserTests() {
       return domCache.get(key);
     };
     const renderCases = routes.flatMap((screen) => ["light", "dark"].map((theme) => ({ screen, theme })));
-    await mapWithConcurrency(renderCases, 4, async ({ screen, theme }) => {
+    // 병렬도를 환경변수로 낮출 수 있게 둔다. 이 머신에서 Chrome 이 4개 동시 실행에서
+    // 매달리는 일이 있었다 (2026-09-07: SIGTRAP 뒤 프로필을 격리했더니 대신 멈췄다).
+    // 기본값은 그대로 4 다 — 느린 머신에서만 `MOYEO_TEST_CONCURRENCY=2` 로 내린다.
+    const renderConcurrency = Number(process.env.MOYEO_TEST_CONCURRENCY || 4);
+    await mapWithConcurrency(renderCases, renderConcurrency, async ({ screen, theme }) => {
       const dom = await getDom(screen, theme);
       assert.ok(dom.includes("모여트립 in 경북 · Mobile Web"), `${screen}/${theme} should keep document title`);
       assert.ok(dom.includes("mw-root"), `${screen}/${theme} should render mobile web root`);

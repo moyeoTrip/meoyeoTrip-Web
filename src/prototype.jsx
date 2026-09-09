@@ -115,6 +115,17 @@
       'system-maintenance': window.ScreenSystemMaintenance,
       'system-error': window.ScreenSystemError,
       'feed-comments': window.ScreenFeedComments,
+
+      // 내가 만든 것을 되돌리는 화면들 (screens-edit-delete.jsx).
+      // 서버 계약: `docs/api/BACKEND_REQUEST_CHANGES_2026-09-04.md` (2026-09-04 BE 회신).
+      // 프로필 이미지 삭제는 **없다** — 회신 §7 대로 API 가 없고 기획에도 없다.
+      'feed-actions': window.ScreenFeedActions,               // 23-2 내 피드 수정·삭제 시트
+      'feed-delete': window.ScreenFeedDelete,                 // 23-3 피드 삭제 확인
+      'feed-edit': window.ScreenFeedEdit,                     // 24-6 피드 수정 (본문만)
+      'comment-edit': window.ScreenCommentEdit,               // 23-1a 내 댓글 수정·삭제
+      'recruit-edit': window.ScreenRecruitEdit,               // 18-6 모집 내용 수정 (호스트)
+      'course-title-edit': window.ScreenCourseTitleEdit,      // 18-7 코스 이름·소개 수정
+      'message-delete': window.ScreenMessageDelete,           // 20-6 내 채팅 메시지 삭제
       'profile-edit': window.ScreenProfileEdit,
       'profile-taste-edit': window.ScreenProfileTasteEdit,
       settings: window.ScreenSettings,

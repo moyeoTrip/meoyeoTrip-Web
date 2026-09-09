@@ -693,8 +693,12 @@ function ScreenSystemError() { return <ScreenSystemNotice mode="error"/>; }
 // ───────── 39 · 피드 댓글 전체 보기 ─────────
 // 23 피드 상세와 23-1 이 같은 댓글 한 줄을 쓴다 — 두 화면이 각자 그리면 아바타·시각 표기가 갈린다.
 // 프로필 이미지는 ProfileAvatar 를 쓴다(없으면 닉네임 아바타로 떨어진다 · 다른 화면과 같다).
-function FeedCommentRow({ item, reply = false }) {
+function FeedCommentRow({ item, reply = false, onReply, onReport, onBlock }) {
   const size = reply ? 26 : 34;
+  const actionStyle = {
+    border: 0, background: 'transparent', padding: 0, cursor: 'pointer',
+    fontSize: 11, fontWeight: 800, fontFamily: T.fontStack,
+  };
   return (
     <div style={{ display: 'flex', gap: 10, padding: reply ? '10px 0 10px 38px' : '12px 0' }}>
       <ProfileAvatar src={item.author?.profileImageUrl} nickname={item.author?.nickname} size={size}/>
@@ -704,6 +708,13 @@ function FeedCommentRow({ item, reply = false }) {
           <span style={{ fontSize: 10.5, color: T.text400 }}>{window.MoyeoApi.formatRelative(item.createdAt)}</span>
         </div>
         <div style={{ fontSize: 13, lineHeight: '20px', marginTop: 5 }}>{item.content}</div>
+        {/* 기획 23-1 의 댓글 행 동작. 예전에는 웹에만 이 줄이 아예 없어 답글도 신고도 낼 수 없었다.
+            좋아요는 서버에 댓글 좋아요 API 가 없어 두지 않는다 (BE 요청 §4). */}
+        <div style={{ display: 'flex', gap: 12, marginTop: 7 }}>
+          {onReply && <button type="button" data-testid="feed-comment-reply" onClick={onReply} style={{ ...actionStyle, color: T.primary600 }}>답글 달기</button>}
+          {onReport && <button type="button" data-testid="feed-comment-report" onClick={onReport} style={{ ...actionStyle, color: T.text500 }}>신고</button>}
+          {onBlock && <button type="button" data-testid="feed-comment-block" onClick={onBlock} style={{ ...actionStyle, color: T.text500 }}>차단</button>}
+        </div>
       </div>
     </div>
   );
@@ -734,7 +745,27 @@ function ScreenFeedComments() {
   // 헤더의 총 댓글 수는 피드 상세의 commentCount 를 쓴다 — 받아 온 묶음의 길이를 쓰면
   // 무한 스크롤 중에 "댓글 20" 처럼 총 개수를 틀리게 말한다(23 의 `댓글 N개` 와도 갈린다).
   const [commentCount, setCommentCount] = React.useState(null);
+  // 「답글 달기」의 대상 댓글. null 이면 일반 댓글이다.
+  const [replyTarget, setReplyTarget] = React.useState(null);
+  // 상단 원글 요약. 못 받으면 카드를 그리지 않는다 (제목을 지어내지 않는다).
+  const [feedSummary, setFeedSummary] = React.useState(null);
+  const [reportNoticeOpen, setReportNoticeOpen] = React.useState(false);
+  const [blockTarget, setBlockTarget] = React.useState(null);
+  const [actionMessage, setActionMessage] = React.useState('');
   const scrollRef = React.useRef(null);
+
+  const blockCommentAuthor = async (target) => {
+    setBlockTarget(null);
+    if (!target?.author?.userId) return;
+    try {
+      await window.MoyeoApi.blockUser(target.author.userId);
+      setActionMessage(`${target.author.nickname}님을 차단했어요.`);
+      setNextId(undefined);
+      loadFirstPage();
+    } catch (blockError) {
+      setActionMessage(blockError?.message || '차단에 실패했어요.');
+    }
+  };
 
   // 첫 묶음. beforeCommentId 없이 부른다.
   const loadFirstPage = React.useCallback(() => {
@@ -752,7 +783,10 @@ function ScreenFeedComments() {
   React.useEffect(() => {
     if (!liveMode || !feedId) return;
     window.MoyeoApi.feedDetail(feedId)
-      .then((feed) => { if (typeof feed?.commentCount === 'number') setCommentCount(feed.commentCount); })
+      .then((feed) => {
+        if (typeof feed?.commentCount === 'number') setCommentCount(feed.commentCount);
+        if (feed?.feedId != null) setFeedSummary(feed);
+      })
       .catch(() => { /* 총 개수를 못 받으면 헤더에 숫자를 지어내지 않는다 */ });
   }, [liveMode, feedId]);
 
@@ -789,8 +823,11 @@ function ScreenFeedComments() {
   const sendServerComment = async () => {
     if (!comment.trim()) return;
     try {
-      await window.MoyeoApi.addFeedComment(feedId, comment.trim());
+      // 답글이면 `parentCommentId` 를 함께 보낸다 — 예전에는 어느 화면도 보내지 않아
+      // 네 표면 모두 답글을 달 수 없었다 (23-1, 사용자 지적 2026-09-09).
+      await window.MoyeoApi.addFeedComment(feedId, comment.trim(), replyTarget?.commentId);
       setComment('');
+      setReplyTarget(null);
       // 새 댓글은 가장 큰 ID 라 목록 맨 위에 온다. 뒤 묶음의 커서는 그대로 유효하지만
       // 받아 둔 묶음 사이에 끼워 넣을 자리를 클라가 계산하면 순서가 어긋난다 —
       // **첫 묶음부터 다시 받아** 맨 위로 올린다(23 의 commentCount 도 같이 다시 읽는다).
@@ -806,13 +843,43 @@ function ScreenFeedComments() {
         <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
           <Header title={commentCount == null ? '댓글' : `댓글 ${commentCount}`} left center onBack={nav.back}/>
           <div ref={scrollRef} onScroll={onListScroll} data-testid="feed-comments-scroll" style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 78, overflow: 'auto', padding: '0 18px 16px' }}>
+            {/* 어떤 게시물의 댓글인지 위에서 알려 준다 (기획 23-1 · iOS · 안드로이드에 있고 웹에만 없었다). */}
+            {feedSummary && (
+              <div data-testid="feed-comments-origin" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 0', borderBottom: `1px solid ${RF.softLine}` }}>
+                <ProfileAvatar src={feedSummary.author?.profileImageUrl} nickname={feedSummary.author?.nickname} size={44}/>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {feedSummary.trip?.courseTitle || feedSummary.content}
+                  </div>
+                  <div style={{ fontSize: 11, color: T.text500, marginTop: 3 }}>
+                    {feedSummary.author?.nickname} · 좋아요 {feedSummary.likeCount ?? 0}
+                  </div>
+                </div>
+              </div>
+            )}
+            {actionMessage && (
+              <div role="status" data-testid="feed-comment-action-result" style={{ padding: '10px 0', fontSize: 12, color: T.primary600 }}>{actionMessage}</div>
+            )}
             {serverComments.length === 0 && (
               <div style={{ padding: '56px 0', textAlign: 'center', color: T.text500, fontSize: 13 }}>아직 댓글이 없어요. 첫 댓글을 남겨보세요!</div>
             )}
             {serverComments.map((item) => (
               <div key={item.commentId} style={{ borderBottom: `1px solid ${RF.softLine}` }}>
-                <FeedCommentRow item={item}/>
-                {(item.replies || []).map((reply) => <FeedCommentRow key={reply.commentId} item={reply} reply/>)}
+                <FeedCommentRow
+                  item={item}
+                  onReply={() => setReplyTarget(item)}
+                  onReport={() => setReportNoticeOpen(true)}
+                  onBlock={() => setBlockTarget(item)}
+                />
+                {(item.replies || []).map((reply) => (
+                  <FeedCommentRow
+                    key={reply.commentId}
+                    item={reply}
+                    reply
+                    onReport={() => setReportNoticeOpen(true)}
+                    onBlock={() => setBlockTarget(reply)}
+                  />
+                ))}
               </div>
             ))}
             {/* 다음 묶음이 있는 동안만 자리를 남긴다 — 마지막 페이지(nextId null)에는 아무것도 없다. */}
@@ -820,9 +887,35 @@ function ScreenFeedComments() {
               <div role="status" data-testid="feed-comments-more" style={{ padding: '16px 0', textAlign: 'center', color: T.text500, fontSize: 12 }}>불러오는 중이에요…</div>
             )}
           </div>
-          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 14px 24px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8, alignItems: 'center' }}>
-            <Composer value={comment} onChange={setComment} onSend={sendServerComment} placeholder="댓글을 남겨주세요" height={40} buttonSize={36} iconSize={16} inputLabel="댓글 입력" testId="feed-comments-composer"/>
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: RF.card, borderTop: `1px solid ${RF.softLine}` }}>
+            {/* 답글을 쓰는 중이면 누구에게 쓰는지 위에 띠로 알려 준다. */}
+            {replyTarget && (
+              <div data-testid="feed-comment-reply-banner" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: T.bgSubtle, fontSize: 12 }}>
+                <span style={{ flex: 1, fontWeight: 700, color: T.text500 }}>{replyTarget.author?.nickname}님에게 답글</span>
+                <button type="button" data-testid="feed-comment-reply-cancel" onClick={() => setReplyTarget(null)} style={{ border: 0, background: 'transparent', padding: 0, cursor: 'pointer', color: T.primary600, fontWeight: 800, fontFamily: T.fontStack, fontSize: 12 }}>취소</button>
+              </div>
+            )}
+            <div style={{ padding: '10px 14px 24px', display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Composer value={comment} onChange={setComment} onSend={sendServerComment} placeholder={replyTarget ? '답글을 남겨주세요' : '댓글을 남겨주세요'} height={40} buttonSize={36} iconSize={16} inputLabel="댓글 입력" testId="feed-comments-composer"/>
+            </div>
           </div>
+          {/* 댓글 신고는 접수 API 가 없다 — 접수된 것처럼 보이게 하지 않고 문의로 안내한다
+              (정본 `REPORT-CANON.md` §3 · 안드로이드 `ReportUnsupportedDialog` 와 같은 결정). */}
+          {reportNoticeOpen && window.ReportUnsupportedDialog
+            && React.createElement(window.ReportUnsupportedDialog, { onClose: () => setReportNoticeOpen(false) })}
+          {blockTarget && (
+            <div role="dialog" aria-label="차단 확인" data-testid="feed-comment-block-dialog" style={{ position: 'absolute', inset: 0, zIndex: 40 }}>
+              <div onClick={() => setBlockTarget(null)} style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
+              <div style={{ position: 'absolute', left: 24, right: 24, top: '50%', transform: 'translateY(-50%)', background: RF.card, borderRadius: 18, padding: '20px 18px 16px', boxShadow: T.l3 }}>
+                <div style={{ fontSize: 15, fontWeight: 900 }}>{blockTarget.author?.nickname}님을 차단할까요?</div>
+                <div style={{ fontSize: 12.5, color: T.text500, marginTop: 8, lineHeight: '19px' }}>차단하면 이 유저가 만들었거나 참여한 모집이 홈·탐색에서 모두 숨겨져요.</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                  <Btn variant="secondary" full onClick={() => setBlockTarget(null)}>취소</Btn>
+                  <Btn variant="danger" full testId="feed-comment-block-confirm" onClick={() => blockCommentAuthor(blockTarget)}>차단하기</Btn>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </Phone>
     );

@@ -947,7 +947,15 @@ function ScreenChatList({ initialTab = 'live' }) {
           {serverMode && tab === 'applied' && (
             <div>
               {(serverWaiting || []).length === 0 && <div style={{ padding: 40, textAlign: 'center', color: T.text500, fontSize: 13 }}>신청 중인 모임이 없어요.</div>}
-              {(serverWaiting || []).map((item) => {
+              {/* 기획은 신청 상태를 **두 묶음**으로 갈라 소제목을 붙인다 — 승인 대기와 대기열은
+                  기다리는 이유가 다르다. 예전에는 세 구현 모두 소제목 없이 한 줄로 이어 붙였다. */}
+              {[['호스트 승인을 기다리는 중', (serverWaiting || []).filter((item) => item.applicationStatus !== 'WAITLISTED')],
+                ['대기열에 있는 모임', (serverWaiting || []).filter((item) => item.applicationStatus === 'WAITLISTED')]]
+                .filter(([, list]) => list.length > 0)
+                .map(([sectionTitle, list]) => (
+                <React.Fragment key={sectionTitle}>
+                  <div style={{ padding: '14px 20px 4px', fontSize: 12, fontWeight: 700, color: T.text500 }}>{sectionTitle}</div>
+                  {list.map((item) => {
                 const waiting = item.applicationStatus === 'PENDING';
                 const badgeBg = waiting ? T.warningBg : T.primary50;
                 const badgeFg = waiting ? T.warningText : T.primary700;
@@ -974,6 +982,14 @@ function ScreenChatList({ initialTab = 'live' }) {
                         {item.tripType === 'DAY_TRIP' && item.dayTripStartTime ? ` · ${window.MoyeoApi.formatTime(item.dayTripStartTime)}-${window.MoyeoApi.formatTime(item.dayTripEndTime)}` : ''}
                       </div>
                       {item.meetingDetails && <div style={{ fontSize: 12, color: T.text500, marginTop: 2 }}>{item.meetingDetails}</div>}
+                      {/* 왜 기다리는지 말해 주는 말풍선. 기획·iOS 에는 있고 웹·안드로이드에는 없었다. */}
+                      {item.applicationStatus !== 'REJECTED' && (
+                        <div style={{ marginTop: 8, padding: '9px 11px', borderRadius: 10, background: badgeBg, color: badgeFg, fontSize: 12, lineHeight: '18px' }}>
+                          {waiting
+                            ? '호스트가 확인하면 채팅방이 열려요. 보통 24시간 이내에 응답해요.'
+                            : `정원(${item.maxParticipants}명)이 차서 대기 중이에요. 자리가 나면 순서대로 자동 합류돼요.`}
+                        </div>
+                      )}
                       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                         <button type="button" data-testid={`cancel-application-room-${item.roomId}`} onClick={() => askCancelApplication(item)} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>신청 취소</button>
                         <button type="button" onClick={() => openServerRoom({ roomId: item.roomId })} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>모집 상세</button>
@@ -981,7 +997,9 @@ function ScreenChatList({ initialTab = 'live' }) {
                     </div>
                   </div>
                 );
-              })}
+                  })}
+                </React.Fragment>
+              ))}
               <div style={{ padding: '14px 20px 24px', fontSize: 11, color: T.text400, lineHeight: 1.6 }}>신청 상태에서는 아직 채팅방에 들어갈 수 없어요. 승인되거나 자리가 나면 알림으로 알려드릴게요.</div>
             </div>
           )}
@@ -1255,17 +1273,9 @@ function ScreenRemovalReason() {
                 </div>
               ))}
             </div>
-            {/* 13-2 내보내진 기록 — 이 화면은 **가장 최근 한 건**만 보여준다.
-                두 번 이상 내보내졌으면 지난 사유를 다시 볼 길이 없었다 (정본 §6-5). */}
-            <button type="button" data-testid="removal-reason-history" onClick={() => nav.go('kick-history')} style={{
-              marginTop: 12, width: '100%', height: 46, borderRadius: 12, cursor: 'pointer',
-              border: `1px solid ${T.line100}`, background: T.bgRaised, fontFamily: T.fontStack,
-              display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px',
-            }}>
-              <Icon name="note" size={16} color={T.text700}/>
-              <span style={{ flex: 1, textAlign: 'left', fontSize: 13, fontWeight: 700, color: T.text900 }}>내보내진 기록 전체 보기</span>
-              <Icon name="arrow" size={15} color={T.text400}/>
-            </button>
+            {/* 「내보내진 기록 전체 보기」 버튼은 **웹에만** 있었다 — 기획에도 앱에도 없다.
+                4열 비교에서 웹만 항목이 하나 더 있어 눈에 걸렸다 (사용자 지적, 2026-09-09).
+                13-2 화면 자체는 남아 있고 라우트로 열 수 있다. */}
           </div>
           <div style={{ flex: 1 }}/>
           <div style={{ padding: '0 20px 32px' }}>
@@ -1297,6 +1307,21 @@ function ScreenRemovalReason() {
       </div>
     </Phone>
   );
+}
+
+// 인기 검색어 한 줄의 **등락** — 서버가 준 값만 쓴다 (2026-09-09 서버 추가).
+// `GET /api/v1/search/popular-keywords` 가 `rankTrend`(UP·DOWN·SAME·NEW)와
+// `rankChange`(변동 폭. 신규 진입은 null)를 준다. 기준은 **전일 순위**다(API 스펙).
+// 낡은 응답처럼 `rankTrend` 가 없으면 **아무것도 그리지 않는다** — 지어내지 않는다(NO-MOCK R1).
+function popularRankTrend(row) {
+  const step = Math.abs(Number(row && row.rankChange) || 0);
+  switch (row && row.rankTrend) {
+    case 'UP': return { text: step > 0 ? `▲${step}` : '▲', color: T.accent500, label: `전일 대비 ${step}단계 상승` };
+    case 'DOWN': return { text: step > 0 ? `▼${step}` : '▼', color: T.info, label: `전일 대비 ${step}단계 하락` };
+    case 'SAME': return { text: '—', color: T.text400, label: '전일과 같은 순위' };
+    case 'NEW': return { text: 'NEW', color: T.primary600, label: '새로 진입' };
+    default: return null;
+  }
 }
 
 function ScreenSearch() {
@@ -1397,14 +1422,20 @@ function ScreenSearch() {
                 </div>
               )}
               {recent.length === 0 && (
-                <div style={{ padding: popular.length > 0 ? '28px 0' : '48px 0', textAlign: 'center', fontSize: 13, color: T.text500 }}>
+                <div style={{ padding: popular.length > 0 ? '28px 0' : '48px 0', textAlign: 'center', fontSize: 13, color: T.text500, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                  {/* iOS 의 `clock.arrow.circlepath` 와 같은 뜻의 아이콘 (2026-09-09 네 표면 통일) */}
+                  <Icon name="clock" size={26} color={T.primary500}/>
                   최근 검색어가 없어요.
                 </div>
               )}
               {/* 인기 검색어. 0건이면 이 블록이 통째로 사라진다 — 빈 상태 문구를 두지 않는다. */}
               {popular.length > 0 && (
                 <div data-testid="search-popular" style={{ marginTop: recent.length > 0 ? 24 : 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>인기 검색어</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>인기 검색어</div>
+                    {/* 등락의 기준 시점을 적는다 — 서버 집계가 **전일 순위 대비**다 (API 스펙) */}
+                    <div style={{ fontSize: 11, color: T.text400 }}>전일 대비</div>
+                  </div>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                     {popular.map((row) => (
                       <button
@@ -1413,14 +1444,28 @@ function ScreenSearch() {
                         data-testid={`search-popular-${row.rank}`}
                         onClick={() => runSearch(row.keyword)}
                         style={{
-                          display: 'flex', alignItems: 'center', gap: 12, height: 40, padding: 0,
+                          // 글자 크기·간격은 화면기획 12 를 그대로 따른다 (줄 14 · 등락 11 · 간격 16 · 높이 44)
+                          display: 'flex', alignItems: 'center', gap: 16, height: 44, padding: 0,
                           border: 0, background: 'transparent', cursor: 'pointer', fontFamily: T.fontStack, textAlign: 'left',
                         }}
                       >
-                        <span style={{ width: 18, fontSize: 13, fontWeight: 800, color: T.primary600 }}>{row.rank}</span>
-                        <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, color: T.text900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.keyword}</span>
-                        {/* 서버가 주는 값은 여기까지다. 상승·하락 표시는 근거가 없어 그리지 않는다. */}
-                        <span style={{ fontSize: 11, color: T.text400 }}>{row.searchCount}회</span>
+                        {/* 3위까지만 초록으로 물들인다 — 기획이 그렇게 나눈다 */}
+                        <span style={{ width: 16, fontSize: 14, fontWeight: 700, color: row.rank <= 3 ? T.primary600 : T.text500, fontVariantNumeric: 'tabular-nums' }}>{row.rank}</span>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: T.text900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.keyword}</span>
+                        {/* 등락. 서버가 `rankTrend` 를 주지 않는 응답이면 이 자리가 빈다 — 지어내지 않는다.
+                            검색 횟수(`searchCount`)는 여전히 감춘다: QA 검색이 만든 숫자가 실제 인기와
+                            무관해 보였다(사용자 결정 2026-09-09). */}
+                        {(() => {
+                          const trend = popularRankTrend(row);
+                          if (!trend) return null;
+                          return (
+                            <span
+                              data-testid={`search-popular-trend-${row.rank}`}
+                              aria-label={trend.label}
+                              style={{ fontSize: 11, fontWeight: 700, color: trend.color, fontVariantNumeric: 'tabular-nums' }}
+                            >{trend.text}</span>
+                          );
+                        })()}
                       </button>
                     ))}
                   </div>
@@ -1634,13 +1679,11 @@ function ScreenLeaveAlert({ role = null }) {
     ? {
       title: <React.Fragment>호스트가 나가면<br/>이 모임은 종료돼요</React.Fragment>,
       desc: '승인된 동행자 모두에게 알림이 가고, 채팅방은 14일 동안 읽기 전용으로 유지된 후 사라져요.',
-      reasonLabel: '나가는 이유 (필수)',
       confirm: '모임 종료',
     }
     : {
       title: <React.Fragment>이 모임에서<br/>나갈까요?</React.Fragment>,
       desc: '내 자리가 비면서 대기 중인 다음 신청자가 자동으로 합류해요. 다시 신청하면 맨 뒤부터예요.',
-      reasonLabel: '나가는 이유 (선택)',
       confirm: '나가기',
     };
   const [busy, setBusy] = React.useState(false);
@@ -1668,10 +1711,11 @@ function ScreenLeaveAlert({ role = null }) {
         <div style={{ width: 48, height: 48, borderRadius: 999, background: T.dangerBg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, fontSize: 22 }}>⚠</div>
         <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.4, letterSpacing: '-0.3px' }}>{copy.title}</div>
         <div style={{ fontSize: 13, color: T.text500, marginTop: 10, lineHeight: 1.6 }}>{copy.desc}</div>
-        {/* 사유 칸은 기획 문구다 — 서버가 사유를 받지 않아 입력으로 만들지 않는다(값을 지어내지 않는다) */}
-        <div style={{ marginTop: 16, padding: 12, borderRadius: 10, background: T.bgSubtle, fontSize: 12, color: T.text700 }}>
-          <div style={{ fontSize: 11, color: T.text500 }}>{copy.reasonLabel}</div>
-        </div>
+        {/* 「나가는 이유」 칸을 두지 않는다.
+            `DELETE /chat-rooms/{id}/members/me` 는 **본문을 무시한다** — 사유를 실어 보내도
+            200 만 오고 어디에도 남지 않는다(2026-09-09 실서버로 방 244 를 실제로 나가 확인).
+            그래서 라벨만 있는 빈 칸이었고, 사용자는 「입력이 안 된다」고 읽었다 (31).
+            받아 주는 API 가 생기면 입력으로 만든다 — 요청은 `BE-요청사항-2026-09-04.md` §8-4. */}
         <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
           <button type="button" data-testid="leave-cancel" onClick={() => nav.back()} style={{ flex: 1, height: 44, borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', fontSize: 14, fontWeight: 600, color: T.text900, fontFamily: T.fontStack, cursor: 'pointer' }}>취소</button>
           <button type="button" data-testid="leave-confirm" disabled={busy} onClick={leave} style={{ flex: 1, height: 44, borderRadius: 10, border: 'none', background: T.danger, color: '#fff', fontSize: 14, fontWeight: 600, fontFamily: T.fontStack, cursor: 'pointer' }}>{copy.confirm}</button>

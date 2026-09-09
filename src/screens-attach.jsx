@@ -25,7 +25,7 @@ function AttachFrame({ title, hint, cta, disabled, busy, error, notice, onBack, 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}` }}>
           {error && <div role="alert" data-testid={testId ? `${testId}-error` : undefined} style={{ fontSize: 11.5, color: T.danger, marginBottom: 7 }}>{error}</div>}
           {!error && notice && <div role="status" style={{ fontSize: 11.5, color: T.text500, marginBottom: 7 }}>{notice}</div>}
-          <Btn variant="primary" full icon="send" disabled={disabled || busy} onClick={onSubmit} networkAction testId={testId ? `${testId}-submit` : undefined}>
+          <Btn variant="primary" full disabled={disabled || busy} onClick={onSubmit} networkAction testId={testId ? `${testId}-submit` : undefined}>
             {busy ? '보내는 중...' : cta}
           </Btn>
         </div>
@@ -221,14 +221,19 @@ function ScreenAttachPlace() {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
 
+  const [total, setTotal] = React.useState(null);
+  // 들어오자마자 **검색어 없이** 목록을 부른다 — 앱 둘도 그렇게 한다.
+  // 예전에는 `keyword` 가 비면 아예 부르지 않아 웹만 빈 화면으로 찍혔다
+  // (20-2b, 사용자 지적 2026-09-09). 서버는 keyword 없이도 200 을 준다.
   React.useEffect(() => {
-    if (!ready || !keyword) return undefined;
+    if (!ready) return undefined;
     let active = true;
     setStatus('loading');
-    window.MoyeoTourism.list({ keyword, size: 20 })
+    window.MoyeoTourism.list({ keyword, size: 30 })
       .then((result) => {
         if (!active) return;
         setItems(result.items || []);
+        setTotal(Number.isFinite(result.totalElements) ? result.totalElements : null);
         setStatus('done');
       })
       .catch(() => { if (active) setStatus('error'); });
@@ -279,7 +284,7 @@ function ScreenAttachPlace() {
           data-testid="attach-place-keyword"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="장소 이름이나 지역으로 찾아보세요"
+          placeholder="장소 이름이나 지역을 검색해보세요"
           aria-label="장소 검색어"
           style={{ flex: 1, minWidth: 0, height: 40, border: 0, outline: 'none', background: 'transparent', fontSize: 13, color: T.text900, fontFamily: T.fontStack, padding: 0 }}
         />
@@ -292,7 +297,8 @@ function ScreenAttachPlace() {
       )}
       {status === 'done' && items.length > 0 && (
         <React.Fragment>
-          <div style={{ fontSize: 11.5, color: T.text500, margin: '12px 0 8px' }}>{items.length}곳을 찾았어요</div>
+          {/* 「몇 곳 있는지」는 서버가 준 전체 개수다 — 한 쪽 분량(30)을 세면 표면마다 숫자가 달라진다. */}
+          <div style={{ fontSize: 11.5, color: T.text500, margin: '12px 0 8px' }}>{(total ?? items.length).toLocaleString('ko-KR')}곳을 찾았어요</div>
           <div style={{ display: 'grid', gap: 8 }}>
             {items.map((place) => {
               const active = picked?.contentId === place.contentId;
@@ -596,7 +602,9 @@ function ScreenAttachSettlement() {
     window.MoyeoApi.roomMembers(roomId)
       .then((result) => {
         const count = (result?.members || []).length;
-        if (active && count > 0) setPeople((current) => (current == null ? count : current));
+        // 최소 2 명이다 — 혼자 나눌 정산은 없다. 방 인원이 1이면 2 로 시작한다
+        // (앱 둘도 2 로 시작한다, 20-2e 2026-09-09).
+        if (active && count > 0) setPeople((current) => (current == null ? Math.max(2, count) : current));
       })
       .catch(() => { /* 못 받으면 사용자가 직접 넣는다 */ });
     return () => { active = false; };
@@ -640,7 +648,7 @@ function ScreenAttachSettlement() {
         value={title}
         maxLength={80}
         onChange={(event) => setTitle(event.target.value)}
-        placeholder="예: 점심 · 저녁 · 숙소"
+        placeholder="예: 점심 · 달기약수탕 백숙"
         style={ATTACH_INPUT_STYLE}
       />
 
@@ -675,13 +683,16 @@ function ScreenAttachSettlement() {
         </div>
       </div>
 
-      {/* 1인당 금액은 입력이 아니라 계산 결과다 (R4) */}
-      {each != null && (
+      {/* 1인당 금액은 입력이 아니라 계산 결과다 (R4).
+          **총액이 비어 있어도 카드를 그린다** — 예전에는 값이 생길 때까지 카드가 없어서
+          웹만 「1인당」 줄이 통째로 사라졌다 (20-2e, 사용자 지적 2026-09-09).
+          앱 둘은 처음부터 `0원` 으로 자리를 잡아 둔다. */}
+      {(
         <div data-testid="attach-settlement-each" style={{ marginTop: 16, borderRadius: 14, padding: 16, background: T.primary50, border: `1px solid ${T.primary100}`, display: 'flex', alignItems: 'center', gap: 12 }}>
           <Icon name="money" size={20} color={T.primary600}/>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 11.5, color: T.primary700, fontWeight: 700 }}>1인당</div>
-            <div style={{ fontSize: 21, fontWeight: 900, color: T.primary700, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{won(each)}원</div>
+            <div style={{ fontSize: 21, fontWeight: 900, color: T.primary700, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{won(each ?? 0)}원</div>
           </div>
           <div style={{ fontSize: 10.5, color: T.text500, textAlign: 'right', lineHeight: '15px' }}>10원 단위로<br/>올림했어요</div>
         </div>
@@ -693,7 +704,7 @@ function ScreenAttachSettlement() {
         value={note}
         maxLength={500}
         onChange={(event) => setNote(event.target.value)}
-        placeholder="정산 방법을 적어주세요"
+        placeholder="예: 계좌는 채팅방에 따로 남길게요."
         style={{ ...ATTACH_INPUT_STYLE, height: 76, padding: 12, lineHeight: '19px', resize: 'none' }}
       />
 

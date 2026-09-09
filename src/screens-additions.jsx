@@ -450,27 +450,9 @@ function ScreenCreateMeetPoint() {
               </label>
             </div>
 
-            <div>
-              <AddFieldLabel>좌표 (자동 저장)</AddFieldLabel>
-              <div style={{
-                borderRadius: 12, border: `1px solid ${RF.softLine}`, background: T.bgSubtle,
-                padding: 13, display: 'grid', gap: 8,
-              }}>
-                {/* 위경도는 한 줄 — lat/lng를 따로 읽을 일이 없고 줄이 늘면 카드만 커진다 (화면기획·앱과 동일) */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                  <Icon name="map" size={15} color={T.text500}/>
-                  <span style={{ flex: 1, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
-                    <span data-testid="meeting-latitude">{point.lat.toFixed(6)}</span>
-                    {', '}
-                    <span data-testid="meeting-longitude">{point.lng.toFixed(6)}</span>
-                  </span>
-                </div>
-                <div style={{ height: 1, background: RF.softLine }}/>
-                <div style={{ fontSize: 11, color: T.text500, lineHeight: '16px' }}>
-                  좌표가 저장되면 채팅방 지도 카드 · 길 찾기 · 근처 모집 추천에 같은 위치가 쓰여요.
-                </div>
-              </div>
-            </div>
+            {/* 좌표는 **사용자에게 보여주지 않는다** — 지도 핀으로 위치를 알 수 있고
+                위경도 숫자는 읽을 일이 없다 (사용자 결정, 2026-09-09).
+                값 자체는 그대로 저장돼 채팅방 지도 카드·길 찾기에 쓰인다. */}
 
             <div>
               <AddFieldLabel required>집합 시간</AddFieldLabel>
@@ -503,9 +485,51 @@ function ScreenCustomCourse() {
   const [query, setQuery] = React.useState('');
   // 에디터는 빈 코스로 시작한다 — 예시 방문지 3곳을 미리 담아두면 사용자가 짜지 않은 코스가 저장된다.
   const [stops, setStops] = React.useState([]);
+
   // 1박 이상이면 일차가 늘어난다. customCourse 의 방문지마다 dayNumber 가 필수다.
   const [days, setDays] = React.useState(1);
   const [activeDay, setActiveDay] = React.useState(1);
+
+  // ── `?courseId=81` 로 들어오면 **그 코스를 불러온 상태**로 에디터를 연다 ──
+  // roomId·feedId 와 같은 딥링크 관례다(`selectedCourseId`). 담기는 값은 서버가 준
+  // 방문지 이름·방문 시각·일차뿐이고 클라이언트가 지어내는 문자열은 없다.
+  // 등록 코스를 출발점으로 고쳐 쓰는 진입이라 17-2(코스 연동)와 다르다 — 여기서 고친 코스는
+  // 새 커스텀 코스가 된다. 불러오지 못하면 빈 에디터 그대로 둔다.
+  const liveMode = Boolean(window.MoyeoApi?.live());
+  const startingCourseId = liveMode ? window.MoyeoApi.selectedCourseId() : null;
+  React.useEffect(() => {
+    if (!startingCourseId) return undefined;
+    let active = true;
+    window.MoyeoApi.courseDetail(startingCourseId)
+      .then((course) => {
+        if (!active) return;
+        const places = Array.isArray(course?.places) ? course.places : [];
+        const loaded = places.map((place, index) => ({
+          id: `${place.contentId}-${index}`,
+          contentId: place.contentId,
+          name: place.title,
+          memo: '',
+          day: place.dayNumber || 1,
+          time: String(place.visitTime || '').slice(0, 5),
+          // 좌표를 함께 담아 위 지도에 올린다 — 기획·iOS·안드로이드는 이 자리에 경로를 그린다.
+          latitude: place.latitude,
+          longitude: place.longitude,
+        }));
+        if (loaded.length) {
+          setStops(loaded);
+          setDays(loaded.reduce((max, stop) => Math.max(max, stop.day), 1));
+        }
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [startingCourseId]);
+
+
+  // 담긴 방문지의 좌표 → 지도 마커·경로. 좌표가 없는 방문지는 `routeFromPlaces` 가 걸러낸다.
+  const stopRoute = React.useMemo(
+    () => (window.MoyeoKakaoMap?.routeFromPlaces?.(stops) || null),
+    [stops],
+  );
 
   // ── 방문지 검색 (GET /tourism-contents?keyword=) ──
   // 예전에는 `검색` 이 17-1a 장소 검색 화면으로 넘어가면서 **입력한 검색어를 버렸고**,
@@ -540,7 +564,13 @@ function ScreenCustomCourse() {
       name: place.title,
       memo: place.address || '',
       day: activeDay,
-      time: '',
+      // 검색 결과의 좌표를 그대로 담는다 — 두 곳 이상 모이면 위에 실지도 경로가 그려진다.
+      latitude: place.latitude,
+      longitude: place.longitude,
+      // 서버는 `customCourse.places[].visitTime` 을 **필수**로 요구한다. 아직 세 플랫폼 모두
+      // 방문 시각을 고치는 UI 가 없어 iOS 와 같은 기본값(17:00)을 넣는다 —
+      // 웹만 빈 값이면 같은 화면이 플랫폼마다 다르게 보인다. 입력 UI 는 BE·기획 요청에 올렸다.
+      time: '17:00',
     }]);
     setQuery('');
     setKeyword('');
@@ -570,11 +600,18 @@ function ScreenCustomCourse() {
         <Header title="코스 직접 만들기" left center onBack={nav.back}/>
 
         <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 96, overflow: 'auto', padding: '0 20px 20px' }}>
-          {/* 방문지 좌표가 없으면 지도를 그리지 않는다 — 손으로 그린 지도는 두지 않는다(R4). */}
+          {/* 담긴 방문지의 좌표로 실지도 경로를 그린다 — 기획·iOS·안드로이드도 이 자리에 지도를 둔다.
+              좌표가 두 곳 미만이면 `routeFromPlaces` 가 null 을 주고 지도 자리를 아예 비운다
+              (손으로 그린 지도는 두지 않는다 · 정본 R4). */}
+          {stopRoute && (
+            <div style={{ marginTop: 14, borderRadius: 12, overflow: 'hidden' }}>
+              <MiniMap height={150} markers={stopRoute.markers} polyline={stopRoute.polyline}/>
+            </div>
+          )}
 
           <form onSubmit={(event) => { event.preventDefault(); runSearch(); }} style={{ marginTop: 14, height: 42, borderRadius: 11, border: `1px solid ${T.line200}`, display: 'flex', alignItems: 'center', gap: 9, padding: '0 8px 0 13px' }}>
             <Icon name="search" size={17} color={T.text500}/>
-            <input data-testid="tourapi-place-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="방문지 검색 (TourAPI · 경북 22개 시·군)" style={{ minWidth: 0, flex: 1, border: 0, outline: 0, background: 'transparent', color: T.text900, fontFamily: T.fontStack, fontSize: 13 }}/>
+            <input data-testid="tourapi-place-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="방문지 검색" style={{ minWidth: 0, flex: 1, border: 0, outline: 0, background: 'transparent', color: T.text900, fontFamily: T.fontStack, fontSize: 13 }}/>
             {/* type=button — form onSubmit(Enter)과 같은 일을 하되 제출이 두 번 일어나지 않게 한다. */}
             <button type="button" data-testid="custom-course-search" onClick={runSearch} style={{ height: 30, padding: '0 10px', border: 0, borderRadius: 8, background: T.primary50, color: T.primary700, fontFamily: T.fontStack, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>검색</button>
           </form>
@@ -639,7 +676,7 @@ function ScreenCustomCourse() {
                   })}
                 </div>
               )}
-            <div data-testid="custom-course-count" style={{ fontSize: 11, color: T.text500, fontVariantNumeric: 'tabular-nums' }}>{stops.length}개 방문지 · 최소 2개 · 최대 20개</div>
+            <div data-testid="custom-course-count" style={{ fontSize: 11, color: T.text500, fontVariantNumeric: 'tabular-nums' }}>{stops.length}개 방문지 · 최소 2개</div>
           </div>
 
           <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
@@ -810,7 +847,7 @@ function ScreenNoticeHistory() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 11, color: T.text500 }}>
         <span>{notice.authorNickname}</span>
         <span style={{ color: T.line300 }}>·</span>
-        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{window.MoyeoApi.formatDateTime(notice.createdAt)}</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{window.MoyeoApi.formatNoticeTime(notice.createdAt)}</span>
         <div style={{ flex: 1 }}/>
         {isHost && (
           <React.Fragment>

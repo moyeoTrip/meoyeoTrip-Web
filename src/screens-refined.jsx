@@ -1039,8 +1039,11 @@ function ScreenCourseDetail() {
                 <div style={{ fontSize: 13, color: T.text700, lineHeight: '21px', marginTop: 14 }}>{course.description}</div>
               )}
               <div style={{ display: 'grid', gridTemplateColumns: `repeat(${stats.length}, 1fr)`, gap: 8, marginTop: 18 }}>
+                {/* `textAlign: center` 는 **텍스트만** 가운데로 보낸다 — 아이콘은 블록이라
+                    왼쪽에 남아 세 칸의 아이콘이 다 왼쪽으로 쏠려 보였다
+                    (사용자 지적, 2026-09-09). flex 로 감싸 아이콘도 가운데에 둔다. */}
                 {stats.map((s) => (
-                  <div key={s[1]} style={{ textAlign: 'center', color: T.text700 }}>
+                  <div key={s[1]} style={{ textAlign: 'center', color: T.text700, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                     <Icon name={s[0]} size={18} color={T.text500}/>
                     <div style={{ fontSize: 10, color: T.text500, marginTop: 6 }}>{s[1]}</div>
                     <div style={{ fontSize: 12, fontWeight: 900, marginTop: 3 }}>{s[2]}</div>
@@ -1880,6 +1883,11 @@ function ScreenFeed() {
     window.MoyeoApi.selectFeed(feedId);
     nav.go('feed-detail');
   };
+  // 32 신고 시트는 대상 피드를 알아야 한다 — 상세로 갈 때와 같은 방식으로 먼저 고른다.
+  const openFeedReport = (feedId) => {
+    window.MoyeoApi.selectFeed(feedId);
+    nav.go('report');
+  };
   const likeServerFeed = async (event, feedId) => {
     event.stopPropagation();
     try {
@@ -1920,6 +1928,21 @@ function ScreenFeed() {
                     <div style={{ fontSize: 10, color: T.text500, marginTop: 2 }}>{window.MoyeoApi.formatRelative(feed.createdAt)}</div>
                   </div>
                 </div>
+                {/* 32 피드 신고 시트 진입점 — 웹에는 아예 없었다(기획 28·iOS 에는 있다).
+                    **자기 피드에는 두지 않는다** — 서버가 400 `40039` 로 거절한다.
+                    카드 전체는 피드 상세로 가므로 전파를 막는다. */}
+                {feed.author?.userId != null
+                  && String(feed.author.userId) !== String(window.MoyeoApi?.myUserId?.() ?? '') && (
+                  <button
+                    type="button"
+                    aria-label="더보기"
+                    data-testid={`feed-post-${feed.feedId}-more`}
+                    onClick={(e) => { e.stopPropagation(); openFeedReport(feed.feedId); }}
+                    style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', display: 'inline-flex' }}
+                  >
+                    <Icon name="more" size={18} color={T.text500}/>
+                  </button>
+                )}
               </div>
               {feed.trip?.courseTitle && <div style={{ fontSize: 15, fontWeight: 900, marginTop: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{feed.trip.courseTitle}</div>}
               {feed.content && <div style={{ fontSize: 12, color: T.text700, marginTop: 5, lineHeight: '18px' }}>{feed.content}</div>}
@@ -1949,6 +1972,82 @@ function ScreenFeed() {
 const FEED_DETAIL_COMMENT_PREVIEW = 3;
 
 /**
+ * 23 피드 상세의 사진 영역 (기획 `FeedDetailPhotos` 정본과 같은 규칙).
+ *
+ * 예전에는 `slice(0, 2)` 로 앞 2장만 그리고 배지에 고정 `1/{총개수}` 를 얹었다 —
+ * 사진이 4장이면 2장은 볼 방법이 없는데 배지는 페이저가 있는 것처럼 말했다.
+ *
+ * 1. 전체를 좌우로 넘긴다 (스크롤 스냅).
+ * 2. 배지는 **지금 위치**를 가리킨다.
+ * 3. 누르면 전체화면으로 크게 본다.
+ */
+function FeedDetailPhotoPager({ images, height = 198 }) {
+  const [index, setIndex] = React.useState(0);
+  const [zoomed, setZoomed] = React.useState(null);
+  const trackRef = React.useRef(null);
+
+  const onScroll = () => {
+    const el = trackRef.current;
+    if (!el || !el.clientWidth) return;
+    setIndex(Math.round(el.scrollLeft / el.clientWidth));
+  };
+
+  if (!images || images.length === 0) return null;
+  const zoomedImage = zoomed == null ? null : images[zoomed];
+  return (
+    <div data-testid="feed-detail-photos" style={{ position: 'relative', marginTop: 14, borderRadius: 10, overflow: 'hidden' }}>
+      <div
+        ref={trackRef}
+        onScroll={onScroll}
+        style={{ display: 'flex', overflowX: 'auto', scrollSnapType: 'x mandatory', scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
+      >
+        {images.map((image, i) => (
+          <div
+            key={image.imageId ?? i}
+            onClick={() => setZoomed(i)}
+            style={{ flex: '0 0 100%', scrollSnapAlign: 'start', cursor: 'zoom-in' }}
+          >
+            <img
+              src={image.imageUrl}
+              alt=""
+              loading={i === 0 ? 'eager' : 'lazy'}
+              style={{ display: 'block', width: '100%', height, objectFit: 'cover', background: T.primary50 }}
+            />
+          </div>
+        ))}
+      </div>
+      {images.length > 1 && (
+        <span data-testid="feed-detail-photo-count" style={{ position: 'absolute', right: 8, top: 8, background: 'rgba(0,0,0,0.55)', color: '#fff', borderRadius: 999, padding: '4px 7px', fontSize: 10, fontWeight: 900 }}>
+          {index + 1}/{images.length}
+        </span>
+      )}
+      {zoomedImage && (
+        <div
+          role="dialog"
+          aria-label="사진 크게 보기"
+          data-testid="feed-detail-photo-viewer"
+          onClick={() => setZoomed(null)}
+          style={{ position: 'fixed', inset: 0, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out', zIndex: 60 }}
+        >
+          <img src={zoomedImage.imageUrl} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}/>
+          <button
+            type="button"
+            aria-label="닫기"
+            onClick={(e) => { e.stopPropagation(); setZoomed(null); }}
+            style={{ position: 'absolute', right: 12, top: 12, width: 36, height: 36, borderRadius: 999, border: 'none', background: 'rgba(0,0,0,0.45)', color: '#fff', fontSize: 15, fontWeight: 900, cursor: 'pointer' }}
+          >
+            ✕
+          </button>
+          {images.length > 1 && (
+            <span style={{ position: 'absolute', bottom: 24, color: '#fff', fontSize: 13, fontWeight: 900 }}>{zoomed + 1}/{images.length}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * 23 본문 — 30-2 신고 시트가 "이 화면 위에 떠 있다"고 읽히도록 배경으로도 쓴다.
  * 시트가 채팅방 신고이던 시절엔 채팅방을 깔았다 (정본 REPORT-CANON).
  * `feed` 를 못 받았으면 시트는 배경 없이 딤만 둔다 — 엉뚱한 화면을 깔지 않는다.
@@ -1957,7 +2056,19 @@ function FeedDetailBody({ feed, nav, visibilityLabel, composer = null,
                           onToggleLike = null, commentPreview = null }) {
   return (
           <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
-            <Header title="" left onBack={nav.back}/>
+            {/* 32 신고 진입점은 **헤더의 `...` 하나다** — 기획·iOS·안드로이드가 모두 그렇다
+                (안드 `feed-detail-report` = `MoreHoriz`, iOS `feed.detail.more`).
+                웹만 작성자 줄의 깃발을 쓰고 있어 표면이 갈렸다. 헤더로 맞추고 깃발은 뺀다.
+                **자기 피드에는 두지 않는다** — 서버가 400 `40039` 로 거절한다. */}
+            <Header
+              title=""
+              left
+              onBack={nav.back}
+              right={feed?.author?.userId != null
+                && String(feed.author.userId) !== String(window.MoyeoApi?.myUserId?.() ?? '')
+                ? <IconButton name="more" ariaLabel="신고" testId="feed-detail-report" onClick={() => nav.go && nav.go('report')}/>
+                : undefined}
+            />
             <div style={{ height: 'calc(100% - 98px)', overflow: 'auto', padding: '0 18px 84px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                 <div
@@ -1974,22 +2085,11 @@ function FeedDetailBody({ feed, nav, visibilityLabel, composer = null,
                     <Icon name="users" size={12} color={T.text500}/> {visibilityLabel}
                   </span>
                 )}
-                {/* 30-2 피드 신고 시트의 진입점. 서버가 접수하는 신고는 피드뿐이다 (정본 REPORT-CANON §2).
-                    **자기 피드에는 두지 않는다** — 서버가 400 `40039` 로 거절한다. */}
-                {feed.author?.userId != null && String(feed.author.userId) !== String(window.MoyeoApi?.myUserId?.() ?? '') && (
-                  <IconButton name="flag" size={17} ariaLabel="신고" testId="feed-detail-report" onClick={() => nav.go && nav.go('report')}/>
-                )}
+                {/* 신고는 헤더의 `...` 하나로 모았다 — 여기 깃발까지 두면 같은 화면에 둘이 된다. */}
               </div>
               {feed.trip?.courseTitle && <div style={{ fontSize: 15, fontWeight: 900, marginTop: 14 }}>{feed.trip.courseTitle}</div>}
               {feed.trip?.startDate && <div style={{ fontSize: 12, color: T.text500, marginTop: 5 }}>{window.MoyeoApi.formatDate(feed.trip.startDate)}{feed.trip.endDate ? ` - ${window.MoyeoApi.formatDate(feed.trip.endDate)}` : ''}</div>}
-              {feed.images?.length > 0 && (
-                <div style={{ display: 'grid', gridTemplateColumns: feed.images.length > 1 ? '1fr 1fr' : '1fr', gap: 2, marginTop: 14, borderRadius: 10, overflow: 'hidden', position: 'relative' }}>
-                  {feed.images.slice(0, 2).map((image) => (
-                    <img key={image.imageId} src={image.imageUrl} alt="" loading="lazy" style={{ display: 'block', width: '100%', height: 198, objectFit: 'cover', background: T.primary50 }}/>
-                  ))}
-                  <span style={{ position: 'absolute', right: 8, top: 8, background: 'rgba(0,0,0,0.55)', color: '#fff', borderRadius: 999, padding: '4px 7px', fontSize: 10, fontWeight: 900 }}>1/{feed.images.length}</span>
-                </div>
-              )}
+              <FeedDetailPhotoPager images={feed.images} height={198}/>
               {feed.content && <div style={{ fontSize: 13, lineHeight: '21px', marginTop: 14 }}>{feed.content}</div>}
               {feed.trip?.places?.length > 0 && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginTop: 16 }}>
@@ -2120,6 +2220,24 @@ function ScreenMyPage() {
   const profile = profileData.value || null;
   const serverRooms = roomsData.value || null;
   const dexCount = dexData.value?.totalCount ?? null;
+  // 여행 횟수·매너 점수·피드 수는 **공개 프로필**이 준다
+  // (`GET /users/{userId}/profile` → `completedTripCount` · `mannerRating` · `feedCount`).
+  // `GET /users/me/profile` 에는 이 셋이 없어서 예전에는 「서버에 없다」고 적고 줄을 숨겼는데,
+  // 그 응답에 `userId` 가 생겨 내 공개 프로필을 부를 수 있다 — 앱 둘은 이미 이 줄을 그린다
+  // (2026-09-09 실서버: `{"mannerRating":4.6,"completedTripCount":8,"feedCount":2}`).
+  const myUserId = profile?.userId ?? null;
+  const statsData = window.useTabData(
+    myUserId ? `my.public-profile.${myUserId}` : 'my.public-profile',
+    () => (myUserId ? window.MoyeoApi.publicProfile(myUserId) : Promise.resolve(null)),
+    { ...revalidate, enabled: Boolean(liveMode && myUserId), accept: (result) => Boolean(result?.userId) },
+  );
+  const stats = statsData.value || null;
+  // 서버가 주지 않은 값은 **그 칸을 만들지 않는다** — 0 으로 채우면 없는 실적을 있는 것처럼 보인다.
+  const statCells = [
+    stats?.completedTripCount != null && { label: '여행', value: `${stats.completedTripCount}` },
+    stats?.mannerRating != null && { label: '매너', value: stats.mannerRating.toFixed(1) },
+    stats?.feedCount != null && { label: '피드', value: `${stats.feedCount}` },
+  ].filter(Boolean);
   // 세그먼트는 "내 여행"의 진행중·지난여행이다. 찜은 여행이 아니라 별도 목록이라
   // 여기 섞지 않고 아래 메뉴의 26-1 찜한 모집으로 뺐다.
   const mySegments = ['진행중', '지난여행'];
@@ -2172,19 +2290,17 @@ function ScreenMyPage() {
       </div>
     </div>
   );
+  // 네 표면이 **같은 다섯 줄·같은 순서**를 쓴다 (26, 사용자 지적 2026-09-09).
+  // 「찜한 모집」은 위 「내 여행」 탭에 이미 있어서 메뉴에서 뺐다 — 한 화면에 두 번 두지 않는다.
   const menuRows = [
     { icon: 'feed', title: '내 피드', subtitle: '내가 기록한 경북 여행', route: 'feed' },
-    // 26-1 찜한 모집 — 하트는 10 탐색·15 모집 상세에서 눌리는데 모아 보는 곳이 없었다
-    // (ATTACH-COMPOSER-CANON §6-2). 찜한 **코스**와는 다른 목록이다.
-    { icon: 'heart', title: '찜한 모집', subtitle: '하트를 누른 모임 모아보기', route: 'favorite-rooms' },
     { icon: 'users', title: '친구 도감', subtitle: `${dexCount ?? 0}마리 · 최근 동행 순`, route: 'dex' },
-    // 25 가 프로필 카드로 바뀌면서 그 안에 있던 '친구 관리'를 여기로 옮겼다.
-    // 옮기지 않으면 27-2 가 어디서도 열리지 않는다.
-    // '내 정보 수정'은 위 프로필 요약을 눌러서, '차단한 사용자'는 설정에서 들어간다(앱과 동일).
-    { icon: 'users', title: '친구 관리', subtitle: '내 친구와 받은/보낸 신청', route: 'friends' },
-    // `route` 가 없어 **눌러도 아무 일이 없던 행**이었다(다른 항목은 모두 route 를 갖는다).
+    // 25 가 프로필 카드로 바뀌면서 그 안에 있던 관리 진입점을 여기로 옮겼다.
+    // 옮기지 않으면 28 프로필 수정·27-2 친구 관리가 어디서도 열리지 않는다.
+    { icon: 'feed', title: '내 정보 수정', subtitle: '프로필과 여행 취향을 관리해요', route: 'profile-edit' },
+    { icon: 'users', title: '친구 관리', subtitle: '친구 신청과 수락을 관리해요', route: 'friends' },
     // 웹에는 고객센터 화면이 없고 문의 창구는 29 설정 안에 있다 — 거기로 보낸다.
-    // 부제도 사실대로 바꿨다: 신고 내역 화면은 없다(정본 REPORT-CANON §1).
+    // 신고 내역 화면은 없다(정본 REPORT-CANON §1).
     { icon: 'chat', title: '고객센터', subtitle: 'GitHub 이슈 · 이메일로 문의해요', route: 'settings' },
   ];
   return (
@@ -2211,10 +2327,28 @@ function ScreenMyPage() {
               {profile?.introduction && (
                 <span style={{ display: 'block', marginTop: 4, fontSize: 12.5, lineHeight: '18px', color: T.text500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.introduction}</span>
               )}
-              {/* 여행 횟수·매너 점수는 서버 프로필 응답에 없다 — 값을 지어내지 않고 숨긴다(§4) */}
             </span>
             <Icon name="arrow" size={17} color={T.text400}/>
           </button>
+
+          {/* 여행 · 매너 · 피드 — 기획·iOS·안드로이드와 같은 세 칸이다.
+              서버가 주지 않은 칸은 그리지 않는다(값을 0 으로 지어내지 않는다). */}
+          {statCells.length > 0 && (
+            <div data-testid="my-profile-stats" style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              {statCells.map((cell) => (
+                <div
+                  key={cell.label}
+                  style={{
+                    flex: 1, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card,
+                    padding: '10px 0', textAlign: 'center',
+                  }}
+                >
+                  <div style={{ fontSize: 17, lineHeight: '22px', fontWeight: 900, color: T.primary600, fontVariantNumeric: 'tabular-nums' }}>{cell.value}</div>
+                  <div style={{ fontSize: 11, lineHeight: '16px', color: T.text500, marginTop: 2 }}>{cell.label}</div>
+                </div>
+              ))}
+            </div>
+          )}
 
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, marginBottom: 10 }}>
