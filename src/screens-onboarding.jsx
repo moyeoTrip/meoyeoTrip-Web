@@ -203,12 +203,9 @@ const NICKNAME_COLORS = {
   PURPLE: { hex: '#8A63B8', label: '보라' }, PINK: { hex: '#D96F98', label: '분홍' },
   SKY_BLUE: { hex: '#58A9D6', label: '하늘' }, MINT: { hex: '#55B99A', label: '민트' },
 };
-const ANIMAL_EMOJIS = {
-  사슴: '🦌', 거북이: '🐢', 토끼: '🐰', 여우: '🦊', 수달: '🦦', 다람쥐: '🐿️',
-  고양이: '🐱', 강아지: '🐶', 판다: '🐼', 펭귄: '🐧', 돌고래: '🐬', 부엉이: '🦉',
-  참새: '🐦', 알파카: '🦙', 코알라: '🐨', 두루미: '🪽', 해달: '🦦',
-  고슴도치: '🦔', 너구리: '🦝', 기린: '🦒',
-};
+// 닉네임 → 동물 이모지 표는 `MoyeoApi.mascotEmojiForAnimal` 하나만 쓴다 (NO-MOCK-CANON R5).
+// 여기에 있던 사본에는 `곰` 이 빠져 있어, 서버가 「곰」 닉네임을 후보로 주면
+// 07 닉네임 고르기에서만 발자국(`🐾`)이 떴다.
 
 // 서버가 후보를 문자열 배열로 주는 경우의 정규화 (객체 형태면 그대로 쓴다).
 function nicknameCandidateFromString(nickname, index = 0) {
@@ -268,7 +265,10 @@ function ScreenProfileNickname() {
   const [refreshError, setRefreshError] = React.useState(false);
 
   React.useEffect(() => {
-    if (window.__moyeoNicknameSelectionToken) return undefined;
+    // **토큰이 있다고 건너뛰지 않는다.** 후보는 컴포넌트 상태라 뒤로 돌아와 다시 그려지면
+    // 비어 있는데, 전역 토큰은 남아 있다 — 그래서 예전에는 빈 화면에서 「재추천」을 눌러야만
+    // 다음으로 갈 수 있었다 (2026-09-10). 이미 화면에 후보가 있을 때만 건너뛴다.
+    if (candidates.length > 0) return undefined;
     let cancelled = false;
     const loadInitialCandidates = async () => {
       setIsRefreshing(true);
@@ -285,7 +285,8 @@ function ScreenProfileNickname() {
     };
     loadInitialCandidates();
     return () => { cancelled = true; };
-  }, []);
+    // 후보가 비어 있는 동안에만 다시 부른다 — 받은 뒤에는 이 효과가 다시 돌지 않는다.
+  }, [candidates.length]);
 
   const refreshCandidates = async () => {
     if (isRefreshing) return;
@@ -337,7 +338,9 @@ function ScreenProfileNickname() {
             const parts = nicknameParts(candidate.nickname);
             const selected = selectedNickname === candidate.nickname;
             const color = NICKNAME_COLORS[candidate.color] || NICKNAME_COLORS.MINT;
-            const animalEmoji = ANIMAL_EMOJIS[candidate.animal] || '🐾';
+            const animalEmoji = window.MoyeoApi?.mascotEmojiForAnimal?.(
+              candidate.animal || window.MoyeoApi?.animalFromNickname?.(candidate.nickname)
+            ) || '🐾';
             return (
               <button
                 type="button"
@@ -492,7 +495,7 @@ function ScreenProfileCharacter() {
       setSelectedId(response.candidate.profileImageId);
       setRemaining(response.remainingGenerationCount);
     } catch (requestError) {
-      setError(requestError?.message || '프로필 이미지를 만들지 못했어요. 다시 시도해주세요.');
+      setError(window.userFacingError(requestError, '프로필 이미지를 만들지 못했어요. 다시 시도해주세요.'));
     } finally {
       setIsGenerating(false);
       setLoading(false);
@@ -524,7 +527,7 @@ function ScreenProfileCharacter() {
         const selected = response.candidates?.find((candidate) => candidate.selected);
         if (selected) setSelectedId(selected.profileImageId);
       } catch (requestError) {
-        if (!cancelled) setError(requestError?.message || '프로필 이미지 후보를 불러오지 못했어요.');
+        if (!cancelled) setError(window.userFacingError(requestError, '프로필 이미지 후보를 불러오지 못했어요.'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -541,7 +544,7 @@ function ScreenProfileCharacter() {
       const response = await window.MoyeoAuth.selectProfileImage(selectedId);
       if (response.signupState === 'SIGNUP_COMPLETE') nav.go('home', { replace: true });
     } catch (requestError) {
-      setError(requestError?.message || '프로필 이미지를 선택하지 못했어요. 다시 시도해주세요.');
+      setError(window.userFacingError(requestError, '프로필 이미지를 선택하지 못했어요. 다시 시도해주세요.'));
     } finally {
       setLoading(false);
     }

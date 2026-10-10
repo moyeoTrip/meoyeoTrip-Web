@@ -31,6 +31,8 @@ function GapConfirmSheet({
   under, title, desc, lines, cancel = '돌아가기', confirm, danger,
   busy, error, disabled, onCancel, onConfirm, testId,
 }) {
+  // 시트 접근성은 공용 훅 한 곳에서 본다 (QA ENV-007 · shared.jsx `useSheetA11y`).
+  const sheet = window.useSheetA11y({ label: typeof title === 'string' ? title : '확인', onClose: onCancel });
   return (
     <Phone>
       <div data-testid={testId} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
@@ -40,7 +42,7 @@ function GapConfirmSheet({
             `position: absolute; bottom: 0` 으로 그린다 — 그 화면이 스택 문맥을 만들면
             탭바가 시트 위로 올라와 **버튼이 가려졌다** (19-2 웹 · 사용자 지적 2026-09-09). */}
         <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay, zIndex: 2 }}/>
-        <div style={{
+        <div {...sheet.rootProps} style={{
           position: 'absolute', left: 0, right: 0, bottom: 0, background: T.bgRaised,
           borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3, zIndex: 3,
         }}>
@@ -119,7 +121,18 @@ function GapFrame({ title, hint, cta, disabled, busy, busyLabel = '저장하는 
 }
 
 // 로그인·대상이 없으면 화면을 그리지 않는다 (§2 정본 문구를 글자 그대로).
-function GapNotice({ title, status, emptyText, onBack, onRetry, testId }) {
+// 서버 한도 그대로다 (`CreateChatRoomNoticeRequest`·`UpdateChatRoomNoticeRequest` `@Size(max = 1000)`).
+const NOTICE_MAX_LENGTH = 1000;
+// 집합 안내 문구. 서버 한도 그대로다 (`UpdateMeetingInfoRequest` `@Size(max = 500)`).
+const MEETING_DETAILS_MAX_LENGTH = 500;
+
+// `error` 는 **실패 객체**다(문구가 아니다). 화면 문장은 클라이언트가 status·code 로 고른다
+// (2026-09-15 결정 ⑩ — 서버 errorMessage 를 그대로 올리지 않는다).
+// 예전에는 어떤 실패든 「불러오지 못했어요. 다시 시도」 한 문구였다. 403 은 다시 시도해도
+// 달라지지 않는데 사용자는 그 버튼을 계속 눌렀다 (QA OFF-020).
+function GapNotice({ title, status, emptyText, onBack, onRetry, testId, error = null }) {
+  const failureText = window.screenErrorText(error, '불러오지 못했어요.');
+  const canRetry = Boolean(onRetry) && window.errorAllowsRetry(error);
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
@@ -132,8 +145,8 @@ function GapNotice({ title, status, emptyText, onBack, onRetry, testId }) {
           {status === 'empty' && emptyText}
           {status === 'error' && (
             <>
-              불러오지 못했어요.{' '}
-              {onRetry && (
+              {failureText}{' '}
+              {canRetry && (
                 <button type="button" onClick={onRetry} style={{ padding: 0, border: 0, background: 'transparent', color: T.primary600, fontFamily: T.fontStack, fontSize: 13, fontWeight: 900, textDecoration: 'underline', cursor: 'pointer' }}>다시 시도</button>
               )}
             </>
@@ -207,6 +220,12 @@ function GapToggleRow({ label, desc, on, onToggle, testId }) {
 // 08-A 이메일 로그인의 `비밀번호를 잊으셨나요?` 에서 온다. 그 버튼은 지금까지 같은 화면에서
 // 조용히 메일만 보내고 끝났다 — 무엇이 일어났는지, 안 오면 어떻게 하는지 알 길이 없었다.
 // 근거: Firebase sendPasswordResetEmail (MoyeoAuth.resetEmailPassword)
+//
+// 재전송 쿨다운. **세 플랫폼이 같은 값**이다 (2026-09-15 결정 ⑭) —
+// 안드 `AuthFlowScreen.kt PASSWORD_RESET_COOLDOWN_SECONDS = 30`,
+// iOS `AuthPasswordResetThrottle.cooldown = 30`.
+const PASSWORD_RESET_COOLDOWN_SECONDS = 30;
+
 function ScreenPasswordReset() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   // 08-A 에서 이미 입력한 이메일을 그대로 이어받는다 — 두 번 치게 하지 않는다.
@@ -217,6 +236,16 @@ function ScreenPasswordReset() {
   const [error, setError] = React.useState('');
   const valid = /^\S+@\S+\.\S+$/.test(email);
 
+  const [resent, setResent] = React.useState(false);
+  // 2026-09-15 결정 ⑭ — 웹만 재전송 쿨다운이 아예 없어 같은 메일을 몇 통이고 연달아 보낼 수 있었다.
+  // 값은 다른 두 플랫폼과 같은 30초다 (안드 `PASSWORD_RESET_COOLDOWN_SECONDS` · iOS `AuthPasswordResetThrottle.cooldown`).
+  const [cooldown, setCooldown] = React.useState(0);
+  React.useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const timer = window.setTimeout(() => setCooldown((left) => Math.max(0, left - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [cooldown]);
+
   const send = async () => {
     if (!valid || busy) return;
     setBusy(true);
@@ -225,8 +254,24 @@ function ScreenPasswordReset() {
       await window.MoyeoAuth.resetEmailPassword(email);
       setSentTo(email);
       setSent(true);
+      setCooldown(PASSWORD_RESET_COOLDOWN_SECONDS);
     } catch (sendError) {
-      setError(sendError?.message || '재설정 메일을 보내지 못했어요.');
+      setError(window.userFacingError(sendError, '재설정 메일을 보내지 못했어요.'));
+    }
+    setBusy(false);
+  };
+  // 보낸 주소 그대로 다시 보낸다 — 입력 화면으로 되돌리지 않는다.
+  const resend = async () => {
+    if (busy || !sentTo || cooldown > 0) return;
+    setBusy(true);
+    setError('');
+    setResent(false);
+    try {
+      await window.MoyeoAuth.resetEmailPassword(sentTo);
+      setResent(true);
+      setCooldown(PASSWORD_RESET_COOLDOWN_SECONDS);
+    } catch (sendError) {
+      setError(window.userFacingError(sendError, '재설정 메일을 보내지 못했어요.'));
     }
     setBusy(false);
   };
@@ -281,11 +326,26 @@ function ScreenPasswordReset() {
                 '링크는 1시간 동안만 쓸 수 있어요.',
                 '메일이 안 보이면 스팸함도 확인해 주세요.',
               ]}/>
-              <button type="button" onClick={() => { setSent(false); setError(''); }} style={{
-                marginTop: 14, border: 0, background: 'transparent', padding: 0, cursor: 'pointer',
-                color: T.primary600, fontSize: 13, fontWeight: 800, fontFamily: T.fontStack,
+              {/* 「다시 보내기」가 **아무것도 보내지 않고** 입력 화면으로 되돌리기만 했다 (W-41).
+                  같은 주소로 실제로 다시 보내고, 보냈다는 사실을 같은 자리에 알린다. */}
+              {/* 쿨다운 중에도 **「다시 보내기」라는 이름을 남긴다** — 문구를 통째로 「N초 후에…」로
+                  바꾸면 그 버튼이 무슨 버튼인지 사라진다 (결정 ⑭). 쿨다운은 이 한 자리에서만 말한다. */}
+              <button type="button" data-testid="password-reset-resend" disabled={busy || cooldown > 0} onClick={resend} style={{
+                marginTop: 14, border: 0, background: 'transparent', padding: 0, cursor: (busy || cooldown > 0) ? 'default' : 'pointer',
+                color: (busy || cooldown > 0) ? T.text400 : T.primary600, fontSize: 13, fontWeight: 800, fontFamily: T.fontStack,
               }}>
-                다시 보내기
+                {busy ? '보내는 중...' : (cooldown > 0 ? `다시 보내기 (${cooldown}초 후 가능)` : '다시 보내기')}
+              </button>
+              {/* 첫 발송은 제목이 이미 「메일을 보냈어요」라고 말한다 — 두 번째부터만 알린다.
+                  발송 회차는 말하지 않는다 (결정 ⑭). */}
+              {resent && !busy && !error && (
+                <div role="status" data-testid="password-reset-resent" style={{ marginTop: 8, fontSize: 11.5, color: T.text500 }}>방금 다시 보냈어요. 메일함을 확인해 주세요.</div>
+              )}
+              <button type="button" data-testid="password-reset-change-email" onClick={() => { setSent(false); setResent(false); setError(''); }} style={{
+                display: 'block', marginTop: 10, border: 0, background: 'transparent', padding: 0, cursor: 'pointer',
+                color: T.text500, fontSize: 12.5, fontWeight: 700, fontFamily: T.fontStack, textDecoration: 'underline',
+              }}>
+                다른 주소로 받기
               </button>
             </React.Fragment>
           )}
@@ -319,6 +379,8 @@ function ScreenCourseRating() {
   // 「2026.08.28 다녀옴」 — 예전에는 웹만 날짜가 빠져 있었다 (27-4, 2026-09-09).
   const [visitedDate, setVisitedDate] = React.useState(null);
   const [status, setStatus] = React.useState(liveMode ? 'loading' : 'idle');
+  // 403 을 「불러오지 못했어요」로 뭉개면 사용자가 계속 다시 시도한다 (QA OFF-020).
+  const [failure, setFailure] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [reloadKey, setReloadKey] = React.useState(0);
@@ -326,18 +388,31 @@ function ScreenCourseRating() {
   // 서버는 "확정된 여행이 끝난 방의 참가자"만 평가하게 한다. 마지막으로 고른 방이 모집 중이거나
   // 불발(CANCELLED)이면 그대로 400 이 난다 — 27-1 과 같은 판정을 쓴다 (MoyeoApi.completedTripRoomId).
   const [roomId, setRoomId] = React.useState(null);
+  // 이미 남긴 내 별점. 서버 여행 요약의 `myCourseRating` 이다 (2026-09-14 추가).
+  // 없으면 null — 「평가 전」과 「서버가 아직 이 필드를 안 준다」를 같게 다룬다.
+  const [savedScore, setSavedScore] = React.useState(null);
   React.useEffect(() => {
     if (!liveMode) { setRoomId(null); return undefined; }
     let active = true;
-    window.MoyeoApi.completedTripRoomId()
-      .then((resolved) => {
+    setStatus('loading');
+    window.MoyeoApi.completedTripRoom()
+      .then((room) => {
         if (!active) return;
+        const resolved = room ? String(room.roomId) : null;
         setRoomId(resolved);
-        if (!resolved) setStatus('error'); // 다녀온 여행이 없으면 평가할 것이 없다
+        // 재진입하면 **내가 준 별을 다시 그린다.** 비워 두면 평가가 안 된 줄 알고 다시 매기고,
+        // 서버는 갱신이라 조용히 덮인다 (QA AFTER-016).
+        const mine = room ? window.MoyeoApi.myCourseRating(room) : null;
+        setSavedScore(mine);
+        if (mine) setScore(mine);
+        // 다녀온 여행이 **없을 뿐인 것**을 조회 실패라고 말하지 않는다 (W-65).
+        if (!resolved) setStatus('empty');
       })
-      .catch(() => { if (active) setStatus('error'); });
+      .catch((loadError) => { if (active) { setFailure(loadError); setStatus('error'); } });
     return () => { active = false; };
-  }, [liveMode]);
+    // 「다시 시도」가 이 조회부터 다시 돌아야 한다 — 예전에는 reloadKey 가 아래 effect 에만
+    // 걸려 있었고 그 effect 는 `if (!ready) return` 으로 막혀 **아무 요청도 나가지 않았다**.
+  }, [liveMode, reloadKey]);
   const ready = Boolean(liveMode && roomId);
 
   React.useEffect(() => {
@@ -368,12 +443,13 @@ function ScreenCourseRating() {
       await window.MoyeoApi.rateRoomCourse(roomId, score);
       nav.back();
     } catch (submitError) {
-      setError(submitError?.message || '평가를 남기지 못했어요.');
+      setError(window.userFacingError(submitError, '평가를 남기지 못했어요.'));
       setBusy(false);
     }
   };
 
-  if (status === 'error') return <GapNotice title="코스 평가" status="error" onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="course-rating-state"/>;
+  if (status === 'error') return <GapNotice title="코스 평가" status="error" error={failure} onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="course-rating-state"/>;
+  if (status === 'empty') return <GapNotice title="코스 평가" status="empty" emptyText="다녀온 여행이 아직 없어요. 여행을 마치면 코스를 평가할 수 있어요." onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="course-rating-state"/>;
   if (!ready) return <GapNotice title="코스 평가" status={liveMode ? 'loading' : 'signed-out'} onBack={nav.back} testId="course-rating-state"/>;
   if (status === 'loading') return <GapNotice title="코스 평가" status="loading" onBack={nav.back} testId="course-rating-state"/>;
 
@@ -383,7 +459,7 @@ function ScreenCourseRating() {
     <GapFrame
       testId="course-rating"
       title="코스 평가"
-      cta={score === 0 ? '별점을 골라주세요' : '평가 남기기'}
+      cta={score === 0 ? '별점을 골라주세요' : (savedScore ? '평가 수정하기' : '평가 남기기')}
       disabled={score === 0}
       busy={busy}
       busyLabel="보내는 중..."
@@ -397,6 +473,15 @@ function ScreenCourseRating() {
       <div style={{ fontSize: 12.5, color: T.text500, marginTop: 8, lineHeight: '19px' }}>
         남겨주신 점수는 이 코스의 평균 별점에 반영돼요.
       </div>
+      {/* 이미 평가한 사실을 말해 준다 — 별만 다시 채워 두면 "왜 채워져 있지" 가 된다. */}
+      {savedScore ? (
+        <div role="status" data-testid="course-rating-saved" style={{
+          marginTop: 12, padding: '10px 12px', borderRadius: 12,
+          background: T.primary50, color: T.primary700, fontSize: 12, fontWeight: 800, lineHeight: '18px',
+        }}>
+          이미 별 {savedScore}개를 남기셨어요. 다시 고르면 점수가 바뀌어요.
+        </div>
+      ) : null}
 
       {/* 무엇을 평가하는지 — 코스를 먼저 보여준다. 서버가 코스를 안 주면 카드를 그리지 않는다. */}
       {course && (
@@ -450,6 +535,8 @@ function ScreenTripStatus() {
   const { liveMode, roomId, ready } = useGapRoom();
   const [room, setRoom] = React.useState(null);
   const [status, setStatus] = React.useState(ready ? 'loading' : 'idle');
+  // 403 을 「불러오지 못했어요」로 뭉개면 사용자가 계속 다시 시도한다 (QA OFF-020).
+  const [failure, setFailure] = React.useState(null);
   const [pick, setPick] = React.useState('CONFIRMED');
   const [confirming, setConfirming] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -467,7 +554,7 @@ function ScreenTripStatus() {
         setRoom(result);
         setStatus('ready');
       })
-      .catch(() => { if (active) setStatus('error'); });
+      .catch((loadError) => { if (active) { setFailure(loadError); setStatus('error'); } });
     return () => { active = false; };
   }, [ready, roomId, reloadKey]);
 
@@ -482,14 +569,57 @@ function ScreenTripStatus() {
       setConfirming(false);
       nav.go(next === 'CONFIRMED' ? 'trip-confirmed' : 'chat-list');
     } catch (applyError) {
-      setError(applyError?.message || (next === 'CONFIRMED' ? '여행을 확정하지 못했어요.' : '불발 처리를 하지 못했어요.'));
+      // BE-31: 확정에도 최소 출발 인원을 지킨다(409 `40924`). 버튼은 인원이 모자라면 잠겨 있지만,
+      // 화면을 열어 둔 사이 동행자가 나가면 여기로 온다 — 코드로 갈라 사람 말로 내린다(결정 ⑩).
+      if (window.isTripConfirmShortError(applyError)) {
+        setError(window.moyeoTripConfirmShortMessage(room?.minimumParticipants));
+        setBusy(false);
+        return;
+      }
+      // 나머지 갈래(이미 확정된 방의 409 「변경할 수 없는 여행 상태입니다.」 등)는 **그대로 둔다** —
+      // 결정 ⑩ 은 소급 적용하지 않는다(QA HOST-014 의 근거가 그 문구다).
+      setError(window.userFacingError(applyError, next === 'CONFIRMED' ? '여행을 확정하지 못했어요.' : '불발 처리를 하지 못했어요.'));
       setBusy(false);
     }
   };
 
   if (!ready) return <GapNotice title="여행 확정하기" status={liveMode ? 'loading' : 'signed-out'} onBack={nav.back} testId="trip-status-state"/>;
   if (status !== 'ready') {
-    return <GapNotice title="여행 확정하기" status={status === 'error' ? 'error' : 'loading'} onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="trip-status-state"/>;
+    return <GapNotice title="여행 확정하기" status={status === 'error' ? 'error' : 'loading'} error={failure} onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="trip-status-state"/>;
+  }
+
+  // 이미 확정·불발된 방은 **고를 것이 없다.** 예전에는 확정 뒤에도 확정 전과 똑같은 화면이 열려
+  // 다시 확정을 누를 수 있었고, 서버 409(「변경할 수 없는 여행 상태입니다.」)로만 막혔다(W-137).
+  // 서버 `ChatRoomStatus` 는 RECRUITING · CONFIRMED · CANCELLED 세 가지다.
+  if (room.status && room.status !== 'RECRUITING') {
+    const done = room.status === 'CONFIRMED';
+    return (
+      <Phone>
+        <div data-testid="trip-status-locked" style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+          <Header title="여행 확정하기" left center onBack={nav.back}/>
+          <div style={{ position: 'absolute', top: 92, left: 0, right: 0, bottom: 0, overflow: 'auto', padding: 20 }}>
+            <div style={{ borderRadius: 14, padding: 16, background: RF.card, border: `1px solid ${RF.softLine}`, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Icon name={done ? 'check' : 'close'} size={20} color={done ? T.primary600 : T.danger}/>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 900 }}>{done ? '이미 확정한 여행이에요' : '불발 처리한 모임이에요'}</div>
+                <div style={{ fontSize: 11, color: T.text500, marginTop: 3 }}>{room.title}</div>
+              </div>
+            </div>
+            <GapNoteBox lines={done
+              ? [
+                `승인된 동행자 ${room.participantCount ?? 0}명으로 확정됐어요. 확정은 되돌릴 수 없어요.`,
+                '더 받고 싶어도 이 모임에는 신청을 다시 열 수 없어요.',
+                '집합 장소·시간은 모집 관리에서 아직 고칠 수 있어요.',
+              ]
+              : [
+                '이 모임은 불발 처리돼 채팅방이 닫혔어요. 되돌릴 수 없어요.',
+                '같은 코스로 새 모집을 열 수는 있어요.',
+                '채팅방은 14일 동안 읽기 전용으로 남았다가 사라져요.',
+              ]}/>
+          </div>
+        </div>
+      </Phone>
+    );
   }
 
   const approved = room.participantCount ?? 0;
@@ -502,10 +632,13 @@ function ScreenTripStatus() {
     '대기 중인 신청자에게는 마감 알림이 가요.',
     '여행 날이 되면 채팅방에 진행 위젯이 열려요.',
   ];
+  // 서버는 불발 시 채팅을 **닫기만** 한다(`ChatRoom.cancel()` — `chatClosedDateTime=now`,
+  // `deletionScheduledDate=+14일`). 쓰기만 막히고 읽기는 되며, 14일 뒤에 방과 메시지가 지워진다.
+  // 예전 문구 「이미 나눈 대화는 사라져요」는 **지금 사라지는 것처럼** 읽혀 틀렸다 (2026-09-13).
   const CANCEL_LINES = [
-    '불발 처리하면 채팅방이 닫혀요. 되돌릴 수 없어요.',
+    '불발 처리하면 채팅방이 닫혀 더는 글을 쓸 수 없어요. 되돌릴 수 없어요.',
     '같은 코스로 다시 모집을 열 수는 있어요.',
-    '이미 나눈 대화는 사라져요.',
+    '채팅방은 14일 동안 읽기 전용으로 남았다가 사라져요.',
   ];
 
   // 확정도 불발도 되돌릴 수 없다 — 두 갈래 모두 확인 단계를 거친다.
@@ -624,6 +757,8 @@ function ScreenMeetingEdit() {
   const { liveMode, roomId, ready } = useGapRoom();
   const [room, setRoom] = React.useState(null);
   const [status, setStatus] = React.useState(ready ? 'loading' : 'idle');
+  // 403 을 「불러오지 못했어요」로 뭉개면 사용자가 계속 다시 시도한다 (QA OFF-020).
+  const [failure, setFailure] = React.useState(null);
   const [details, setDetails] = React.useState('');
   const [date, setDate] = React.useState('');
   const [time, setTime] = React.useState('');
@@ -646,7 +781,7 @@ function ScreenMeetingEdit() {
         setTime(window.MoyeoApi.formatTime(timePart) || '');
         setStatus('ready');
       })
-      .catch(() => { if (active) setStatus('error'); });
+      .catch((loadError) => { if (active) { setFailure(loadError); setStatus('error'); } });
     return () => { active = false; };
   }, [ready, roomId, reloadKey]);
 
@@ -664,14 +799,14 @@ function ScreenMeetingEdit() {
       window.MoyeoTabCache?.invalidate?.(window.MoyeoTabCache.ROOM_LIST_KEYS);
       nav.back();
     } catch (saveError) {
-      setError(saveError?.message || '집합 정보를 저장하지 못했어요.');
+      setError(window.userFacingError(saveError, '집합 정보를 저장하지 못했어요.'));
       setBusy(false);
     }
   };
 
   if (!ready) return <GapNotice title="집합 정보 수정" status={liveMode ? 'loading' : 'signed-out'} onBack={nav.back} testId="meeting-edit-state"/>;
   if (status !== 'ready') {
-    return <GapNotice title="집합 정보 수정" status={status === 'error' ? 'error' : 'loading'} onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="meeting-edit-state"/>;
+    return <GapNotice title="집합 정보 수정" status={status === 'error' ? 'error' : 'loading'} error={failure} onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="meeting-edit-state"/>;
   }
 
   const hasCoord = room.meetingLatitude != null && room.meetingLongitude != null
@@ -680,12 +815,16 @@ function ScreenMeetingEdit() {
     window.MoyeoApi.selectMeetingEditRoom(roomId);
     nav.go('create-meet');
   };
+  // 웹만 200 자로 막고 있었다 — 서버는 500 이다(`UpdateMeetingInfoRequest` `@Size(max = 500)`).
+  // 좁게 잡은 것도 문제지만, `maxLength` 라 **붙여넣기가 말없이 잘렸다**.
+  const detailsOver = details.length > MEETING_DETAILS_MAX_LENGTH;
 
   return (
     <GapFrame
       testId="meeting-edit"
       title="집합 정보 수정"
       cta="집합 정보 저장"
+      disabled={detailsOver}
       busy={busy}
       error={error}
       onBack={nav.back}
@@ -708,8 +847,12 @@ function ScreenMeetingEdit() {
         ...GAP_INPUT_STYLE, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', textAlign: 'left',
       }}>
         <Icon name="pin" size={15} color={T.text500}/>
-        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-          {hasCoord ? `${room.meetingLatitude.toFixed(5)}, ${room.meetingLongitude.toFixed(5)}` : '지도에서 집합 위치를 정해주세요'}
+        {/* **좌표 원문은 적지 않는다**(REQ-001) — 「36.40000, 128.90000」은 사용자에게 아무 뜻이
+            없고, 어디로 모이는지도 알려주지 않는다. 서버가 주는 장소 이름은 `meetingDetails`
+            하나뿐이고 그 값은 아래 「안내 문구」 칸이 이미 보여 준다 — 그래서 여기서는 핀이
+            찍혀 있다는 사실만 말하고, 실제 위치는 바로 위 지도가 보여 준다. */}
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {hasCoord ? '지도에서 고른 위치' : '지도에서 집합 위치를 정해주세요'}
         </span>
         <Icon name="arrow" size={14} color={T.text400}/>
       </button>
@@ -720,11 +863,11 @@ function ScreenMeetingEdit() {
         data-testid="meeting-edit-details"
         aria-label="안내 문구"
         value={details}
-        maxLength={200}
         onChange={(event) => setDetails(event.target.value)}
         placeholder="시외버스터미널 정문 앞"
-        style={GAP_INPUT_STYLE}
+        style={{ ...GAP_INPUT_STYLE, border: `1px solid ${detailsOver ? T.danger : T.line200}` }}
       />
+      {detailsOver && <div role="status" data-testid="meeting-edit-details-over" style={{ marginTop: 6, textAlign: 'right', fontSize: 11, color: T.danger, fontVariantNumeric: 'tabular-nums' }}>{details.length}/{MEETING_DETAILS_MAX_LENGTH} · {details.length - MEETING_DETAILS_MAX_LENGTH}자 넘었어요</div>}
 
       <GapFieldLabel required>집합 일시</GapFieldLabel>
       <div style={{ display: 'flex', gap: 8 }}>
@@ -767,9 +910,15 @@ function ScreenRoomNotification() {
   const [room, setRoom] = React.useState(null);
   const [on, setOn] = React.useState(null);
   const [status, setStatus] = React.useState(ready ? 'loading' : 'idle');
+  // 403 을 「불러오지 못했어요」로 뭉개면 사용자가 계속 다시 시도한다 (QA OFF-020).
+  const [failure, setFailure] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [reloadKey, setReloadKey] = React.useState(0);
+  // 서버 토글이 켜져 있어도 브라우저가 알림을 막고 있으면 알림은 오지 않는다.
+  // 그 사실을 말하지 않으면 이 토글은 **아무 일도 하지 않는 스위치**가 된다
+  // (OS-NOTIFICATION-BLOCK-CANON · QA NOTIF-016). 29-2 앱 전체 설정과 같은 문장을 쓴다.
+  const { osBlocked, osBlockedText } = window.useMoyeoPushBlock();
 
   React.useEffect(() => {
     if (!ready) return undefined;
@@ -786,7 +935,7 @@ function ScreenRoomNotification() {
         setRoom(detail?.roomId != null ? detail : null);
         setStatus('ready');
       })
-      .catch(() => { if (active) setStatus('error'); });
+      .catch((loadError) => { if (active) { setFailure(loadError); setStatus('error'); } });
     return () => { active = false; };
   }, [ready, roomId, reloadKey]);
 
@@ -801,14 +950,14 @@ function ScreenRoomNotification() {
       if (typeof result?.enabled === 'boolean') setOn(result.enabled);
     } catch (toggleError) {
       setOn(!next); // 저장 실패 시 이전 상태로 되돌린다 — 껐다고 거짓말하지 않는다
-      setError(toggleError?.message || '알림 설정을 저장하지 못했어요.');
+      setError(window.userFacingError(toggleError, '알림 설정을 저장하지 못했어요.'));
     }
     setBusy(false);
   };
 
   if (!ready) return <GapNotice title="이 모임 알림" status={liveMode ? 'loading' : 'signed-out'} onBack={nav.back} testId="room-notif-state"/>;
   if (status !== 'ready') {
-    return <GapNotice title="이 모임 알림" status={status === 'error' ? 'error' : 'loading'} onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="room-notif-state"/>;
+    return <GapNotice title="이 모임 알림" status={status === 'error' ? 'error' : 'loading'} error={failure} onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="room-notif-state"/>;
   }
 
   return (
@@ -821,7 +970,21 @@ function ScreenRoomNotification() {
             <div style={{ padding: 14, borderRadius: 14, background: RF.card, border: `1px solid ${RF.softLine}` }}>
               <div style={{ fontSize: 13.5, fontWeight: 900 }}>{room.title}</div>
               <div style={{ fontSize: 11, color: T.text500, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
-                동행자 {room.participantCount}명 · {window.MoyeoApi.formatDate(room.startDate)} 출발
+                {[
+                  room.participantCount != null ? `동행자 ${room.participantCount}명` : null,
+                  window.MoyeoApi.formatDate(room.startDate) ? `${window.MoyeoApi.formatDate(room.startDate)} 출발` : null,
+                ].filter(Boolean).join(' · ')}
+              </div>
+            </div>
+          )}
+
+          {/* 정본대로 **토글 위**에, **막고 있을 때만** 그린다. 항상 떠 있으면 경고가 아니라 배경이 된다.
+              웹은 OS 설정을 열 수 없으므로 여는 버튼을 두지 않고 어디서 바꾸는지 문장으로만 안내한다. */}
+          {osBlocked && (
+            <div role="status" data-testid="room-notif-os-blocked" style={{ marginTop: 8, padding: '12px 14px', borderRadius: 12, background: T.warningBg, border: `1px solid ${T.warningText}22` }}>
+              <div style={{ fontSize: 12.5, fontWeight: 900, color: T.warningText }}>기기에서 알림이 꺼져 있어요</div>
+              <div style={{ fontSize: 11.5, color: T.text700, marginTop: 4, lineHeight: '17px' }}>
+                {osBlockedText} 이 모임 알림을 켜 두어도 지금은 알림이 오지 않아요.
               </div>
             </div>
           )}
@@ -902,17 +1065,50 @@ function ScreenNoticeEdit() {
 
   const trimmed = text.trim();
   const changed = trimmed !== (notice.content || '').trim() || pinned !== Boolean(notice.pinned);
+  const noticeOver = text.length > NOTICE_MAX_LENGTH;
 
+  // 동시 수정을 막는 문은 **둘이다.**
+  //
+  // ① 저장 직전 재조회 — 그 사이 내용이 바뀌었으면 덮지 않고 알린다. 예전에는 이것뿐이라
+  //    다른 기기가 먼저 고친 공지를 옛 본문으로 말없이 덮어쓰고 있었다(QA NOTICE-021).
+  //    재조회는 **경합 창을 좁힐 뿐** 닫지는 못한다 — 재조회와 PUT 사이에도 남이 고칠 수 있다.
+  // ② BE-30 `expectedUpdatedAt` — 내가 읽은 `updatedAt` 을 함께 보내 **서버가 거절하게 한다**.
+  //    창을 실제로 닫는 건 이쪽이다. 거절은 409 `40923` 이고, 그때는 덮어쓰기를 재시도하지 않고
+  //    입력을 서버 최신 값으로 갈아끼운 뒤 알린다.
   const save = async () => {
     if (!trimmed || !changed || busy) return;
     setBusy(true);
     setError('');
+    // 경합으로 밀렸을 때 공통 처리 — 최신 값을 다시 읽어 입력에 채우고 같은 문장으로 알린다.
+    const yieldToLatest = async (latest) => {
+      const fresh = latest || await window.MoyeoApi.findRoomNotice(roomId, notice.noticeId);
+      if (fresh) {
+        window.MoyeoApi.selectNotice(fresh);
+        setText(fresh.content || '');
+        setPinned(Boolean(fresh.pinned));
+      }
+      setError(window.MOYEO_NOTICE_CONFLICT_MESSAGE);
+      setBusy(false);
+    };
     try {
-      await window.MoyeoApi.updateRoomNotice(roomId, notice.noticeId, { notice: trimmed, pinned });
+      const latest = await window.MoyeoApi.findRoomNotice(roomId, notice.noticeId);
+      if (latest && ((latest.content || '').trim() !== (notice.content || '').trim() || Boolean(latest.pinned) !== Boolean(notice.pinned))) {
+        await yieldToLatest(latest);
+        return;
+      }
+      await window.MoyeoApi.updateRoomNotice(roomId, notice.noticeId, {
+        notice: trimmed,
+        pinned,
+        // 재조회가 성공했으면 그 값이 내가 아는 가장 최신이다. 실패했으면 화면이 들고 있던 값을 쓴다.
+        expectedUpdatedAt: latest?.updatedAt || notice.updatedAt || null,
+      });
       window.MoyeoApi.selectNotice(null);
       nav.back();
     } catch (saveError) {
-      setError(saveError?.message || '공지를 수정하지 못했어요.');
+      if (window.isNoticeConflictError(saveError)) { await yieldToLatest(null); return; }
+      // 나머지 갈래(삭제된 공지 404 「채팅방 공지를 찾을 수 없습니다.」 등)는 **그대로 둔다** —
+      // 결정 ⑩ 은 소급 적용하지 않는다(QA NOTICE-021 의 근거가 그 문구다).
+      setError(window.userFacingError(saveError, '공지를 수정하지 못했어요.'));
       setBusy(false);
     }
   };
@@ -926,7 +1122,7 @@ function ScreenNoticeEdit() {
       window.MoyeoApi.selectNotice(null);
       nav.back();
     } catch (removeError) {
-      setError(removeError?.message || '공지를 삭제하지 못했어요.');
+      setError(window.userFacingError(removeError, '공지를 삭제하지 못했어요.'));
       setBusy(false);
     }
   };
@@ -956,7 +1152,7 @@ function ScreenNoticeEdit() {
       testId="notice-edit"
       title="공지 수정"
       cta="수정 저장"
-      disabled={!trimmed || !changed}
+      disabled={!trimmed || !changed || noticeOver}
       busy={busy}
       error={error}
       onBack={nav.back}
@@ -968,7 +1164,6 @@ function ScreenNoticeEdit() {
         data-testid="notice-edit-content"
         aria-label="공지 내용"
         value={text}
-        maxLength={1000}
         onChange={(event) => setText(event.target.value)}
         style={{
           width: '100%', minHeight: 132, resize: 'none', boxSizing: 'border-box',
@@ -976,7 +1171,8 @@ function ScreenNoticeEdit() {
           fontSize: 13, lineHeight: '20px', color: T.text900, background: RF.bg, fontFamily: T.fontStack, outline: 'none',
         }}
       />
-      <div style={{ textAlign: 'right', marginTop: 6, fontSize: 11, color: T.text400, fontVariantNumeric: 'tabular-nums' }}>{text.length}/1000</div>
+      {/* 넘친 글자를 말없이 자르지 않는다 — 얼마나 넘쳤는지 적고 저장을 잠근다 (W-17). */}
+      <div data-testid="notice-edit-count" style={{ textAlign: 'right', marginTop: 6, fontSize: 11, color: noticeOver ? T.danger : T.text400, fontVariantNumeric: 'tabular-nums' }}>{text.length}/{NOTICE_MAX_LENGTH}{noticeOver ? ` · ${text.length - NOTICE_MAX_LENGTH}자 넘었어요` : ''}</div>
 
       <div style={{ marginTop: 10, borderTop: `1px solid ${RF.softLine}` }}>
         <GapToggleRow
@@ -989,7 +1185,9 @@ function ScreenNoticeEdit() {
       </div>
 
       <div style={{ fontSize: 11, color: T.text400, marginTop: 10, fontVariantNumeric: 'tabular-nums' }}>
-        {notice.authorNickname} · {window.MoyeoApi.formatDateTime(notice.createdAt)} 작성
+        {/* 같은 공지가 이력 카드에서는 `9월 12일 오후 5:11`(formatNoticeTime), 수정 화면에서는
+            `2026.09.12 17:11`(formatDateTime)로 **두 표기로 찍혔다.** 이력 쪽 표기로 맞춘다. */}
+        {notice.authorNickname} · {window.MoyeoApi.formatNoticeTime(notice.createdAt)} 작성
       </div>
 
       {/* 삭제는 되돌릴 수 없다 — 저장 CTA 와 멀리 떼어 놓는다 */}
@@ -1018,6 +1216,8 @@ function ScreenFavoriteRooms() {
   const liveMode = Boolean(window.MoyeoApi?.live());
   const [rooms, setRooms] = React.useState(null);
   const [status, setStatus] = React.useState(liveMode ? 'loading' : 'signed-out');
+  // 403 을 「불러오지 못했어요」로 뭉개면 사용자가 계속 다시 시도한다 (QA OFF-020).
+  const [failure, setFailure] = React.useState(null);
   const [busyId, setBusyId] = React.useState(null);
   const [reloadKey, setReloadKey] = React.useState(0);
 
@@ -1032,23 +1232,29 @@ function ScreenFavoriteRooms() {
         setRooms(result);
         setStatus('ready');
       })
-      .catch(() => { if (active) setStatus('error'); });
+      .catch((loadError) => { if (active) { setFailure(loadError); setStatus('error'); } });
     return () => { active = false; };
   }, [liveMode, reloadKey]);
 
   // 찜은 여기서도 풀 수 있어야 한다 — 목록을 정리하는 자리다.
+  // 실패했는데 목록만 그대로 두면 「버튼이 죽었다」로 읽힌다 — 성공한 뒤에만 지우고,
+  // 실패하면 그 자리에 까닭을 적는다 (결정 ⑩ · 안드 교차 확인 2026-09-15).
+  const [unfavoriteError, setUnfavoriteError] = React.useState('');
   const unfavorite = async (roomId) => {
     if (busyId != null) return;
     setBusyId(roomId);
+    setUnfavoriteError('');
     try {
       await window.MoyeoApi.toggleFavorite(roomId);
       setRooms((current) => (current || []).filter((item) => item.roomId !== roomId));
-    } catch (_) { /* 실패 시 목록을 그대로 둔다 */ }
+    } catch (error) {
+      setUnfavoriteError(window.screenErrorText(error, '찜을 풀지 못했어요.'));
+    }
     setBusyId(null);
   };
 
   if (status !== 'ready') {
-    return <GapNotice title="찜한 모집" status={status} onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="favorite-rooms-state"/>;
+    return <GapNotice title="찜한 모집" status={status} error={failure} onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="favorite-rooms-state"/>;
   }
 
   return (
@@ -1056,8 +1262,12 @@ function ScreenFavoriteRooms() {
       <div data-testid="favorite-rooms" style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
         <Header title="찜한 모집" left center onBack={nav.back}/>
         <div style={{ position: 'absolute', top: 92, left: 0, right: 0, bottom: 0, overflow: 'auto', padding: '14px 20px 24px' }}>
+          {unfavoriteError && (
+            <div role="alert" data-testid="favorite-rooms-unfavorite-error" style={{ marginBottom: 10, padding: '10px 12px', borderRadius: 10, border: `1px solid ${T.danger}`, color: T.danger, fontSize: 12, lineHeight: '18px' }}>{unfavoriteError}</div>
+          )}
+          {/* 찜 목록이 비었다는 말이어야 한다 — 「모집 중인 모임이 없어요」는 서비스 전체가 빈 것처럼 읽힌다 (W-44). */}
           {rooms.length === 0 && (
-            <div role="status" style={{ padding: '48px 0', textAlign: 'center', color: T.text500, fontSize: 13 }}>지금 모집 중인 모임이 없어요.</div>
+            <div role="status" style={{ padding: '48px 0', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '20px' }}>아직 찜한 모집이 없어요.<br/>마음에 드는 모집의 하트를 눌러 모아 보세요.</div>
           )}
           <div style={{ display: 'grid', gap: 10 }}>
             {rooms.map((room) => (
@@ -1085,6 +1295,183 @@ function ScreenFavoriteRooms() {
               찜한 모집이 마감되거나 여행이 끝나도 목록에는 남아요. 하트를 다시 누르면 빠져요.
             </div>
           )}
+        </div>
+      </div>
+    </Phone>
+  );
+}
+
+// ───────── 26-2 · 내 피드 ─────────
+// 마이 26 의 「내 피드」에서 온다. 예전에는 이 행이 **피드 탭 전체**로 보내면서 라벨만 「내 피드」였고,
+// 서버에 작성자 필터가 없다는 이유로 그대로 뒀다(BE-25). 2026-09-14 서버가 `tab=MINE` 을 더해
+// (BE-28 · 공개 범위와 무관하게 내 것만 준다) 이제 진짜 내 글만 그릴 수 있다 (QA MY-010 · MY-011).
+function ScreenMyFeeds() {
+  const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  const liveMode = Boolean(window.MoyeoApi?.live());
+  const [feeds, setFeeds] = React.useState(null);
+  const [status, setStatus] = React.useState(liveMode ? 'loading' : 'signed-out');
+  // 403 을 「불러오지 못했어요」로 뭉개면 사용자가 계속 다시 시도한다 (QA OFF-020).
+  const [failure, setFailure] = React.useState(null);
+  const [reloadKey, setReloadKey] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!liveMode) { setStatus('signed-out'); return undefined; }
+    let active = true;
+    setStatus('loading');
+    window.MoyeoApi.feeds({ tab: 'MINE' })
+      .then((result) => {
+        if (!active) return;
+        if (!Array.isArray(result?.feeds)) { setStatus('error'); return; }
+        setFeeds(result.feeds);
+        setStatus('ready');
+      })
+      .catch((loadError) => { if (active) { setFailure(loadError); setStatus('error'); } });
+    return () => { active = false; };
+  }, [liveMode, reloadKey]);
+
+  if (status !== 'ready') {
+    return <GapNotice title="내 피드" status={status} error={failure} onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="my-feeds-state"/>;
+  }
+
+  return (
+    <Phone>
+      <div data-testid="my-feeds" style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+        <Header title="내 피드" left center onBack={nav.back}/>
+        <div style={{ position: 'absolute', top: 92, left: 0, right: 0, bottom: 0, overflow: 'auto', padding: '14px 20px 24px' }}>
+          {feeds.length === 0 && (
+            <div role="status" style={{ padding: '48px 0', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '20px' }}>아직 쓴 여행 기록이 없어요.<br/>여행을 마치면 그 여행의 기록을 남길 수 있어요.</div>
+          )}
+          <div style={{ display: 'grid', gap: 10 }}>
+            {feeds.map((feed) => (
+              <div
+                key={feed.feedId}
+                data-testid={`my-feed-${feed.feedId}`}
+                onClick={() => { window.MoyeoApi.selectFeed(feed.feedId); nav.go('feed-detail'); }}
+                style={{ minHeight: 94, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: 9, display: 'flex', gap: 11, alignItems: 'center', cursor: 'pointer' }}
+              >
+                {/* 첫 장만 그리면 3장을 올려도 목록에서는 한 장짜리 기록처럼 보인다.
+                    22 피드 목록과 같은 페이저를 쓴다 (결정 ⑪ · FEED-PHOTO-CANON §2).
+                    사진이 없으면 지금처럼 RoomThumb 의 빈 자리를 그린다. */}
+                <div style={{ width: 84, height: 74, borderRadius: 9, overflow: 'hidden', flexShrink: 0 }}>
+                  {feed.images?.length > 0
+                    ? <window.FeedCardPhotoPager images={feed.images} height={74} radius={9} testId={`my-feed-${feed.feedId}-photos`}/>
+                    : <window.RoomThumb src={null} height={74} shape="square"/>}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, lineHeight: '19px', maxHeight: 38, overflow: 'hidden' }}>{feed.trip?.courseTitle || feed.content}</div>
+                  <div style={{ marginTop: 6, fontSize: 11, color: T.text500 }}>
+                    {window.MoyeoApi.formatRelative(feed.createdAt)} · 좋아요 {feed.likeCount ?? 0} · 댓글 {feed.commentCount ?? 0}
+                  </div>
+                  {/* 내 글 목록이므로 **어디까지 보이는 글인지**가 가장 알고 싶은 값이다. */}
+                  <div style={{ marginTop: 4, fontSize: 11, color: T.text400 }}>
+                    {{ PUBLIC: '전체공개', FRIENDS: '친구만', PRIVATE: '나만 보기' }[feed.visibility] || ''}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </Phone>
+  );
+}
+
+// ───────── 26 · 찜한 코스 ─────────
+// 마이 26 의 `찜한 코스` 에서 온다. 26-1 찜한 모집과 **다른 것**이다 — 저쪽은 모집(방), 이쪽은 코스다.
+// 14 코스 상세에 찜 버튼을 붙이면서(QA DETAIL-002) 모아 보는 자리가 필요해졌다.
+// iOS·안드로이드는 코스 찜이 이미 있었고 웹만 토글도 목록도 없었다 (QA MY-006).
+// 근거: GET /api/v1/travel-courses/me/favorites (LikedTravelCourseResponse 배열)
+//       POST /api/v1/travel-courses/{courseId}/favorite (찜 토글 · 실서버 확인 2026-09-14)
+function ScreenFavoriteCourses() {
+  const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  const liveMode = Boolean(window.MoyeoApi?.live());
+  const [courses, setCourses] = React.useState(null);
+  const [status, setStatus] = React.useState(liveMode ? 'loading' : 'signed-out');
+  // 403 을 「불러오지 못했어요」로 뭉개면 사용자가 계속 다시 시도한다 (QA OFF-020).
+  const [failure, setFailure] = React.useState(null);
+  const [busyId, setBusyId] = React.useState(null);
+  const [reloadKey, setReloadKey] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!liveMode) { setStatus('signed-out'); return undefined; }
+    let active = true;
+    setStatus('loading');
+    window.MoyeoApi.favoriteCourses()
+      .then((result) => {
+        if (!active) return;
+        if (!Array.isArray(result)) { setStatus('error'); return; }
+        setCourses(result);
+        setStatus('ready');
+      })
+      .catch((loadError) => { if (active) { setFailure(loadError); setStatus('error'); } });
+    return () => { active = false; };
+  }, [liveMode, reloadKey]);
+
+  // 찜 해제는 여기서도 돼야 한다 — 목록을 정리하는 자리다 (26-1 과 같은 규칙).
+  // 실패 처리도 26-1 과 같다 — 성공한 뒤에만 지우고, 실패하면 까닭을 적는다.
+  const [unfavoriteError, setUnfavoriteError] = React.useState('');
+  const unfavorite = async (courseId) => {
+    if (busyId != null) return;
+    setBusyId(courseId);
+    setUnfavoriteError('');
+    try {
+      await window.MoyeoApi.toggleCourseFavorite(courseId);
+      setCourses((current) => (current || []).filter((item) => item.courseId !== courseId));
+    } catch (error) {
+      setUnfavoriteError(window.screenErrorText(error, '찜을 풀지 못했어요.'));
+    }
+    setBusyId(null);
+  };
+
+  if (status !== 'ready') {
+    return <GapNotice title="찜한 코스" status={status} error={failure} onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="favorite-courses-state"/>;
+  }
+
+  return (
+    <Phone>
+      <div data-testid="favorite-courses" style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+        <Header title="찜한 코스" left center onBack={nav.back}/>
+        <div style={{ position: 'absolute', top: 92, left: 0, right: 0, bottom: 0, overflow: 'auto', padding: '14px 20px 24px' }}>
+          {unfavoriteError && (
+            <div role="alert" data-testid="favorite-courses-unfavorite-error" style={{ marginBottom: 10, padding: '10px 12px', borderRadius: 10, border: `1px solid ${T.danger}`, color: T.danger, fontSize: 12, lineHeight: '18px' }}>{unfavoriteError}</div>
+          )}
+          {courses.length === 0 && (
+            <div role="status" style={{ padding: '48px 0', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '20px' }}>아직 찜한 코스가 없어요.<br/>마음에 드는 코스의 하트를 눌러 모아 보세요.</div>
+          )}
+          <div style={{ display: 'grid', gap: 10 }}>
+            {courses.map((course) => (
+              <div key={course.courseId} style={{ position: 'relative' }}>
+                <div
+                  data-testid={`favorite-course-${course.courseId}`}
+                  onClick={() => { window.MoyeoApi.selectCourse(course.courseId); nav.go('course'); }}
+                  style={{ minHeight: 94, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, padding: 9, display: 'flex', gap: 11, alignItems: 'center', cursor: 'pointer' }}
+                >
+                  <div style={{ width: 102, height: 74, borderRadius: 9, overflow: 'hidden', flexShrink: 0 }}>
+                    <window.RoomThumb src={course.thumbnail} height={74}/>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0, paddingRight: 26 }}>
+                    <div style={{ fontSize: 14, fontWeight: 900, lineHeight: '19px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{course.title}</div>
+                    {course.tags?.length > 0 && (
+                      <div style={{ marginTop: 6, fontSize: 12, color: T.text500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{course.tags.map((tag) => tag.name).join(', ')}</div>
+                    )}
+                    {course.description && (
+                      <div style={{ marginTop: 5, fontSize: 11.5, color: T.text400, lineHeight: '17px', maxHeight: 34, overflow: 'hidden' }}>{course.description}</div>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  aria-label={`${course.title} 찜 해제`}
+                  data-testid={`favorite-course-off-${course.courseId}`}
+                  disabled={busyId != null}
+                  onClick={() => unfavorite(course.courseId)}
+                  style={{ position: 'absolute', right: 12, bottom: 12, border: 0, background: 'transparent', padding: 4, cursor: 'pointer', lineHeight: 0 }}
+                >
+                  <Icon name="heart" size={19} color={T.primary500}/>
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </Phone>
@@ -1132,7 +1519,15 @@ function ScreenApplyCancel() {
       window.MoyeoApi.selectApplication(null);
       nav.back();
     } catch (cancelError) {
-      setError(cancelError?.message || '신청을 취소하지 못했어요.');
+      // 호스트가 다른 기기에서 **먼저 승인·거절해** 이 신청이 사라진 경우다 (QA MEET-011).
+      // 성공으로 오인시키지 않는 것만으로는 부족하다 — 내 화면의 「승인 대기」가 이미 낡았으므로
+      // 19-1 목록 캐시를 덜어내 돌아갔을 때 **지금 상태**가 보이게 한다 (TAB-STATE-CANON R4).
+      // 문장은 `status` 로 고른다 (결정 ⑩ · 서버 문구를 그대로 올리지 않는다).
+      const stale = cancelError?.status === 404 || cancelError?.status === 409;
+      if (stale) window.MoyeoTabCache?.invalidate?.(['meeting.waiting']);
+      setError(stale
+        ? '호스트가 먼저 처리해서 이 신청은 더 취소할 수 없어요. 목록을 새로 불러왔어요.'
+        : window.userFacingError(cancelError, '신청을 취소하지 못했어요.'));
       setBusy(false);
     }
   };
@@ -1200,7 +1595,7 @@ function ScreenUnblockConfirm() {
       window.MoyeoApi.selectBlockedUser(null);
       nav.back();
     } catch (unblockError) {
-      setError(unblockError?.message || '차단을 풀지 못했어요.');
+      setError(window.userFacingError(unblockError, '차단을 풀지 못했어요.'));
       setBusy(false);
     }
   };
@@ -1232,6 +1627,8 @@ function ScreenUnblockConfirm() {
 //       (경로 변수는 friendshipId 가 아니라 상대 userId 다)
 function ScreenFriendManage() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 시트 접근성은 공용 훅 한 곳에서 본다 (QA ENV-007 · shared.jsx `useSheetA11y`).
+  const sheet = window.useSheetA11y({ label: '친구 정리', onClose: nav.back });
   const liveMode = Boolean(window.MoyeoApi?.live());
   const selected = liveMode ? window.MoyeoApi.selectedFriend() : null;
   // 27-2 를 거치지 않는 딥링크·라이브 캡처는 ?friendUserId= 로 대상을 지정한다.
@@ -1267,7 +1664,7 @@ function ScreenFriendManage() {
       window.MoyeoApi.selectFriend(null);
       nav.back();
     } catch (removeError) {
-      setError(removeError?.message || '친구를 끊지 못했어요.');
+      setError(window.userFacingError(removeError, '친구를 끊지 못했어요.'));
       setBusy(false);
     }
   };
@@ -1297,7 +1694,7 @@ function ScreenFriendManage() {
       <div data-testid="friend-manage" style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
         <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}><window.ScreenFriends/></div>
         <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
-        <div style={{
+        <div {...sheet.rootProps} data-testid="friend-manage-sheet" style={{
           position: 'absolute', left: 0, right: 0, bottom: 0, background: T.bgRaised,
           borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3,
         }}>
@@ -1354,6 +1751,8 @@ function ScreenKickHistory() {
   const liveMode = Boolean(window.MoyeoApi?.live());
   const [rows, setRows] = React.useState(null);
   const [status, setStatus] = React.useState(liveMode ? 'loading' : 'signed-out');
+  // 403 을 「불러오지 못했어요」로 뭉개면 사용자가 계속 다시 시도한다 (QA OFF-020).
+  const [failure, setFailure] = React.useState(null);
   const [reloadKey, setReloadKey] = React.useState(0);
 
   React.useEffect(() => {
@@ -1368,12 +1767,12 @@ function ScreenKickHistory() {
         setRows([...list].sort((a, b) => String(b?.kickedAt || '').localeCompare(String(a?.kickedAt || ''))));
         setStatus('ready');
       })
-      .catch(() => { if (active) setStatus('error'); });
+      .catch((loadError) => { if (active) { setFailure(loadError); setStatus('error'); } });
     return () => { active = false; };
   }, [liveMode, reloadKey]);
 
   if (status !== 'ready') {
-    return <GapNotice title="내보내진 기록" status={status} onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="kick-history-state"/>;
+    return <GapNotice title="내보내진 기록" status={status} error={failure} onBack={nav.back} onRetry={() => setReloadKey((key) => key + 1)} testId="kick-history-state"/>;
   }
 
   return (
@@ -1392,7 +1791,7 @@ function ScreenKickHistory() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                     <Icon name="warning" size={14} color={T.danger}/>
                     <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.roomTitle}</div>
-                    <span style={{ fontSize: 11, color: T.text400, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{window.MoyeoApi.formatDateTime(row.kickedAt)}</span>
+                    <span style={{ fontSize: 11, color: T.text400, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{window.MoyeoApi.formatDateOnly(row.kickedAt)}</span>
                   </div>
                   <div style={{ fontSize: 12.5, color: T.text700, lineHeight: '19px', marginTop: 9 }}>{row.reason}</div>
                 </div>
@@ -1418,6 +1817,8 @@ Object.assign(window, {
   ScreenRoomNotification,
   ScreenNoticeEdit,
   ScreenFavoriteRooms,
+  ScreenFavoriteCourses,
+  ScreenMyFeeds,
   ScreenApplyCancel,
   ScreenUnblockConfirm,
   ScreenFriendManage,

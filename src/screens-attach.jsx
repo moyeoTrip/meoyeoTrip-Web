@@ -58,7 +58,9 @@ function AttachFieldLabel({ children, required }) {
 
 function AttachToggleRow({ label, desc, on, onToggle, testId }) {
   return (
-    <button type="button" onClick={onToggle} data-testid={testId} style={{
+    // 켜짐·꺼짐이 오른쪽 스위치 그림으로만 보였다 — 보조기술에는 그냥 「버튼」이었다 (QA QA-N05).
+    // 같은 모양을 그리는 `GapToggleRow`(screens-gaps.jsx)는 이미 aria-pressed 를 갖고 있어 두 구현이 갈려 있었다.
+    <button type="button" role="switch" aria-checked={Boolean(on)} onClick={onToggle} data-testid={testId} style={{
       width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0',
       border: 0, background: 'transparent', cursor: 'pointer', fontFamily: T.fontStack, textAlign: 'left',
     }}>
@@ -125,6 +127,14 @@ function ScreenAttachPhoto() {
 
   const pick = (picked) => {
     if (!picked) return;
+    // 예전에는 **용량만** 봤다. 확장자만 `.jpg` 인 텍스트 파일도 전송 가능 상태가 돼서,
+    // 서버가 거절할 때까지 사용자는 잘못 고른 줄 몰랐다 (QA ATTACH-013).
+    // 서버가 받는 종류는 이미지뿐이므로 고르는 순간 여기서 가른다.
+    if (picked.type && !String(picked.type).startsWith('image/')) {
+      setFile(null);
+      setError('사진 파일만 보낼 수 있어요. 이미지 파일을 골라 주세요.');
+      return;
+    }
     if (picked.size > ATTACH_IMAGE_MAX_BYTES) {
       setFile(null);
       setError('사진은 20MB 까지 보낼 수 있어요.');
@@ -141,7 +151,7 @@ function ScreenAttachPhoto() {
       await window.MoyeoApi.shareRoomImage(roomId, file, caption);
       nav.go('chat');
     } catch (sendError) {
-      setError(sendError?.message || '사진을 보내지 못했어요.');
+      setError(window.userFacingError(sendError, '사진을 보내지 못했어요.'));
       setBusy(false);
     }
   };
@@ -253,7 +263,7 @@ function ScreenAttachPlace() {
       await window.MoyeoApi.shareRoomTourismContent(roomId, picked.contentId);
       nav.go('chat');
     } catch (sendError) {
-      setError(sendError?.message || '장소를 보내지 못했어요.');
+      setError(window.userFacingError(sendError, '장소를 보내지 못했어요.'));
       setBusy(false);
     }
   };
@@ -378,15 +388,30 @@ function ScreenAttachMap() {
   const lat = Number(room?.meetingLatitude);
   const lng = Number(room?.meetingLongitude);
   const hasPoint = Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0;
+  // 보내기 요청은 roomId 만 싣는다 — **좌표는 서버가 그 순간의 집합 정보에서 읽는다.**
+  // 그래서 화면을 연 뒤 호스트가 집합 장소를 바꾸면, 미리보기는 옛 좌표인데 실제로 나가는
+  // 카드는 새 좌표가 된다(QA ATTACH-028 에서 부석사 미리보기 → 소수서원 카드로 실측).
+  // 보내기 직전에 한 번 더 읽어 달라졌으면 **보내지 않고** 미리보기를 갱신해 알린다.
   const send = async () => {
     if (!hasPoint || busy) return;
     setBusy(true);
     setError('');
     try {
+      const fresh = await window.MoyeoApi.roomDetail(roomId);
+      const freshLat = Number(fresh?.meetingLatitude);
+      const freshLng = Number(fresh?.meetingLongitude);
+      const moved = Number.isFinite(freshLat) && Number.isFinite(freshLng)
+        && (freshLat !== lat || freshLng !== lng || (fresh?.meetingDetails || '') !== (room?.meetingDetails || ''));
+      if (moved) {
+        setRoom(fresh);
+        setError('집합 장소가 방금 바뀌었어요. 바뀐 위치를 확인하고 다시 보내주세요.');
+        setBusy(false);
+        return;
+      }
       await window.MoyeoApi.shareRoomLocation(roomId);
       nav.go('chat');
     } catch (sendError) {
-      setError(sendError?.message || '위치를 보내지 못했어요.');
+      setError(window.userFacingError(sendError, '위치를 보내지 못했어요.'));
       setBusy(false);
     }
   };
@@ -419,7 +444,8 @@ function ScreenAttachMap() {
               <Icon name="pin" size={15} color={T.primary600}/>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {room.meetingDetails && <div style={{ fontSize: 12.5, fontWeight: 700 }}>{room.meetingDetails}</div>}
-                <div style={{ fontSize: 10.5, color: T.text500, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{lat.toFixed(6)}, {lng.toFixed(6)}</div>
+                {/* 소수 4자리로 적는다 — 기획·iOS 가 4자리다. 6자리는 웹만 달라 보였다 (2026-09-10). */}
+                <div style={{ fontSize: 10.5, color: T.text500, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{lat.toFixed(4)}, {lng.toFixed(4)}</div>
               </div>
             </div>
           ) : (
@@ -445,6 +471,12 @@ function ScreenAttachMap() {
 // 일어나지 않는 스위치가 더 나쁘다). BE 요청 대상이다.
 const ATTACH_POLL_MIN_OPTIONS = 2;
 const ATTACH_POLL_MAX_OPTIONS = 5;
+// 서버 한도 그대로다 (`ChatShareRequests.kt` `CreateChatPollRequest` — 질문 200 · 선택지 100).
+// 웹은 100 / 50 으로 **서버보다 좁게** 잡아 두고 `maxLength` 로 입력을 막고 있었다 —
+// 붙여넣기는 말없이 잘린다. 안드로이드(AND-62 계열)와 같이 **자르지 않고 알리고 잠근다**.
+const ATTACH_NOTICE_MAX = 1000;
+const ATTACH_POLL_QUESTION_MAX = 200;
+const ATTACH_POLL_OPTION_MAX = 100;
 
 function ScreenAttachPoll() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
@@ -459,7 +491,10 @@ function ScreenAttachPoll() {
 
   const filled = options.map((option) => option.trim()).filter(Boolean);
   const unique = new Set(filled).size === filled.length;
-  const valid = Boolean(question.trim()) && filled.length >= ATTACH_POLL_MIN_OPTIONS && filled.length === options.length && unique;
+  const questionOver = question.trim().length > ATTACH_POLL_QUESTION_MAX;
+  const optionOverIndex = options.findIndex((option) => option.trim().length > ATTACH_POLL_OPTION_MAX);
+  const valid = Boolean(question.trim()) && filled.length >= ATTACH_POLL_MIN_OPTIONS && filled.length === options.length && unique
+    && !questionOver && optionOverIndex === -1;
   // 함수형 갱신을 쓴다 — 연달아 누르면 닫힌 값이 옛 배열이라 한 번만 반영된다.
   const setOption = (index, value) => setOptions((current) => current.map((item, i) => (i === index ? value : item)));
   const addOption = () => setOptions((current) => (current.length < ATTACH_POLL_MAX_OPTIONS ? [...current, ''] : current));
@@ -472,7 +507,7 @@ function ScreenAttachPoll() {
       await window.MoyeoApi.createRoomPoll(roomId, { question: question.trim(), options: filled, anonymous });
       nav.go('chat');
     } catch (sendError) {
-      setError(sendError?.message || '투표를 올리지 못했어요.');
+      setError(window.userFacingError(sendError, '투표를 올리지 못했어요.'));
       setBusy(false);
     }
   };
@@ -486,7 +521,11 @@ function ScreenAttachPoll() {
       disabled={!valid}
       busy={busy}
       error={error}
-      notice={!unique ? '같은 항목을 두 번 넣을 수 없어요.' : ''}
+      notice={!unique
+        ? '같은 항목을 두 번 넣을 수 없어요.'
+        : (questionOver
+          ? `질문은 ${ATTACH_POLL_QUESTION_MAX}자까지 넣을 수 있어요.`
+          : (optionOverIndex >= 0 ? `선택 항목은 ${ATTACH_POLL_OPTION_MAX}자까지 넣을 수 있어요.` : ''))}
       onBack={nav.back}
       onSubmit={send}
     >
@@ -495,11 +534,11 @@ function ScreenAttachPoll() {
         type="text"
         data-testid="attach-poll-question"
         value={question}
-        maxLength={100}
         onChange={(event) => setQuestion(event.target.value)}
         placeholder="투표 질문을 적어주세요"
         style={ATTACH_INPUT_STYLE}
       />
+      <div data-testid="attach-poll-question-count" style={{ textAlign: 'right', marginTop: 6, fontSize: 11, color: questionOver ? T.danger : T.text400, fontVariantNumeric: 'tabular-nums' }}>{question.trim().length}/{ATTACH_POLL_QUESTION_MAX}</div>
 
       <AttachFieldLabel required>선택 항목</AttachFieldLabel>
       <div style={{ display: 'grid', gap: 8 }}>
@@ -510,7 +549,6 @@ function ScreenAttachPoll() {
               type="text"
               data-testid={`attach-poll-option-${index}`}
               value={option}
-              maxLength={50}
               onChange={(event) => setOption(index, event.target.value)}
               placeholder={`항목 ${index + 1}`}
               style={{ flex: 1, minWidth: 0, height: 42, border: 0, outline: 'none', background: 'transparent', fontSize: 13, color: T.text900, fontFamily: T.fontStack, padding: 0 }}
@@ -585,28 +623,38 @@ function attachSettlementMemo({ title, total, people, note }) {
   ].filter(Boolean).join('\n');
 }
 
+// 총 금액 자릿수 상한. 안드로이드 SETTLEMENT_TOTAL_MAX_DIGITS 와 같은 값이다.
+const SETTLEMENT_TOTAL_MAX_DIGITS = 9;
+
 function ScreenAttachSettlement() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const { ready, roomId } = useAttachRoom();
   const [title, setTitle] = React.useState('');
   const [total, setTotal] = React.useState('');
+  // 입력을 말없이 고치지 않는다 — 무엇이 버려졌는지 칸 아래에 적는다 (W-15 · 안드 AND-62).
+  const [totalNotice, setTotalNotice] = React.useState('');
   const [people, setPeople] = React.useState(null);
   const [note, setNote] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
 
   // 나눌 인원의 첫 값은 지어내지 않는다 — 방의 실제 참여 인원에서 온다.
+  // 못 받았으면 「-」만 남겨 두고 **아무 말도 하지 않던** 자리다 (W-84).
+  const [peopleNotice, setPeopleNotice] = React.useState('');
   React.useEffect(() => {
     if (!ready) return undefined;
     let active = true;
+    setPeopleNotice('');
     window.MoyeoApi.roomMembers(roomId)
       .then((result) => {
         const count = (result?.members || []).length;
         // 최소 2 명이다 — 혼자 나눌 정산은 없다. 방 인원이 1이면 2 로 시작한다
         // (앱 둘도 2 로 시작한다, 20-2e 2026-09-09).
-        if (active && count > 0) setPeople((current) => (current == null ? Math.max(2, count) : current));
+        if (!active) return;
+        if (count > 0) setPeople((current) => (current == null ? Math.max(2, count) : current));
+        else setPeopleNotice('방 인원을 확인하지 못했어요. 나눌 인원을 직접 정해 주세요.');
       })
-      .catch(() => { /* 못 받으면 사용자가 직접 넣는다 */ });
+      .catch(() => { if (active) setPeopleNotice('방 인원을 확인하지 못했어요. 나눌 인원을 직접 정해 주세요.'); });
     return () => { active = false; };
   }, [ready, roomId]);
 
@@ -616,6 +664,17 @@ function ScreenAttachSettlement() {
   const each = attachSettlementPerPerson(totalNumber, people);
   const valid = Boolean(title.trim()) && each != null;
   const won = (value) => Number(value).toLocaleString('ko-KR');
+  // 예전에는 `replace(/[^0-9]/g, '')` 한 줄이라 **말없이 다른 금액**이 됐다:
+  // `-500` → `500`(부호 소실) · `1234.56` → `123456`(100 배). 상한도 없었다.
+  // 숫자만 받는 것은 그대로 두되, 버려진 글자가 있으면 그 사실을 알린다 (W-15).
+  const changeTotal = (event) => {
+    const typed = event.target.value;
+    const digits = typed.replace(/[^0-9]/g, '');
+    if (digits.length !== typed.length) setTotalNotice('숫자만 넣을 수 있어요. 쉼표·소수점 없이 원 단위로 적어주세요.');
+    else if (digits.length > SETTLEMENT_TOTAL_MAX_DIGITS) setTotalNotice(`총 금액은 ${SETTLEMENT_TOTAL_MAX_DIGITS}자리까지 넣을 수 있어요.`);
+    else setTotalNotice('');
+    setTotal(digits.slice(0, SETTLEMENT_TOTAL_MAX_DIGITS));
+  };
   const send = async () => {
     if (!valid || busy) return;
     setBusy(true);
@@ -624,7 +683,7 @@ function ScreenAttachSettlement() {
       await window.MoyeoApi.shareRoomSettlementMemo(roomId, attachSettlementMemo({ title, total: totalNumber, people, note }));
       nav.go('chat');
     } catch (sendError) {
-      setError(sendError?.message || '정산 메모를 올리지 못했어요.');
+      setError(window.userFacingError(sendError, '정산 메모를 올리지 못했어요.'));
       setBusy(false);
     }
   };
@@ -661,25 +720,27 @@ function ScreenAttachSettlement() {
               inputMode="numeric"
               data-testid="attach-settlement-total"
               value={total}
-              onChange={(event) => setTotal(event.target.value.replace(/[^0-9]/g, ''))}
+              onChange={changeTotal}
               placeholder="0"
               aria-label="총 금액"
               style={{ flex: 1, minWidth: 0, height: 42, border: 0, outline: 'none', background: 'transparent', fontSize: 13, fontWeight: 800, color: T.text900, fontFamily: T.fontStack, padding: 0, fontVariantNumeric: 'tabular-nums' }}
             />
             <span style={{ color: T.text500, fontSize: 13 }}>원</span>
           </div>
+          {totalNotice && <div role="status" data-testid="attach-settlement-total-notice" style={{ marginTop: 6, fontSize: 11, lineHeight: '16px', color: T.danger }}>{totalNotice}</div>}
         </div>
         <div style={{ width: 116 }}>
           <div style={{ fontSize: 12.5, fontWeight: 900, marginBottom: 8 }}>나눌 인원<span style={{ color: T.danger }}> *</span></div>
           <div style={{ height: 44, borderRadius: 12, border: `1px solid ${T.line200}`, padding: '0 10px', display: 'flex', alignItems: 'center' }}>
-            <button type="button" aria-label="인원 줄이기" data-testid="attach-settlement-people-minus" onClick={() => setPeople((current) => Math.max(1, (current || 1) - 1))} style={{ border: 0, background: 'transparent', padding: 2, cursor: 'pointer', display: 'flex' }}>
+            <button type="button" aria-label="인원 줄이기" data-testid="attach-settlement-people-minus" onClick={() => setPeople((current) => Math.max(2, (current || 2) - 1))} style={{ border: 0, background: 'transparent', padding: 2, cursor: 'pointer', display: 'flex' }}>
               <Icon name="minus" size={14} color={T.text500}/>
             </button>
             <div data-testid="attach-settlement-people" style={{ flex: 1, textAlign: 'center', fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{people == null ? '-' : people}</div>
-            <button type="button" aria-label="인원 늘리기" data-testid="attach-settlement-people-plus" onClick={() => setPeople((current) => Math.min(100, (current || 0) + 1))} style={{ border: 0, background: 'transparent', padding: 2, cursor: 'pointer', display: 'flex' }}>
+            <button type="button" aria-label="인원 늘리기" data-testid="attach-settlement-people-plus" onClick={() => setPeople((current) => Math.min(100, (current || 1) + 1))} style={{ border: 0, background: 'transparent', padding: 2, cursor: 'pointer', display: 'flex' }}>
               <Icon name="plus" size={14} color={T.primary600}/>
             </button>
           </div>
+          {peopleNotice && <div role="status" data-testid="attach-settlement-people-notice" style={{ marginTop: 6, fontSize: 11, lineHeight: '16px', color: T.text500 }}>{peopleNotice}</div>}
         </div>
       </div>
 
@@ -708,8 +769,14 @@ function ScreenAttachSettlement() {
         style={{ ...ATTACH_INPUT_STYLE, height: 76, padding: 12, lineHeight: '19px', resize: 'none' }}
       />
 
+      {/* 안내 한 줄은 **메모 본문에 넣지 않는다** — 서버로 나가는 memo 는 화면기획 그대로 두고,
+          이 줄은 화면에서만 읽힌다. 문구는 iOS·안드로이드와 글자까지 같다
+          (`window.SETTLEMENT_REPORT_GUIDE`). 여기는 메모를 **올리는 사람** 화면이라
+          신고 버튼을 두지 않는다 — 자기 자신은 신고할 수 없다(서버 400 `40045`).
+          신고 진입점은 받는 사람이 금액을 보는 자리, 즉 채팅방 정산 카드에 있다. */}
       <AttachNoteBox lines={[
         ATTACH_SETTLEMENT_DISCLAIMER,
+        window.SETTLEMENT_REPORT_GUIDE,
         '계좌번호는 아무나 볼 수 있으니 꼭 필요할 때만 남겨주세요.',
       ]}/>
     </AttachFrame>
@@ -745,19 +812,29 @@ function ScreenAttachNotice() {
   if (!ready) return <AttachSignedOut title="공지 작성" onBack={nav.back}/>;
 
   const content = body.trim();
+  // 넘친 글자는 **자르지 않는다** — 얼마나 넘쳤는지 세어 보여주고 「공지 올리기」를 잠근다.
+  // 한도는 서버 값 그대로다(`CreateChatRoomNoticeRequest` `@Size(max = 1000)`).
+  const noticeOver = body.length > ATTACH_NOTICE_MAX;
   const send = async () => {
-    if (!content || busy) return;
+    if (!content || noticeOver || busy) return;
     setBusy(true);
     setError('');
     try {
       await window.MoyeoApi.createRoomNotice(roomId, content, pinned);
       // 고정은 최대 1개다 (R5-1). 서버가 막지 않으므로 기존 고정 공지를 여기서 푼다.
+      // **부분 실패를 삼키지 않는다** — 예전에는 해제 실패를 `catch(() => null)` 로 버리고
+      // 공지 목록으로 넘어가서, 고정이 둘 남았는데도 사용자에게는 성공으로 보였다 (2026-09-10).
       if (pinned) {
-        await Promise.all(pinnedNotices.map((notice) => window.MoyeoApi.updateRoomNotice(roomId, notice.noticeId, { pinned: false }).catch(() => null)));
+        const results = await Promise.all(pinnedNotices.map((notice) => window.MoyeoApi.updateRoomNotice(roomId, notice.noticeId, { pinned: false }).then(() => true).catch(() => false)));
+        if (results.some((ok) => !ok)) {
+          setError('새 공지는 올렸지만 기존 고정 공지를 푸는 데 실패했어요. 공지 목록에서 직접 풀어주세요.');
+          setBusy(false);
+          return;
+        }
       }
       nav.go('notice-history');
     } catch (sendError) {
-      setError(sendError?.message || '공지를 올리지 못했어요.');
+      setError(window.userFacingError(sendError, '공지를 올리지 못했어요.'));
       setBusy(false);
     }
   };
@@ -768,7 +845,7 @@ function ScreenAttachNotice() {
       title="공지 작성"
       hint="공지는 호스트만 올릴 수 있어요."
       cta="공지 올리기"
-      disabled={!content}
+      disabled={!content || noticeOver}
       busy={busy}
       error={error}
       onBack={nav.back}
@@ -779,12 +856,11 @@ function ScreenAttachNotice() {
       <textarea
         data-testid="attach-notice-body"
         value={body}
-        maxLength={1000}
         onChange={(event) => setBody(event.target.value)}
         placeholder="멤버에게 알릴 내용을 적어주세요"
         style={{ ...ATTACH_INPUT_STYLE, minHeight: 148, height: 148, padding: 12, lineHeight: '20px', resize: 'none' }}
       />
-      <div style={{ textAlign: 'right', marginTop: 6, fontSize: 11, color: T.text400, fontVariantNumeric: 'tabular-nums' }}>{body.length}/1000</div>
+      <div data-testid="attach-notice-count" style={{ textAlign: 'right', marginTop: 6, fontSize: 11, color: noticeOver ? T.danger : T.text400, fontVariantNumeric: 'tabular-nums' }}>{body.length}/{ATTACH_NOTICE_MAX}{noticeOver ? ` · ${body.length - ATTACH_NOTICE_MAX}자 넘었어요` : ''}</div>
 
       <div style={{ marginTop: 10, borderTop: `1px solid ${RF.softLine}` }}>
         <AttachToggleRow
@@ -820,7 +896,15 @@ function ScreenAttachNotice() {
 // GET /api/v1/travel-courses/search?keyword= (코스) · GET /api/v1/chat-rooms/search (모집)
 // 정본 R6~R9. 코스 검색은 **제목·태그명**만 매칭한다 — 소개글은 검색 대상이 아니다.
 function AttachCourseResultCard({ course, onClick }) {
-  const placeCount = course.places?.length || 0;
+  // 서버가 준 것만 이어 붙인다. 예전에는 `${course.distanceKm}km` 가 무조건 들어가
+  // 거리가 없는 코스 카드에 「nullkm」이 찍혔다 (NO-MOCK-CANON R3).
+  // 방문지 수는 **받은 목록을 센 값**이라 0곳도 사실이다 — 목록 자체가 없으면 뺀다.
+  const placeCount = Array.isArray(course.places) ? course.places.length : null;
+  const metaParts = [
+    course.travelTime || null,
+    course.distanceKm != null ? `${course.distanceKm}km` : null,
+    placeCount != null ? `${placeCount}곳` : null,
+  ].filter(Boolean);
   return (
     <button
       type="button"
@@ -836,11 +920,13 @@ function AttachCourseResultCard({ course, onClick }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13.5, fontWeight: 900, color: T.text900 }}>{course.title}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, fontSize: 11, color: T.text500, fontVariantNumeric: 'tabular-nums' }}>
-          <Icon name="clock" size={12} color={T.text500}/><span>{course.travelTime}</span>
-          <span style={{ color: T.line300 }}>·</span>
-          <span>{course.distanceKm}km</span>
-          <span style={{ color: T.line300 }}>·</span>
-          <span>{placeCount}곳</span>
+          {metaParts.length > 0 && <Icon name="clock" size={12} color={T.text500}/>}
+          {metaParts.map((part, index) => (
+            <React.Fragment key={part}>
+              {index > 0 && <span style={{ color: T.line300 }}>·</span>}
+              <span>{part}</span>
+            </React.Fragment>
+          ))}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 7 }}>
           {(course.tags || []).map((tag) => <Chip key={tag.tagId ?? tag.name} variant="neutral">{tag.name}</Chip>)}
@@ -869,23 +955,29 @@ function ScreenSearchResults() {
   const [courses, setCourses] = React.useState(null);
   const [rooms, setRooms] = React.useState(null);
   const [status, setStatus] = React.useState(liveMode && keyword ? 'loading' : 'idle');
+  // 탭 하나만 실패하면 그 탭이 「검색 결과가 없어요」로 보여서 **0건과 통신 실패가 구분되지 않았다**
+  // (QA SEARCH-040). 탭별 실패를 따로 들고 다니고, 그 탭에서만 다시 시도할 수 있게 한다.
+  const [failedTabs, setFailedTabs] = React.useState({ course: false, room: false });
+  const [reloadKey, setReloadKey] = React.useState(0);
 
   React.useEffect(() => {
     if (!liveMode || !keyword) return undefined;
     let active = true;
     setStatus('loading');
+    setFailedTabs({ course: false, room: false });
     Promise.all([
       window.MoyeoApi.searchCourses(keyword).catch(() => null),
       window.MoyeoApi.searchRooms({ keyword }).catch(() => null),
     ]).then(([courseResult, roomResult]) => {
       if (!active) return;
       if (!Array.isArray(courseResult) && !Array.isArray(roomResult)) { setStatus('error'); return; }
+      setFailedTabs({ course: !Array.isArray(courseResult), room: !Array.isArray(roomResult) });
       setCourses(Array.isArray(courseResult) ? courseResult : []);
       setRooms(Array.isArray(roomResult) ? roomResult : []);
       setStatus('done');
     });
     return () => { active = false; };
-  }, [liveMode, keyword]);
+  }, [liveMode, keyword, reloadKey]);
 
   const Tab = ({ id, label, count }) => (
     <button type="button" onClick={() => setTab(id)} data-testid={`search-results-tab-${id}`} style={{
@@ -922,8 +1014,9 @@ function ScreenSearchResults() {
         </div>
 
         <div style={{ display: 'flex', borderBottom: `1px solid ${RF.softLine}` }}>
-          <Tab id="course" label="코스" count={courses?.length}/>
-          <Tab id="room" label="모집" count={rooms?.length}/>
+          {/* 실패한 탭에 0 을 적으면 「0건 찾았다」는 말이 된다 — 숫자를 비운다. */}
+          <Tab id="course" label="코스" count={failedTabs.course ? null : courses?.length}/>
+          <Tab id="room" label="모집" count={failedTabs.room ? null : rooms?.length}/>
         </div>
 
         <div data-testid="search-results" style={{ position: 'absolute', top: 142, left: 0, right: 0, bottom: 0, overflow: 'auto', padding: '14px 20px 24px' }}>
@@ -936,7 +1029,12 @@ function ScreenSearchResults() {
           {liveMode && status === 'error' && (
             <div role="alert" style={{ padding: '48px 0', textAlign: 'center', color: T.text500, fontSize: 13 }}>불러오지 못했어요.</div>
           )}
-          {liveMode && status === 'done' && list && list.length === 0 && (
+          {liveMode && status === 'done' && failedTabs[tab] && (
+            <div role="alert" data-testid={`search-results-failed-${tab}`} style={{ padding: '48px 0', textAlign: 'center', color: T.text500, fontSize: 13 }}>
+              {tab === 'course' ? '코스를' : '모집을'} 불러오지 못했어요. <button type="button" data-testid="search-results-retry" onClick={() => setReloadKey((key) => key + 1)} style={{ padding: 0, border: 0, background: 'transparent', color: T.primary600, fontFamily: T.fontStack, fontSize: 'inherit', fontWeight: 900, textDecoration: 'underline', cursor: 'pointer' }}>다시 시도</button>
+            </div>
+          )}
+          {liveMode && status === 'done' && !failedTabs[tab] && list && list.length === 0 && (
             <div role="status" style={{ padding: '48px 0', textAlign: 'center', color: T.text500, fontSize: 13 }}>검색 결과가 없어요</div>
           )}
           {liveMode && status === 'done' && tab === 'course' && (courses || []).length > 0 && (

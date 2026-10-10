@@ -2,6 +2,8 @@
 (function () {
   const DEFAULT_BASE_URL = 'https://moyeo-trip-api.jayden-bin.cc';
   const SESSION_KEY = 'moyeo.auth.session';
+  // 서버 계약: PUT 으로 등록·갱신, DELETE 로 해제 (`NotificationController.kt` `/api/v1/notifications/fcm-token`).
+  const PUSH_TOKEN_PATH = '/api/v1/notifications/fcm-token';
   const CONTEXT_KEY = 'moyeo.auth.signup-context';
   const REDIRECT_KEY = 'moyeo.auth.pending-redirect';
 
@@ -189,6 +191,26 @@
     }));
   }
 
+  // ── 서버 점검 (503 · 50300) ──
+  // 점검은 "요청 하나가 실패했다" 가 아니라 **서비스 전체가 지금 닫혀 있다**는 뜻이다.
+  // 예전에는 목록마다 「불러오지 못했어요. 다시 시도」로 접혀, 만들어 둔 38 점검 안내 화면
+  // (`system-maintenance`)이 **어떤 경로에서도 열리지 않았다** (QA OFF-013).
+  // 게이트웨이(Cloudflare)가 가로챈 503 은 JSON 본문이 없어 code 가 비어 있다 —
+  // 그래서 status 를 먼저 보고 code 는 보조로 본다.
+  // 코드 값의 정본은 `shared.jsx MOYEO_MAINTENANCE_CODE` 다 — 두 곳에 다른 값이 남지 않게 그것을 읽고,
+  // shared.jsx 가 없는 실행 환경(테스트 vm)에서만 같은 값으로 떨어진다.
+  function isMaintenanceResponse(status, code) {
+    const maintenanceCode = window.MOYEO_MAINTENANCE_CODE || '50300';
+    return status === 503 || String(code ?? '') === maintenanceCode;
+  }
+  // 가입 게이트와 같은 관례다 — API 계층은 라우터(React 컨텍스트)를 직접 만질 수 없어 이벤트로 올린다.
+  function announceMaintenance(status, code) {
+    if (typeof window.CustomEvent !== 'function' || typeof window.dispatchEvent !== 'function') return;
+    window.dispatchEvent(new window.CustomEvent('moyeo:server-maintenance', {
+      detail: { status, code: String(code ?? ''), route: 'system-maintenance' },
+    }));
+  }
+
   // R6: 공백만 있는 FCM 토큰은 400 `40016 FCM_TOKEN_BLANK` 라 가입·로그인 자체가 막힌다.
   // 값이 없으면 필드를 아예 싣지 않는다(생략 = null 과 같게 처리된다).
   // 같은 토큰을 다른 계정이 갖고 있어도 서버가 이관하므로 클라가 삭제 후 재시도할 필요는 없다.
@@ -234,17 +256,35 @@
       'auth/wrong-password': '비밀번호가 올바르지 않아요. 비밀번호 재설정을 이용해주세요.',
       'auth/weak-password': '비밀번호를 6자 이상 입력해주세요.',
       'auth/unauthorized-domain': '현재 웹 주소가 Firebase 승인 도메인에 등록되지 않았어요.',
+      // 팝업 경로는 리디렉션으로 한 번 더 시도한다(위 getFirebaseIdToken). 여기까지 온 것은
+      // 리디렉션도 막힌 경우라 무엇이 막혔는지 그대로 말한다 (QA AUTH-014).
+      'auth/popup-blocked': '브라우저가 로그인 창을 막았어요. 팝업 차단을 풀고 다시 시도하거나 이메일 로그인을 이용해주세요.',
       'auth/network-request-failed': '네트워크 연결을 확인한 뒤 다시 시도해주세요.',
       'auth/operation-not-allowed': 'Firebase Console에서 이 로그인 방식을 먼저 활성화해주세요.',
     };
-    return new AuthApiError(messages[code] || error?.message || '로그인을 완료하지 못했어요.', 0, code);
+    // Firebase 원문(`Firebase: Error (auth/...)`)은 영문이다 — 밖으로 내보내지 않는다 (W-97).
+    return new AuthApiError(messages[code] || '로그인을 완료하지 못했어요.', 0, code);
+  }
+
+  // 서버가 본문 없이 떨어뜨리면 예전에는 **상태와 상관없이 같은 한 문장**을 붙였다 (W-29).
+  // 그 문장이 한국어라 화면의 `userFacingError` 도 그대로 통과시켜, 403 과 429 가
+  // 「잠시 후 다시 시도해주세요」로 똑같이 보였다 — 403 은 다시 눌러도 달라지지 않는데도.
+  // 문구 정본은 `shared.jsx` 에 있다(같은 말을 두 곳에 적지 않는다).
+  const GENERIC_REQUEST_ERROR = '요청을 처리하지 못했어요. 잠시 후 다시 시도해주세요.';
+  function defaultMessageForStatus(status) {
+    if (status === 429) return window.MOYEO_TOO_MANY_REQUESTS_MESSAGE || GENERIC_REQUEST_ERROR;
+    if (status === 403) return window.MOYEO_FORBIDDEN_MESSAGE || GENERIC_REQUEST_ERROR;
+    return GENERIC_REQUEST_ERROR;
   }
 
   async function parseResponse(response) {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
+      const errorCode = payload.code || payload.errorCode || '';
+      // 점검은 화면 하나가 아니라 앱 전체의 상태다 — 어느 요청에서 만났든 38 점검 안내로 보낸다.
+      if (isMaintenanceResponse(response.status, errorCode)) announceMaintenance(response.status, errorCode);
       throw new AuthApiError(
-        payload.errorMessage || payload.message || '요청을 처리하지 못했어요. 잠시 후 다시 시도해주세요.',
+        payload.errorMessage || payload.message || defaultMessageForStatus(response.status),
         response.status,
         payload.code || payload.errorCode || ''
       );
@@ -529,7 +569,19 @@
           await auth.signInWithRedirect(firebaseProvider);
           return { redirecting: true };
         }
-        const credential = await auth.signInWithPopup(firebaseProvider);
+        // 팝업이 브라우저·확장에 막히면 예전에는 「로그인을 완료하지 못했어요.」 한 줄만 남고
+        // 끝이었다 — 사용자는 무엇이 막혔는지도, 무엇을 하면 되는지도 알 수 없었다 (QA AUTH-014).
+        // 팝업이 막힌 것은 **실패가 아니라 경로 문제**라 리디렉션으로 바꿔 계속 간다.
+        // 리디렉션까지 막히면 그때는 「팝업이 막혔다」고 분명히 말한다.
+        let credential;
+        try {
+          credential = await auth.signInWithPopup(firebaseProvider);
+        } catch (popupError) {
+          if (String(popupError?.code || '') !== 'auth/popup-blocked') throw popupError;
+          savePendingRedirect(provider, { intent: options.intent || 'login' });
+          await auth.signInWithRedirect(firebaseProvider);
+          return { redirecting: true };
+        }
         return { idToken: await credential.user.getIdToken(true) };
       } catch (error) {
         // 취소 코드는 friendlyIdentityError 가 code 를 그대로 보존한다 —
@@ -758,12 +810,29 @@
       const idToken = typeof result === 'string' ? result : result?.idToken;
       return linkWithIdToken(idToken);
     },
-    async withdraw() {
-      const result = getConfig().mockBackend ? {} : await request('/api/v1/users/me', { method: 'DELETE', authenticated: true });
+    // 탈퇴 사유는 **서버로 보낸다**. 예전에는 화면에서 고르게 해 놓고 본문 없이 DELETE 만 보내
+    // 고른 값이 그대로 버려졌다 — 고르라고 해 놓고 쓰지 않으면 그건 죽은 입력이다 (QA SET-039 계열).
+    // 서버 `WithdrawRequest`: `reason`(enum · nullable) · `reasonDetail`(OTHER 일 때만 · 200자).
+    async withdraw({ reason = null, reasonDetail = null } = {}) {
+      const body = {};
+      if (reason) body.reason = reason;
+      if (reason === 'OTHER' && String(reasonDetail || '').trim()) body.reasonDetail = String(reasonDetail).trim();
+      const result = getConfig().mockBackend ? {} : await request('/api/v1/users/me', {
+        method: 'DELETE',
+        authenticated: true,
+        ...(Object.keys(body).length ? { body } : {}),
+      });
       await api.signOut();
       return result;
     },
     async signOut() {
+      // 기기 토큰을 먼저 떼어낸다. 안 떼면 **이전 사용자에게 묶인 채** 남아
+      // 로그아웃한 기기로 남의 푸시가 계속 온다 (W-85). 실패해도 로그아웃은 진행한다.
+      try {
+        if (readSession()?.accessToken) {
+          await request(getConfig().pushTokenRegistrationPath || PUSH_TOKEN_PATH, { method: 'DELETE', authenticated: true });
+        }
+      } catch (_) { /* 토큰 해제 실패가 로그아웃을 막아서는 안 된다 */ }
       clearContext();
       clearServiceSession();
       // TAB-STATE-CANON R4: 탭 보관소를 비운다 — 다른 사용자의 목록·프로필이 남으면 안 된다.
@@ -775,16 +844,18 @@
 
   window.MoyeoAuth = api;
   window.MoyeoAuthApiError = AuthApiError;
-  if (getConfig().pushTokenRegistrationPath) {
-    window.MoyeoPush?.setTokenRegistrar?.((fcmToken) => {
-      // R6: 갱신 경로에서도 공백 토큰은 보내지 않는다 — 40016 으로 되돌아온다.
-      const token = normalizeFcmToken(fcmToken);
-      if (!token) return Promise.resolve(null);
-      return request(getConfig().pushTokenRegistrationPath, {
-        method: 'POST',
-        authenticated: true,
-        body: { fcmToken: token },
-      });
+  // 갱신된 FCM 토큰을 서버에 올리는 자리다. 예전에는 경로가 **빈 문자열**이라 이 훅이 아예
+  // 설치되지 않았고, 메서드도 `POST`(서버는 `PUT`)였다 — 알림을 켜도 다시 로그인하기 전까지
+  // 푸시가 오지 않았다 (W-85). 경로는 서버 계약(`NotificationController.kt` `@PutMapping("/fcm-token")`)
+  // 이므로 기본값으로 박고, 런타임 설정은 **덮어쓰기 용도**로만 남긴다.
+  window.MoyeoPush?.setTokenRegistrar?.((fcmToken) => {
+    // R6: 갱신 경로에서도 공백 토큰은 보내지 않는다 — 40016 으로 되돌아온다.
+    const token = normalizeFcmToken(fcmToken);
+    if (!token) return Promise.resolve(null);
+    return request(getConfig().pushTokenRegistrationPath || PUSH_TOKEN_PATH, {
+      method: 'PUT',
+      authenticated: true,
+      body: { fcmToken: token },
     });
-  }
+  });
 })();

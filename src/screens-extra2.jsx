@@ -15,9 +15,18 @@ const MOYEO_CONTACT = {
 // 단계마다 독립 화면으로 분리했다. 단계 정의는 iOS/Android 구현과 같은 5단계다.
 const FEED_WRITE_STEPS = [
   { step: 1, label: 'STEP 1 · 코스 확인', title: '어떤 여행을 기록할까요?', helper: '방문 코스와 함께한 멤버를 먼저 확인해요.' },
-  { step: 2, label: 'STEP 2 · 사진 선택', title: '대표 사진을 골라요', helper: '사진과 지도 조합이 피드 첫 화면에 함께 보여요.' },
+  // 2026-09-15 결정 ⑪ · FEED-PHOTO-CANON — **피드에 「대표 사진」이라는 개념이 없다.**
+  // 서버 `FeedImage` 는 `fileName`·`sequence` 뿐이라 대표를 고를 대상이 아예 없는데,
+  // 제목만 「대표 사진을 골라요」라 고를 수 없는 것을 고르라고 말하고 있었다 (QA WRITE-010).
+  // 순서 바꾸기도 만들지 않는다 — 고른 순서가 곧 순서다.
+  { step: 2, label: 'STEP 2 · 사진 선택', title: '사진을 골라요', helper: '최대 10장까지, 고른 순서대로 보여요.' },
   { step: 3, label: 'STEP 3 · 사진 & 메모', title: '여행 어땠어요?', helper: '대부분 자동으로 채워졌어요. 한 줄만 남겨주세요.' },
-  { step: 4, label: 'STEP 4 · 공개 설정', title: '누구에게 보여줄까요?', helper: '친구에게만 공개하고 경로와 멤버 정보를 함께 보여줘요.' },
+  // STEP 4 의 설명은 **고른 공개 범위를 따라간다**. 예전에는 「친구에게만 공개…」로 고정이라
+  // 전체공개·나만 보기를 골라도 「친구에게만 공개」라고 적혔다 — 공개 범위를 잘못 알려 주는 문장이라
+  // 단순한 문구 문제가 아니다 (QA WRITE-019 · WRITE-021).
+  // iOS(`FeedWriteView.swift` stepHelper)·안드로이드(`SupportScreens.kt` FeedWriteStepIntro)도
+  // 같은 고정 문자열이다 — 세 플랫폼이 함께 고쳐야 한다(코디네이터 보고).
+  { step: 4, label: 'STEP 4 · 공개 설정', title: '누구에게 보여줄까요?', helper: null },
   { step: 5, label: 'STEP 5 · 최종 확인', title: '게시 전 마지막 확인이에요', helper: '사진, 경로, 멤버가 한 장의 피드처럼 구성됐어요.' },
 ];
 
@@ -132,14 +141,30 @@ const FEED_TITLE_LIMIT = 60;
 const FEED_BODY_LIMIT = 500;
 
 function FeedWriteMemoCard({ title = '', value = '', onChangeTitle, onChange }) {
+  // **세는 값과 보내는 값을 같게 둔다.** 서버 `content` 는 500자 제한인데 제목은 본문 첫 줄로
+  // 함께 실려 나간다(BE §8-7). 제목 60 + 본문 500 을 따로 세면 합이 562자가 되어 서버가
+  // 거절한다 — 사용자에게는 「500자 안」으로 보이는데 게시가 실패한다(2026-09-10).
+  // 그래서 카운터도 입력 제한도 **합쳐진 본문** 기준이다.
+  const used = feedContentWithTitle(title, value).length;
+  const titleLength = String(title || '').length;
+  const titleOver = titleLength > FEED_TITLE_LIMIT;
+  const headLength = String(title || '').trim().length;
+  const bodyLimit = Math.max(0, FEED_BODY_LIMIT - (headLength ? headLength + 2 : 0));
   return (
     <FeedWriteCard>
-      <div style={{ fontSize: 11.5, fontWeight: 900, color: T.text500, marginBottom: 6 }}>제목</div>
+      {/* 제목도 한도와 남은 글자를 **보여 준다**. 예전에는 카운터도 안내도 없이 `maxLength` 로
+          말없이 잘려서, 긴 제목을 붙여넣으면 뒷부분이 소리 없이 사라졌다 (QA WRITE-013).
+          같은 카드의 본문은 이미 세어 보여 주고 있어 두 입력이 서로 다르게 굴었다. */}
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 900, color: T.text500 }}>제목</div>
+        <div data-testid="feed-write-title-count" style={{ fontSize: 11, color: titleOver ? T.danger : T.text400, fontVariantNumeric: 'tabular-nums' }}>
+          {titleLength} / {FEED_TITLE_LIMIT}{titleOver ? ` · ${titleLength - FEED_TITLE_LIMIT}자 넘었어요` : ''}
+        </div>
+      </div>
       <input
         type="text"
         data-testid="feed-write-title"
         value={title}
-        maxLength={FEED_TITLE_LIMIT}
         onChange={(event) => onChangeTitle?.(event.target.value)}
         placeholder="이번 여행을 한마디로"
         style={{ width: '100%', height: 40, border: 0, outline: 'none', background: 'transparent', fontSize: 17, fontWeight: 800, color: T.text900, fontFamily: T.fontStack, padding: 0 }}
@@ -149,12 +174,12 @@ function FeedWriteMemoCard({ title = '', value = '', onChangeTitle, onChange }) 
       <textarea
         data-testid="feed-write-memo"
         value={value}
-        maxLength={FEED_BODY_LIMIT}
+        maxLength={bodyLimit}
         onChange={(event) => onChange?.(event.target.value)}
         placeholder="여행 어땠는지 한 줄 남겨주세요."
         style={{ width: '100%', minHeight: 66, resize: 'vertical', border: 0, outline: 'none', background: 'transparent', fontSize: 14, lineHeight: '22px', color: T.text900, fontFamily: T.fontStack, padding: 0 }}
       />
-      <div style={{ fontSize: 11, color: T.text400, textAlign: 'right', marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{value.length} / {FEED_BODY_LIMIT.toLocaleString('ko-KR')}</div>
+      <div style={{ fontSize: 11, color: T.text400, textAlign: 'right', marginTop: 8, fontVariantNumeric: 'tabular-nums' }}>{used} / {FEED_BODY_LIMIT.toLocaleString('ko-KR')}</div>
     </FeedWriteCard>
   );
 }
@@ -304,18 +329,22 @@ function FeedWriteCourseCards({ status, trips, roomId, onSelect }) {
 }
 
 // 24-4 · 24-5 요약 카드. 코스·일정은 고른 여행의 서버 코스에서 온다 — 예시 값을 적지 않는다(§4).
-function FeedWriteMetaCard({ course, route, companions }) {
+function FeedWriteMetaCard({ course, route, companions, visibility = 'FRIENDS' }) {
   const schedule = [
     course?.travelTime || null,
     course?.distanceKm != null ? `${course.distanceKm}km` : null,
   ].filter(Boolean).join(' · ');
+  // 예전에는 이 카드가 `visibility` 를 받지 않아 **무엇을 고르든 「친구만」**이라고 적었다 (W-67).
+  // 4/5 에서 「전체공개」를 고르고 5/5 최종 확인을 봐도 친구만으로 보였고, 실제로는 전체공개로 올라갔다.
+  const visibilityLabel = (FEED_VISIBILITY_OPTIONS.find((option) => option.id === visibility)
+    || FEED_VISIBILITY_OPTIONS[1]).label;
   const rows = [
     course?.title ? ['map', '코스', course.title] : null,
     schedule ? ['pin', '일정', schedule] : null,
-    ['eye', '공개', route ? '친구만 · 경로지도 포함' : '친구만'],
+    ['eye', '공개', route ? `${visibilityLabel} · 경로지도 포함` : visibilityLabel],
   ].filter(Boolean);
   // 태그는 공개 설정(실제 화면 상태)과 고른 코스의 서버 태그만 쓴다.
-  const tags = ['친구만', route ? '경로지도' : null, ...(course?.tags || []).map((tag) => tag.name)].filter(Boolean);
+  const tags = [visibilityLabel, route ? '경로지도' : null, ...(course?.tags || []).map((tag) => tag.name)].filter(Boolean);
   return (
     <FeedWriteCard>
       <div style={{ display: 'grid', gap: 12 }}>
@@ -397,9 +426,21 @@ function ScreenFeedWrite({ step = 3 }) {
   const content = draft.content || '';
   const feedTitle = draft.title || '';
   const visibility = draft.visibility || 'FRIENDS';
+  // 고른 공개 범위의 설명을 그대로 머리말로 쓴다 — 칩·요약 카드와 같은 문장을 쓰므로
+  // 한 화면 안에서 서로 다른 말을 하지 않는다 (QA WRITE-019 · WRITE-021).
+  const visibilityHelper = [
+    (FEED_VISIBILITY_OPTIONS.find((option) => option.id === visibility) || FEED_VISIBILITY_OPTIONS[1]).hint,
+    '경로와 멤버 정보를 함께 보여줘요.',
+  ].join(' ');
   const photos = draft.images || [];
 
   const [submitting, setSubmitting] = React.useState(false);
+  // 연타 가드는 **state 만으로는 막지 못한다.** 헤더 「게시」와 하단 「게시하기」를 같은 틱에
+  // 연달아 누르면 세 호출 모두 `submitting === false` 를 보고 출발한다 —
+  // 2026-09-14 QA WRITE-028 에서 실제로 그렇게 됐고, 피드는 한 건이었지만
+  // **같은 사진이 두 장 올라간 피드**가 만들어졌다(피드 103, imageId 104·105).
+  // ref 는 즉시 바뀌므로 두 번째 클릭이 바로 되돌아간다.
+  const submittingRef = React.useRef(false);
   const [error, setError] = React.useState('');
 
   // 사진은 서버가 1~10장만 받는다. 10장을 넘겨 고르면 넘치는 만큼은 담지 않고 그 이유를 말해준다.
@@ -417,7 +458,16 @@ function ScreenFeedWrite({ step = 3 }) {
 
   // 게시 조건: 기록할 완료 여행(chatRoomId)과 사진 1장 이상. 둘 다 서버가 요구하는 값이다.
   const roomId = feed.roomId;
-  const canPublish = Boolean(liveMode && roomId && photos.length > 0);
+  // 제목이 한도를 넘으면 게시를 막는다. `maxLength` 로 말없이 자르는 대신 세어 보여 주기로 했으므로
+  // (QA WRITE-013) **넘긴 상태로 보내지는 길**을 여기서 닫는다 — 자르고 저장하면 사용자가 쓴 제목이
+  // 소리 없이 짧아진다(18-6 과 같은 규칙).
+  const feedTitleOver = String(feedTitle || '').length > FEED_TITLE_LIMIT;
+  // **제목·내용이 둘 다 비면 막는다** (2026-09-14 결정 ⑧).
+  // 서버는 `content` 한 필드뿐이라 둘 다 비면 빈 문자열이 나가고, 400 의 필드 원문이
+  // 그대로 떴다 — 어느 칸을 채우라는 건지 말하지 않았다 (QA WRITE-016).
+  // **하나만 채우면 그대로 게시된다** — 둘 중 하나를 필수로 만들지 않는다.
+  const feedBothEmpty = feedContentWithTitle(feedTitle, content).length === 0;
+  const canPublish = Boolean(liveMode && roomId && photos.length > 0 && !feedTitleOver && !feedBothEmpty);
 
   const goStep = (next) => {
     if (next < 1 || next > 5) return;
@@ -425,12 +475,19 @@ function ScreenFeedWrite({ step = 3 }) {
   };
 
   const publish = async () => {
-    if (submitting) return;
+    if (submitting || submittingRef.current) return;
     if (!canPublish) {
       // 왜 못 누르는지 말해준다 — 조용히 아무 일도 안 하면 고친 게 아니다.
-      setError(!roomId ? '기록할 여행을 먼저 골라주세요.' : '사진을 한 장 이상 골라주세요.');
+      setError(!roomId
+        ? '기록할 여행을 먼저 골라주세요.'
+        : (photos.length === 0
+          ? '사진을 한 장 이상 골라주세요.'
+          : (feedBothEmpty
+            ? '제목이나 내용 중 하나는 써 주세요.'
+            : `제목이 ${FEED_TITLE_LIMIT}자를 넘었어요. 먼저 줄여 주세요.`)));
       return;
     }
+    submittingRef.current = true;
     setSubmitting(true);
     setError('');
     try {
@@ -446,7 +503,9 @@ function ScreenFeedWrite({ step = 3 }) {
       if (feedId != null) window.MoyeoApi.selectFeed?.(feedId);
       nav.go('feed');
     } catch (failure) {
-      setError(failure?.message || '피드를 올리지 못했어요.');
+      setError(window.userFacingError(failure, '피드를 올리지 못했어요.'));
+      // 실패했을 때만 다시 열어 준다 — 성공하면 화면을 떠나므로 잠근 채로 둔다.
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -455,7 +514,18 @@ function ScreenFeedWrite({ step = 3 }) {
     <Phone>
       <div style={{ position: 'absolute', inset: 0, paddingTop: 60, background: T.bgSubtle }}>
         <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: T.bgBase }}>
-          <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="close" size={24}/></div>
+          {/* X 는 **흐름을 닫는다**. `nav.back()` 이면 직전 단계로 갈 뿐이라 닫기가 아니라 뒤로였고,
+              5단계에서 빠져나오려면 X 를 다섯 번 눌러야 했다 (QA WRITE-027).
+              모집 만들기 5단계가 이미 쓰는 `exitFlow` 로 `feed-write-*` 프레임을 한 번에 걷어낸다.
+              **초안은 지우지 않는다** — 사진·글이 남아 있어 다시 들어오면 이어서 쓸 수 있다
+              (초안을 지우는 것은 게시 성공 때뿐이다). */}
+          <button
+            type="button"
+            aria-label="닫기"
+            data-testid="feed-write-close"
+            onClick={() => nav.go('feed', { exitFlow: 'feed-write-' })}
+            style={{ border: 0, background: 'transparent', padding: 0, cursor: 'pointer', color: T.text900, lineHeight: 0 }}
+          ><Icon name="close" size={24}/></button>
           <div style={{ fontSize: 15, fontWeight: 700 }}>피드 글쓰기</div>
           {/* 마지막 단계에서만 누를 수 있는 헤더 `게시` — 하단 `게시하기` 와 같은 일을 한다. */}
           {isLast
@@ -468,7 +538,7 @@ function ScreenFeedWrite({ step = 3 }) {
         <div style={{ position: 'absolute', top: 132, left: 0, right: 0, bottom: 92, overflow: 'auto', padding: '20px 20px 8px' }}>
           <div style={{ fontSize: 11, color: T.text500, marginBottom: 4, fontWeight: 700, letterSpacing: 0.5 }}>{meta.label}</div>
           <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.3, marginBottom: 4, letterSpacing: '-0.5px' }}>{meta.title}</div>
-          <div style={{ fontSize: 13, color: T.text500, marginBottom: 16 }}>{meta.helper}</div>
+          <div style={{ fontSize: 13, color: T.text500, marginBottom: 16 }}>{meta.step === 4 ? visibilityHelper : meta.helper}</div>
 
           {meta.step === 1 && (
             <>
@@ -479,13 +549,13 @@ function ScreenFeedWrite({ step = 3 }) {
           )}
           {meta.step === 2 && <><FeedWritePhotoGrid files={photos} onAdd={addPhotos} onRemove={removePhoto}/><FeedWriteRouteCard course={feed.course} route={feed.route}/></>}
           {meta.step === 3 && <><FeedWriteMemoCard title={feedTitle} value={content} onChangeTitle={(value) => patchDraft({ title: value })} onChange={(value) => patchDraft({ content: value })}/><FeedWritePhotoGrid files={photos} onAdd={addPhotos} onRemove={removePhoto}/></>}
-          {meta.step === 4 && <><FeedWriteVisibilityCard value={visibility} onChange={(value) => patchDraft({ visibility: value })}/><FeedWriteMetaCard course={feed.course} route={feed.route} companions={feed.companions}/></>}
+          {meta.step === 4 && <><FeedWriteVisibilityCard value={visibility} onChange={(value) => patchDraft({ visibility: value })}/><FeedWriteMetaCard course={feed.course} route={feed.route} companions={feed.companions} visibility={visibility}/></>}
           {meta.step === 5 && (
             <>
               <FeedWriteMemoCard title={feedTitle} value={content} onChangeTitle={(value) => patchDraft({ title: value })} onChange={(value) => patchDraft({ content: value })}/>
               <FeedWritePhotoGrid files={photos} onAdd={addPhotos} onRemove={removePhoto}/>
               <FeedWriteRouteCard course={feed.course} route={feed.route}/>
-              <FeedWriteMetaCard course={feed.course} route={feed.route} companions={feed.companions}/>
+              <FeedWriteMetaCard course={feed.course} route={feed.route} companions={feed.companions} visibility={visibility}/>
             </>
           )}
           {error && <div role="alert" style={{ fontSize: 12, color: T.danger, marginTop: 4 }}>{error}</div>}
@@ -533,14 +603,18 @@ function ScreenDex() {
           <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: T.bgBase }}>
             <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
             <div style={{ fontSize: 15, fontWeight: 600 }}>친구 도감</div>
-            <Icon name="search" size={22}/>
+            {/* 핸들러 없는 장식 아이콘이었다 — 누를 수 있어 보이는데 아무 일도 없었다 (W-92).
+                도감 검색 API 가 없어 자리를 비운다. */}
+            <span aria-hidden="true" style={{ width: 22, height: 22 }}/>
           </div>
           <div style={{ padding: '20px 20px 16px', background: T.bgBase, borderBottom: `1px solid ${T.line100}` }}>
             <div style={{ fontSize: 13, color: T.text500 }}>지금까지 만난 친구</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
               <div style={{ fontSize: 36, fontWeight: 700, color: T.primary700, fontVariantNumeric: 'tabular-nums', letterSpacing: '-1px' }}>{dex.totalCount}</div>
               <div style={{ fontSize: 15, color: T.text500, fontWeight: 500 }}>마리</div>
-              <div style={{ marginLeft: 'auto', fontSize: 11, color: T.text400 }}>최근 동행 순</div>
+              {/* 정렬은 서버가 최근 동행 순으로 고정해 준다 — 고를 수 있는 것처럼 보이지 않게
+                  「순」 대신 **설명**으로 적는다 (W-92). 정렬 API 가 생기면 여기에 컨트롤을 둔다. */}
+              <div style={{ marginLeft: 'auto', fontSize: 11, color: T.text400 }}>최근에 함께 간 순서로 보여드려요</div>
             </div>
           </div>
           <div style={{ padding: 16, overflow: 'auto', maxHeight: 560 }}>
@@ -562,7 +636,9 @@ function ScreenDex() {
                         : <span style={{ width: 56, height: 56, borderRadius: 999, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={26} color={T.primary600}/></span>}
                     </div>
                     <div style={{ fontSize: 11, fontWeight: 600, textAlign: 'center', lineHeight: 1.3, marginTop: 4, height: 28, overflow: 'hidden' }}>{companion.nickname}</div>
-                    <div style={{ fontSize: 10, color: T.text400, textAlign: 'center', marginTop: 2 }}>{window.MoyeoApi.formatRelative(companion.latestTripDate)}</div>
+                    {/* `latestTripDate` 는 **여행 날짜**지 글을 쓴 시각이 아니다 — 상대 시각으로 바꾸지 않는다
+                        (RELATIVE-TIME-CANON 「쓰는 곳에서 뺀 것 · 동행 기록(27 도감)」). 날짜까지만 적는다. */}
+                    <div style={{ fontSize: 10, color: T.text400, textAlign: 'center', marginTop: 2 }}>{window.MoyeoApi.formatDateOnly(companion.latestTripDate)}</div>
                   </div>
                 ))}
               </div>
@@ -595,20 +671,65 @@ function ScreenProfileEdit() {
 }
 
 // 28 본문 — 28-1 여행 취향 편집 시트가 "이전 화면 위에 떠 있다"고 읽히도록 배경으로도 재사용한다 (changeLog14)
+// 자기소개 한도. 서버 값 그대로다 (`UpdateProfileRequest.introduction` `@Size(max = 300)`).
+const PROFILE_INTRO_LIMIT = 300;
+
 function ProfileEditBody() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
   // 로그인 상태에서는 GET users/me/profile 로 대체한다.
   const liveMode = window.MoyeoApi?.live();
   const [profile, setProfile] = React.useState(null);
+  // 자기소개·생년월일·성별은 **서버가 받는 값**인데(`PUT /users/me/profile`) 화면에서는
+  // `Row` 로 보여주기만 했고 헤더의 「저장」은 핸들러 없는 div 였다 (W-33).
+  const [intro, setIntro] = React.useState('');
+  const [birthDate, setBirthDate] = React.useState('');
+  const [gender, setGender] = React.useState('');
+  const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState('');
+  const [saved, setSaved] = React.useState(false);
   React.useEffect(() => {
     if (!liveMode) return undefined;
     let active = true;
     window.MoyeoApi.myProfile()
-      .then((result) => { if (active && result?.nickname) setProfile(result); })
+      .then((result) => {
+        if (!active || !result?.nickname) return;
+        setProfile(result);
+        setIntro(result.introduction || '');
+        setBirthDate(result.birthDate || '');
+        setGender(result.gender || '');
+      })
       .catch(() => { /* 실패하면 프로필 칸을 비워 둔다 — 예시 프로필로 채우지 않는다 */ });
     return () => { active = false; };
   }, [liveMode]);
-  const genderLabel = profile ? ({ M: '남성', F: '여성', N: '선택 안 함' }[profile.gender] || profile.gender) : '';
+  const introOver = intro.length > PROFILE_INTRO_LIMIT;
+  const changed = Boolean(profile) && (
+    intro !== (profile.introduction || '')
+    || birthDate !== (profile.birthDate || '')
+    || gender !== (profile.gender || '')
+  );
+  const canSave = Boolean(profile) && changed && !introOver && Boolean(birthDate) && Boolean(gender);
+  const save = async () => {
+    if (!canSave || saving) return;
+    setSaving(true);
+    setSaveError('');
+    setSaved(false);
+    try {
+      // 여행 스타일·관심 지역은 28-1 이 관리한다 — 여기서는 **받아 둔 값을 그대로 되돌려** 보낸다.
+      // 빼고 보내면 서버가 빈 집합으로 덮어써 취향이 통째로 지워진다.
+      await window.MoyeoApi.updateProfile({
+        introduction: intro.trim() || null,
+        travelStyleIds: (profile.travelStyles || []).map((style) => style.id),
+        interestedRegionIds: (profile.interestedRegions || []).map((region) => region.id),
+        birthDate,
+        gender,
+      });
+      setProfile((current) => (current ? { ...current, introduction: intro.trim() || null, birthDate, gender } : current));
+      setSaved(true);
+    } catch (requestError) {
+      setSaveError(window.userFacingError(requestError, '프로필을 저장하지 못했어요.'));
+    }
+    setSaving(false);
+  };
   // 프로필 이미지가 없으면 닉네임의 동물을 따른다 — 화면마다 동물을 고정하지 않는다(R5).
   const avatar = window.MoyeoApi?.avatarForNickname?.(profile?.nickname);
   const birthLabel = profile?.birthDate ? profile.birthDate.replaceAll('-', '.') : null;
@@ -633,7 +754,14 @@ function ProfileEditBody() {
         <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: T.bgBase }}>
           <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
           <div style={{ fontSize: 15, fontWeight: 600 }}>프로필 수정</div>
-          <div style={{ fontSize: 13, color: T.primary600, fontWeight: 600 }}>저장</div>
+          {/* 핸들러 없는 div 였다 — 눌러도 아무 일이 없었다 (W-33). */}
+          <button
+            type="button"
+            data-testid="profile-edit-save"
+            disabled={!canSave || saving}
+            onClick={save}
+            style={{ border: 0, background: 'transparent', padding: 0, fontFamily: T.fontStack, fontSize: 13, fontWeight: 600, color: (canSave && !saving) ? T.primary600 : T.text400, cursor: (canSave && !saving) ? 'pointer' : 'default' }}
+          >{saving ? '저장 중...' : '저장'}</button>
         </div>
         
         <div style={{ background: T.bgBase, padding: '24px 20px 28px', display: 'flex', flexDirection: 'column', alignItems: 'center', borderBottom: `1px solid ${T.line100}` }}>
@@ -653,7 +781,20 @@ function ProfileEditBody() {
 
         <div style={{ fontSize: 11, fontWeight: 600, color: T.text500, padding: '20px 20px 8px', letterSpacing: 0.5 }}>공개 프로필</div>
         <div style={{ background: T.bgBase }}>
-          <Row label="자기소개" value={profile?.introduction || ''}/>
+          <div style={{ padding: '14px 20px', borderBottom: `1px solid ${T.line100}` }}>
+            <div style={{ fontSize: 14, color: T.text700, marginBottom: 8 }}>자기소개</div>
+            <textarea
+              data-testid="profile-edit-introduction"
+              aria-label="자기소개"
+              value={intro}
+              disabled={!profile}
+              onChange={(event) => setIntro(event.target.value)}
+              placeholder="어떤 여행을 좋아하는지 한두 줄로 적어보세요."
+              style={{ width: '100%', minHeight: 74, resize: 'none', boxSizing: 'border-box', borderRadius: 12, border: `1px solid ${introOver ? T.danger : T.line200}`, padding: 12, fontSize: 13, lineHeight: '20px', color: T.text900, background: T.bgRaised, fontFamily: T.fontStack, outline: 'none' }}
+            />
+            {/* 넘친 글자는 자르지 않는다 — 넘친 만큼을 적고 저장을 잠근다. */}
+            <div data-testid="profile-edit-introduction-count" style={{ textAlign: 'right', marginTop: 6, fontSize: 11, color: introOver ? T.danger : T.text400, fontVariantNumeric: 'tabular-nums' }}>{intro.length}/{PROFILE_INTRO_LIMIT}{introOver ? ` · ${intro.length - PROFILE_INTRO_LIMIT}자 넘었어요` : ''}</div>
+          </div>
           {/* 여행 스타일과 관심 지역은 가입(06-1)과 동일하게 한 블록에서 함께 조회·수정한다.
               블록(칩·+추가 포함)을 탭하면 여행 취향 편집 Bottom Sheet(28-1)가 열린다. */}
           <div
@@ -686,8 +827,32 @@ function ProfileEditBody() {
         <div style={{ background: T.bgBase }}>
           <Row label="닉네임" value={profile?.nickname || ''} locked/>
           <Row label="캐릭터" value="고정됨" locked/>
-          {birthLabel && <Row label="생년월일" value={birthLabel}/>}
-          {genderLabel && <Row label="성별" value={genderLabel}/>}
+          {/* 생년월일·성별은 서버가 받는 값인데 보여주기만 했다 (W-33). 가입 05 와 같은 피커를 쓴다. */}
+          <div style={{ padding: '14px 20px', borderBottom: `1px solid ${T.line100}` }}>
+            <div style={{ fontSize: 14, color: T.text700, marginBottom: 8 }}>생년월일</div>
+            {window.KoreanBirthDatePicker
+              ? <window.KoreanBirthDatePicker value={birthDate} onChange={setBirthDate}/>
+              : <div style={{ fontSize: 13, color: T.text500 }}>{birthLabel || ''}</div>}
+          </div>
+          <div style={{ padding: '14px 20px', borderBottom: `1px solid ${T.line100}` }}>
+            <div style={{ fontSize: 14, color: T.text700, marginBottom: 8 }}>성별</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[['M', '남성'], ['F', '여성'], ['N', '선택 안 함']].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  data-testid={`profile-edit-gender-${id}`}
+                  disabled={!profile}
+                  onClick={() => setGender(id)}
+                  style={{ flex: 1, height: 42, borderRadius: 10, cursor: profile ? 'pointer' : 'default', fontFamily: T.fontStack, fontSize: 13, fontWeight: 700, border: `1px solid ${gender === id ? T.primary500 : T.line200}`, background: gender === id ? T.primary50 : T.bgRaised, color: gender === id ? T.primary700 : T.text700 }}
+                >{label}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div style={{ padding: '12px 20px 28px', textAlign: 'center' }}>
+          {saveError && <div role="alert" data-testid="profile-edit-error" style={{ fontSize: 12, color: T.danger }}>{saveError}</div>}
+          {saved && !saveError && <div role="status" data-testid="profile-edit-saved" style={{ fontSize: 12, color: T.text500 }}>저장했어요.</div>}
         </div>
       </div>
   );
@@ -701,6 +866,8 @@ function ProfileEditBody() {
 // 바텀시트 프레임(딤 배경 + 상단 라운드 24 + 핸들 바)은 신고 시트(30-2)와 같은 관례를 따른다.
 function ScreenProfileTasteEdit() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
+  // 시트 접근성은 공용 훅 한 곳에서 본다 (QA ENV-007 · shared.jsx `useSheetA11y`).
+  const sheet = window.useSheetA11y({ label: '여행 취향 편집', onClose: nav.back });
   // 후보는 GET users/me/profile/options, 현재 선택은 GET users/me/profile,
   // 저장은 PUT users/me/profile 이다. 하드코딩 후보 표는 없다 —
   // 서버가 목록을 바꾸면 이 화면도 06-1도 바로 따라간다.
@@ -748,7 +915,7 @@ function ScreenProfileTasteEdit() {
       nav.back();
     } catch (requestError) {
       setSaving(false);
-      setSaveError(requestError?.message || '저장하지 못했어요. 잠시 후 다시 시도해주세요.');
+      setSaveError(window.userFacingError(requestError, '저장하지 못했어요. 잠시 후 다시 시도해주세요.'));
     }
   };
   const canSave = serverMode && styleIds.length > 0 && regionIds.length > 0 && !saving;
@@ -768,7 +935,7 @@ function ScreenProfileTasteEdit() {
         <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}><ProfileEditBody/></div>
         <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
 
-        <div style={{
+        <div {...sheet.rootProps} data-testid="profile-taste-edit-sheet" style={{
           position: 'absolute', left: 0, right: 0, bottom: 0,
           background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3,
         }}>
@@ -807,6 +974,9 @@ function ScreenProfileTasteEdit() {
 // ───────── 29 · 설정 ─────────
 function ScreenSettings() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
+  // 시트 접근성은 공용 훅 한 곳에서 본다 (QA ENV-007 · shared.jsx `useSheetA11y`).
+  const infoSheet = window.useSheetA11y({ label: '안내', onClose: () => setInfoDialog(null) });
+  const signOutSheet = window.useSheetA11y({ label: '로그아웃', onClose: () => setSignOutOpen(false) });
   const rowBorder = `1px solid ${T.line100}`;
   const Row = ({ label, value, danger, sub, onClick, testId }) => (
     <button type="button" data-testid={testId} onClick={onClick} style={{ width: '100%', minHeight: sub ? 64 : 58, padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: 0, borderBottom: rowBorder, background: 'transparent', textAlign: 'left', fontFamily: T.fontStack, cursor: onClick ? 'pointer' : 'default' }}>
@@ -839,22 +1009,46 @@ function ScreenSettings() {
   const liveMode = window.MoyeoApi?.live();
   const [serverProfile, setServerProfile] = React.useState(null);
   const [serverDnd, setServerDnd] = React.useState(null);
+  // ── 조회 실패를 빈 상태·기본값으로 그리지 않는다 (NO-MOCK-CANON R1 · iOS 동일 결함 2026-09-15) ──
+  // 예전에는 `.catch(() => {})` 로 실패를 삼키고, 아래 행들이 `serverProfile ? … : true` 로 떨어져
+  // **조회가 실패했는데도** 토글 셋이 켜진 채·「방해금지 22:30~07:00」이 「내 설정」처럼 그려졌다.
+  // 이제 못 읽었으면 값을 그리지 않고 실패라고 말한 뒤 「다시 시도」를 준다.
+  const [notifStatus, setNotifStatus] = React.useState(liveMode ? 'loading' : 'ready');
+  const [notifError, setNotifError] = React.useState(null);
+  const [notifReloadKey, setNotifReloadKey] = React.useState(0);
+  // 알림 토글 저장 실패를 화면에 남기는 자리 (QA SET-006).
+  const [notifSaveError, setNotifSaveError] = React.useState('');
   React.useEffect(() => {
-    if (!liveMode) return undefined;
+    if (!liveMode) { setNotifStatus('ready'); return undefined; }
     let active = true;
-    window.MoyeoApi.myProfile()
-      .then((result) => { if (active && result?.nickname) setServerProfile(result); })
-      .catch(() => {});
-    window.MoyeoApi.notificationSettings()
-      .then((result) => { if (active && result && typeof result.doNotDisturbEnabled === 'boolean') setServerDnd(result); })
-      .catch(() => {});
+    setNotifStatus('loading');
+    setNotifError(null);
+    // 토글 3종은 **프로필**에서 온다 — 그것만 읽으면 그릴 수 있다.
+    // 방해금지 요약은 못 읽어도 토글까지 감출 일은 아니다(요약 자리만 비운다).
+    Promise.all([
+      window.MoyeoApi.myProfile(),
+      window.MoyeoApi.notificationSettings().catch(() => null),
+    ])
+      .then(([profile, settings]) => {
+        if (!active) return;
+        if (!profile?.nickname) throw new Error('profile-missing');
+        setServerProfile(profile);
+        if (settings && typeof settings.doNotDisturbEnabled === 'boolean') setServerDnd(settings);
+        setNotifStatus('ready');
+      })
+      .catch((error) => {
+        if (!active) return;
+        setNotifError(error);
+        setNotifStatus('failed');
+      });
     return () => { active = false; };
-  }, [liveMode]);
+  }, [liveMode, notifReloadKey]);
   const DAY_ENUMS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
   const saveNotificationFlags = async (patch) => {
     if (!serverProfile) return;
     const next = { ...serverProfile, ...patch };
     setServerProfile(next);
+    setNotifSaveError('');
     try {
       await window.MoyeoApi.updateNotificationSettings({
         chatNotificationMode: next.chatNotificationMode,
@@ -866,13 +1060,17 @@ function ScreenSettings() {
         doNotDisturbEndTime: serverDnd?.doNotDisturbEndTime ?? null,
         doNotDisturbDays: (serverDnd?.doNotDisturbDays || []).filter((day) => DAY_ENUMS.includes(day)),
       });
-    } catch (_) {
+    } catch (error) {
       setServerProfile(serverProfile); // 실패 시 원복
+      // 원복만 하고 아무 말도 하지 않으면 스위치가 **혼자 도로 돌아간 것처럼** 보인다 (QA SET-006).
+      setNotifSaveError(window.userFacingError(error, '알림 설정을 저장하지 못했어요.'));
     }
   };
   const dndSummary = serverDnd
     ? (serverDnd.doNotDisturbEnabled && serverDnd.doNotDisturbStartTime
-      ? `방해금지 ${serverDnd.doNotDisturbStartTime}~${serverDnd.doNotDisturbEndTime}`
+      // 서버는 `23:00:00` 꼴로 준다 — 요약에 그대로 찍으면 초까지 보인다(W-131).
+      // 29-2 안쪽 화면은 이미 `HH:mm` 으로 보여 주고 있어 요약만 달랐다.
+      ? `방해금지 ${window.MoyeoApi.formatTime(serverDnd.doNotDisturbStartTime)}~${window.MoyeoApi.formatTime(serverDnd.doNotDisturbEndTime)}`
       : '방해금지 꺼짐')
     : null;
   const [notificationsEnabled, setNotificationsEnabled] = React.useState(
@@ -881,13 +1079,11 @@ function ScreenSettings() {
   const [pushStatus, setPushStatus] = React.useState('checking');
   // 기획(29)의 '채팅 메시지'는 부제 없이 ON이다. 웹은 실제 브라우저 푸시 권한을 쓰므로
   // 사용자가 손쓸 수 있는 차단 상태에서만 부제로 안내하고, 그 외에는 기획과 동일하게 ON·부제 없음으로 둔다.
-  const pushBlockedCopy = {
-    denied: '브라우저 설정에서 알림 권한을 허용해주세요',
-    unsupported: '이 브라우저는 웹 알림을 지원하지 않아요',
-    insecure: 'HTTPS 환경에서만 웹 알림을 쓸 수 있어요',
-    unconfigured: 'Firebase Messaging 설정이 필요해요',
-    error: '알림 연결을 확인하지 못했어요. 다시 시도해주세요',
-  };
+  // 문구는 shared.jsx 한 곳에만 둔다 — 20-1c 이 모임 알림도 같은 문장을 쓴다
+  // (OS-NOTIFICATION-BLOCK-CANON). 여기에 또 적으면 한쪽만 고쳐져 갈라진다.
+  // 'prompt' 는 **아직 허용한 적이 없는** 상태다. 예전에는 이 키가 없어서
+  // `pushBlocked = false` 가 되고 스위치가 늘 켜짐으로 보였다 — 사용자는 알림을 받는 줄 알았다 (W-40).
+  const pushBlockedCopy = window.MOYEO_PUSH_BLOCK_COPY;
   const pushBlocked = Object.prototype.hasOwnProperty.call(pushBlockedCopy, pushStatus);
   React.useEffect(() => {
     let active = true;
@@ -951,6 +1147,23 @@ function ScreenSettings() {
   };
   const infoDialogSpec = infoDialog ? infoDialogs[infoDialog] : null;
 
+  // ── 로그아웃 확인 (W-105) ──
+  // 웹만 확인 없이 바로 세션을 끊고 있었다. 로그아웃은 되돌릴 수는 있지만
+  // 작성 중이던 초안·탭 캐시가 함께 사라지므로 한 번 묻는다.
+  const [signOutOpen, setSignOutOpen] = React.useState(false);
+  const [signingOut, setSigningOut] = React.useState(false);
+  const confirmSignOut = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await window.MoyeoAuth.signOut();
+      nav.go('login', { replace: true });
+    } finally {
+      setSigningOut(false);
+      setSignOutOpen(false);
+    }
+  };
+
   const Section = ({ title, children }) => (
     <section style={{ marginBottom: 16 }}>
       <div style={{ fontSize: 12, fontWeight: 800, color: T.text500, padding: '0 20px' }}>{title}</div>
@@ -970,11 +1183,33 @@ function ScreenSettings() {
 
         <div style={{ paddingTop: 14, paddingBottom: 34 }}>
         <Section title="알림">
+          {notifSaveError && (
+            <div role="alert" data-testid="settings-notif-error" style={{ margin: '0 20px 8px', padding: '10px 12px', borderRadius: 10, border: `1px solid ${T.danger}`, fontSize: 12, lineHeight: '18px', color: T.danger }}>{notifSaveError}</div>
+          )}
+          {/* 채팅 메시지는 **브라우저 권한**이라 서버 조회와 무관하다 — 그대로 둔다. */}
           <ToggleRow label="채팅 메시지" on={notificationsEnabled || !pushBlocked} sub={pushBlocked ? pushBlockedCopy[pushStatus] : undefined} onClick={enableNotifications}/>
-          <ToggleRow label="모집 마감 임박" on={serverProfile ? serverProfile.recruitmentDeadlineEnabled : true} sub="D-3부터 알려드려요" onClick={serverProfile ? () => saveNotificationFlags({ recruitmentDeadlineEnabled: !serverProfile.recruitmentDeadlineEnabled }) : undefined}/>
-          <ToggleRow label="친구 신청·피드 반응" on={serverProfile ? serverProfile.socialActivityEnabled : true} onClick={serverProfile ? () => saveNotificationFlags({ socialActivityEnabled: !serverProfile.socialActivityEnabled }) : undefined}/>
-          <ToggleRow label="마케팅 알림" on={serverProfile ? serverProfile.marketingEnabled : false} sub="이벤트·새 코스 소개" onClick={serverProfile ? () => saveNotificationFlags({ marketingEnabled: !serverProfile.marketingEnabled }) : undefined}/>
-          <Row label="알림 세부 설정" value={dndSummary || '방해금지 22:30~07:00'} onClick={() => nav.go('notif-detail')} testId="settings-notif-detail"/>
+          {/* 서버가 주는 세 플래그는 **읽었을 때만** 그린다. 못 읽었으면 스위치 자체를 그리지 않는다 —
+              켜짐·꺼짐 어느 쪽으로 그려도 근거 없는 주장이 된다 (NO-MOCK-CANON R1·R3). */}
+          {notifStatus === 'loading' && (
+            <div role="status" data-testid="settings-notif-loading" style={{ padding: '16px', fontSize: 12, color: T.text500 }}>불러오는 중이에요…</div>
+          )}
+          {notifStatus === 'failed' && (
+            <div role="status" data-testid="settings-notif-failed" style={{ padding: '16px', fontSize: 12, color: T.text500 }}>
+              {window.screenErrorText(notifError, '불러오지 못했어요.')}
+              {window.errorAllowsRetry(notifError) && <> <button type="button" data-testid="settings-notif-retry" onClick={() => setNotifReloadKey((key) => key + 1)} style={{ padding: 0, border: 0, background: 'transparent', color: T.primary600, fontFamily: T.fontStack, fontSize: 'inherit', fontWeight: 900, textDecoration: 'underline', cursor: 'pointer' }}>다시 시도</button></>}
+            </div>
+          )}
+          {serverProfile && (
+            <>
+              <ToggleRow label="모집 마감 임박" on={serverProfile.recruitmentDeadlineEnabled} sub="D-3부터 알려드려요" onClick={() => saveNotificationFlags({ recruitmentDeadlineEnabled: !serverProfile.recruitmentDeadlineEnabled })}/>
+              <ToggleRow label="친구 신청·피드 반응" on={serverProfile.socialActivityEnabled} onClick={() => saveNotificationFlags({ socialActivityEnabled: !serverProfile.socialActivityEnabled })}/>
+              <ToggleRow label="마케팅 알림" on={serverProfile.marketingEnabled} sub="이벤트·새 코스 소개" onClick={() => saveNotificationFlags({ marketingEnabled: !serverProfile.marketingEnabled })}/>
+            </>
+          )}
+          {/* 요약을 못 읽었으면 **값 칸을 비운다.** 「방해금지 22:30~07:00」은 사용자가 정한 적 없는
+              시각이고, 서버가 준 값도 아니었다 (W-… · iOS 동일 결함). 행 자체는 남긴다 — 들어가면
+              36 화면이 자기 상태를 다시 읽고 실패도 거기서 말한다. */}
+          <Row label="알림 세부 설정" value={dndSummary || undefined} onClick={() => nav.go('notif-detail')} testId="settings-notif-detail"/>
         </Section>
 
         <Section title="화면">
@@ -987,6 +1222,13 @@ function ScreenSettings() {
         <Section title="계정">
           <Row label="로그인 방식" value="관리" onClick={() => nav.go('auth-methods')} testId="settings-auth-methods"/>
           <Row label="차단한 사용자" value="관리" onClick={() => nav.go('blocked')} testId="settings-blocked"/>
+          {/* 13-2 내보내진 기록 — 13-1 은 **알림 한 건**을 여는 화면이라 알림이 사라지면 사유를
+              다시 볼 길이 없었다. iOS(`SettingsRowAction.kickHistory`)·안드로이드
+              (`SettingsValueRow(title = "내보내진 기록")`)가 둘 다 설정 › 계정에 두고 있는데
+              **웹만 들어갈 길이 없어** 라우트로만 열렸다(2026-09-14 검증).
+              2026-09-09 에 뺀 것은 13-1 안내 화면의 「전체 보기」 버튼이다 — 그 자리는 기획에도
+              앱에도 없어 웹만 항목이 하나 더 있던 것이라 뺐고, **설정 항목과는 다른 자리**다. */}
+          <Row label="내보내진 기록" onClick={() => nav.go('kick-history')} testId="settings-kick-history"/>
           <Row label="개인정보 처리방침" onClick={() => nav.go('privacy-settings')} testId="settings-privacy"/>
           <Row label="이용약관" onClick={() => nav.go('terms-settings')} testId="settings-terms"/>
         </Section>
@@ -997,13 +1239,16 @@ function ScreenSettings() {
           <Row label="문의하기" onClick={() => setInfoDialog('contact')} testId="settings-contact"/>
           <Row label="앱 평가하기" onClick={() => setInfoDialog('rate')} testId="settings-rate"/>
           <Row label="오픈소스 라이선스" onClick={() => nav.go('oss-licenses')} testId="settings-oss-licenses"/>
-          <Row label="로그아웃" danger testId="settings-sign-out" onClick={async () => { await window.MoyeoAuth.signOut(); nav.go('login', { replace: true }); }}/>
-          <Row label="계정 탈퇴" danger sub="30일 안에는 되살릴 수 있어요" testId="settings-withdraw" onClick={async () => { if (!window.confirm('계정을 즉시 영구 삭제할까요?')) return; await window.MoyeoAuth.withdraw(); nav.go('login', { replace: true }); }}/>
+          {/* W-105: 한 번의 오탭으로 세션이 끊기지 않도록 확인 단계를 둔다(안드·iOS 와 같은 자리). */}
+          <Row label="로그아웃" danger testId="settings-sign-out" onClick={() => setSignOutOpen(true)}/>
+          {/* W-06: 탈퇴는 브라우저 기본 confirm 한 번으로 끝낼 일이 아니다.
+              사유 선택·필수 확인·참여 중인 여행 경고를 갖춘 37 화면으로 보낸다. */}
+          <Row label="계정 탈퇴" danger sub="30일 안에는 되살릴 수 있어요" testId="settings-withdraw" onClick={() => nav.go('account-delete')}/>
         </Section>
         </div>
 
         {infoDialogSpec && (
-          <div data-testid="settings-info-dialog" role="dialog" aria-modal="true" aria-label={infoDialogSpec.title} style={{ position: 'absolute', inset: 0, background: T.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 20 }}>
+          <div {...infoSheet.rootProps} aria-label={infoDialogSpec.title} data-testid="settings-info-dialog" style={{ position: 'absolute', inset: 0, background: T.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 20 }}>
             <div style={{ width: '100%', maxWidth: 320, background: T.bgRaised, borderRadius: 20, padding: 22, boxShadow: T.l3 }}>
               <div style={{ fontSize: 17, fontWeight: 900, lineHeight: '24px' }}>{infoDialogSpec.title}</div>
               <div style={{ fontSize: 12.5, color: T.text500, marginTop: 10, lineHeight: '19px' }}>{infoDialogSpec.body}</div>
@@ -1031,6 +1276,19 @@ function ScreenSettings() {
             </div>
           </div>
         )}
+
+        {signOutOpen && (
+          <div {...signOutSheet.rootProps} data-testid="settings-sign-out-dialog" style={{ position: 'absolute', inset: 0, background: T.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 20 }}>
+            <div style={{ width: '100%', maxWidth: 320, background: T.bgRaised, borderRadius: 20, padding: 22, boxShadow: T.l3 }}>
+              <div style={{ fontSize: 17, fontWeight: 900, lineHeight: '24px' }}>로그아웃할까요?</div>
+              <div style={{ fontSize: 12.5, color: T.text500, marginTop: 10, lineHeight: '19px' }}>작성 중이던 내용은 저장되지 않아요. 다시 로그인하면 그대로 이어서 쓸 수 있어요.</div>
+              <div style={{ marginTop: 18, display: 'flex', gap: 8 }}>
+                <Btn variant="ghost" testId="settings-sign-out-cancel" onClick={() => setSignOutOpen(false)}>취소</Btn>
+                <div style={{ flex: 1 }}><Btn variant="primary" full disabled={signingOut} testId="settings-sign-out-confirm" onClick={confirmSignOut}>{signingOut ? '로그아웃 중...' : '로그아웃'}</Btn></div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Phone>
   );
@@ -1039,7 +1297,10 @@ function ScreenSettings() {
 // ───────── 29-1 · 로그인 방식 관리 ─────────
 function ScreenAuthMethods() {
   const nav = (window.useNav ? window.useNav() : { back: () => {} });
-  const [providers, setProviders] = React.useState([]);
+  // 「못 받았다」와 「없다」를 구분한다 — 빈 배열로 떨어지면 이미 연결된 제공자까지
+  // 「연결되지 않음 + 연결하기」로 보였다 (W-89). 못 받았으면 상태를 말하지 않는다.
+  const [providers, setProviders] = React.useState(null);
+  const [reloadKey, setReloadKey] = React.useState(0);
   const [loadingProvider, setLoadingProvider] = React.useState('');
   const [emailOpen, setEmailOpen] = React.useState(false);
   const [email, setEmail] = React.useState('');
@@ -1049,11 +1310,16 @@ function ScreenAuthMethods() {
 
   React.useEffect(() => {
     let active = true;
+    setError('');
     window.MoyeoAuth.getLinkedProviders()
-      .then((result) => { if (active) setProviders(result.providers || []); })
-      .catch((requestError) => { if (active) setError(requestError?.message || '로그인 방식을 불러오지 못했어요.'); });
+      .then((result) => { if (active) setProviders(Array.isArray(result?.providers) ? result.providers : null); })
+      .catch((requestError) => {
+        if (!active) return;
+        setProviders(null);
+        setError(window.userFacingError(requestError, '로그인 방식을 불러오지 못했어요.'));
+      });
     return () => { active = false; };
-  }, []);
+  }, [reloadKey]);
 
   const link = async (provider, options = {}) => {
     if (loadingProvider) return;
@@ -1062,9 +1328,9 @@ function ScreenAuthMethods() {
     try {
       const result = await window.MoyeoAuth.linkProvider(provider, options);
       // 취소(R1·R2)와 리다이렉트는 아직 아무 일도 일어나지 않은 상태다 — 목록을 그대로 둔다.
-      if (!result?.redirecting && !result?.cancelled) setProviders(result.providers || providers);
+      if (!result?.redirecting && !result?.cancelled) setProviders(Array.isArray(result?.providers) ? result.providers : providers);
     } catch (requestError) {
-      setError(requestError?.message || '로그인 방식을 연결하지 못했어요.');
+      setError(window.userFacingError(requestError, '로그인 방식을 연결하지 못했어요.'));
     } finally {
       setLoadingProvider('');
     }
@@ -1098,22 +1364,23 @@ function ScreenAuthMethods() {
           <p style={{ margin: '0 2px 18px', color: T.text500, fontSize: 13, lineHeight: 1.55 }}>어느 방법으로든 같은 계정으로 들어와요. 하나를 더 연결해두면 한쪽을 못 쓰게 돼도 들어올 수 있어요.</p>
           <div style={{ display: 'grid', gap: 12 }}>
             {rows.map((item) => {
-              const linked = providers.includes(item.id.toUpperCase());
+              // null = 아직 모른다(조회 실패). 모르는 상태를 「연결되지 않음」으로 단정하지 않는다.
+              const linked = providers ? providers.includes(item.id.toUpperCase()) : null;
               return (
                 <div key={item.id} style={{ padding: 14, borderRadius: 12, border: `1px solid ${T.line200}`, background: T.bgBase }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div style={{ width: 44, height: 44, borderRadius: 10, display: 'grid', placeItems: 'center', background: item.bg, color: item.color, border: `1px solid ${item.border || 'transparent'}` }}>{item.icon}</div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 15, fontWeight: 800 }}>{item.label}</div>
-                      <div style={{ marginTop: 3, fontSize: 12, color: linked ? T.primary600 : T.text500 }}>{linked ? '연결됨' : '연결되지 않음'}</div>
+                      <div style={{ marginTop: 3, fontSize: 12, color: linked ? T.primary600 : T.text500 }}>{linked === null ? '연결 상태를 확인하지 못했어요' : (linked ? '연결됨' : '연결되지 않음')}</div>
                     </div>
-                    {!linked && (
+                    {linked === false && (
                       <button type="button" data-testid={`link-provider-${item.id}`} disabled={Boolean(loadingProvider)} onClick={() => item.id === 'email' ? setEmailOpen((open) => !open) : link(item.id)} style={{ minWidth: 76, height: 38, padding: '0 14px', borderRadius: 9, border: 0, background: T.primary500, color: '#fff', fontSize: 13, fontWeight: 800, fontFamily: T.fontStack }}>
                         {loadingProvider === item.id ? '연결 중' : '연결하기'}
                       </button>
                     )}
                   </div>
-                  {item.id === 'email' && !linked && emailOpen && (
+                  {item.id === 'email' && linked === false && emailOpen && (
                     <form onSubmit={(event) => { event.preventDefault(); if (canLinkEmail) link('email', { email, password, mode: 'signup' }); }} style={{ display: 'grid', gap: 9, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.line100}` }}>
                       <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="새 이메일" style={inputStyle}/>
                       <input type="password" required minLength="6" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="새 비밀번호 (6자 이상)" style={inputStyle}/>
@@ -1133,6 +1400,11 @@ function ScreenAuthMethods() {
             </div>
           </div>
           <div role="status" style={{ minHeight: 20, marginTop: 14, color: error ? T.danger : T.text500, fontSize: 12, textAlign: 'center' }}>{error}</div>
+          {providers === null && (
+            <div style={{ textAlign: 'center', marginTop: 6 }}>
+              <button type="button" data-testid="auth-methods-retry" onClick={() => setReloadKey((key) => key + 1)} style={{ height: 40, padding: '0 16px', borderRadius: 10, border: `1px solid ${T.line200}`, background: T.bgBase, color: T.primary600, fontSize: 13, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>다시 시도</button>
+            </div>
+          )}
         </div>
       </div>
     </Phone>
@@ -1292,7 +1564,7 @@ function ScreenPublicProfile({ initialFlipped = false }) {
       setRequestState('sent');
     } catch (error) {
       setRequestState('idle');
-      setRequestError(error?.message || '친구 요청을 보내지 못했어요.');
+      setRequestError(window.userFacingError(error, '친구 요청을 보내지 못했어요.'));
     }
   };
 

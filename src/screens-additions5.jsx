@@ -88,9 +88,13 @@ function ScreenOssLicenseDetail() {
             }}>{item?.license || ''}</span>
           </div>
 
-          <div style={{ marginTop: 14, fontSize: 11.5, color: T.text500, lineHeight: '18px', wordBreak: 'break-all' }}>
-            원문 확인 · {item?.url || ''}
-          </div>
+          {/* 주소를 글자로만 적어 두면 확인할 방법이 손으로 옮겨 적는 것뿐이다 — 실제 링크로 만든다
+              (QA SET-033). 외부로 나가는 링크라 새 탭 + `rel=noopener` 을 붙인다. */}
+          {item?.url ? (
+            <div style={{ marginTop: 14, fontSize: 11.5, color: T.text500, lineHeight: '18px', wordBreak: 'break-all' }}>
+              원문 확인 · <a data-testid="oss-license-url" href={item.url} target="_blank" rel="noopener noreferrer" style={{ color: T.primary600, fontWeight: 700 }}>{item.url}</a>
+            </div>
+          ) : null}
 
           {lines.length > 0 && (
             <div data-testid="oss-license-text" style={{ marginTop: 16, padding: 14, borderRadius: 12, background: T.bgSubtle, border: `1px solid ${RF.softLine}` }}>

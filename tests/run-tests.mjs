@@ -32,9 +32,12 @@ const routes = [
   "terms",
   "terms-detail",
   "terms-privacy",
-  "terms-location",
   "terms-marketing",
   "terms-settings",
+  // 설정 › 개인정보는 **처리방침**(PRIVACY_POLICY)이지 가입 때 받는 수집·이용 동의서가 아니다.
+  // 그 둘을 제목 문자열로 섞어 열던 것이 QA BE-03 이라, 설정 쪽 두 경로도 렌더 대상에 넣는다.
+  "privacy-settings",
+  "marketing-settings",
   "place-search",
   "place-detail",
   "home",
@@ -132,7 +135,8 @@ const expectedTexts = {
   feed: ["피드", "발견", "로그인하면 모집 중인 모임을 볼 수 있어요."],
   // 목 여행 카드는 없다 — 미로그인 마이는 로그인 안내만 남는다 (찜한 코스 탭도 조회 API 가 없어 지웠다)
   my: ["내 여행", "0개", "진행중", "지난여행", "로그인하면 모집 중인 모임을 볼 수 있어요.", "친구 도감"],
-  login: ["모여트립에 오신 걸", "환영해요", "카카오 로그인", "이메일로 시작하기", "Google로 계속하기", "Apple로 계속하기"],
+  // 2026-09-14 결정 ③: 로그인 버튼 문구는 「○○ 로그인」으로 통일했다 (ROUND-2026-09-14-DECISIONS ③).
+  login: ["모여트립에 오신 걸", "환영해요", "카카오 로그인", "이메일 로그인", "Google 로그인", "Apple 로그인"],
   "email-auth": ["이메일로 시작하기", "비밀번호", "비밀번호를 잊으셨나요?", "계속하기"],
   // 후보는 서버에서만 온다 — 받지 못하면 예시 닉네임 대신 오류 안내가 남는다
   nickname: ["프로필 설정", "어떤 친구로", "시작할까요?", "다른 이름 추천받기", "새 이름을 불러오지 못했어요."],
@@ -144,11 +148,17 @@ const expectedTexts = {
   "profile-edit": ["프로필 수정", "여행 취향", "탭해서 바로 수정", "여행 스타일", "관심 지역"],
   "profile-taste-edit": ["여행 취향 편집", "여행 스타일과 관심 지역은 함께 저장돼요.", "취소", "저장"],
   terms: ["약관", "동의"],
-  "terms-detail": ["이용약관", "필수", "동의하고 돌아가기", "최소 인원(3명)", "제6조 (계정과 닉네임)"],
-  "terms-privacy": ["개인정보 처리방침", "필수", "보관 기간", "동의하고 돌아가기"],
-  "terms-location": ["위치정보 이용 동의", "선택", "이 항목에 동의하기"],
-  "terms-marketing": ["마케팅 정보 수신 동의", "선택", "이 항목에 동의하기"],
-  "terms-settings": ["이용약관", "필수", "이전 판본"],
+  // 약관 본문은 **서버 원장에만** 있다 — 클라이언트에 사본이 없으므로 본문 문자열로는 계약을 걸 수 없다.
+  // (예전에는 `최소 인원(3명)`·`보관 기간` 같은 하드코딩 사본 문장을 기대해 두어, 사본이 서버와
+  //  달라져도 테스트는 초록이었다.) 대신 **종류(code)가 제자리에 열리는지**를 본다 —
+  //  제목 매칭으로 처리방침 자리에 가입 동의서가 열리던 것이 QA BE-03 이었다.
+  //  본문 유무에 따라 바뀌지 않는 표식만 기대한다: 화면 표식·code·화면 이름·고지 문구.
+  "terms-detail": ['data-testid="terms-detail-screen"', 'data-term-code="SERVICE"', "약관이 바뀌면 시행 7일 전에"],
+  "terms-privacy": ['data-term-code="PRIVACY_COLLECTION"', "약관이 바뀌면 시행 7일 전에"],
+  "terms-marketing": ['data-term-code="MARKETING"', "약관이 바뀌면 시행 7일 전에"],
+  "terms-settings": ['data-term-code="SERVICE"', "이용약관", "약관이 바뀌면 시행 7일 전에"],
+  "privacy-settings": ['data-term-code="PRIVACY_POLICY"', "개인정보 처리방침"],
+  "marketing-settings": ['data-term-code="MARKETING"', "마케팅 정보 수신 동의"],
   "place-search": ["방문지 검색", "관광지", "코스에 반영"],
   // 표본 상세를 지웠으므로 contentId 없이 열면 오류 상태만 남는다
   "place-detail": ["방문지", "불러오지 못했어요."],
@@ -161,7 +171,10 @@ const expectedTexts = {
   // 경로 지도·멤버 칩도 그릴 근거가 없다. 예전엔 "경로 (자동)" 빈 카드를 늘 그려서
   // 데이터가 없어도 있는 것처럼 보였다.
   "feed-write-1": ["피드 글쓰기", "STEP 1 · 코스 확인", "기록할 코스", "로그인하면 모집 중인 모임을 볼 수 있어요."],
-  "feed-write-2": ["피드 글쓰기", "STEP 2 · 사진 선택", "대표", "사진 추가"],
+  // 2026-09-15 결정 ⑪ (FEED-PHOTO-CANON) — 피드에는 「대표 사진」이라는 개념이 없다.
+  // 서버 `FeedImage` 에 대표 플래그가 없어 고를 대상 자체가 없으므로, 그 낱말이 **다시 생기면**
+  // 이 계약이 깨져야 한다. 「대표」가 있는지가 아니라 **없는지**를 지킨다.
+  "feed-write-2": ["피드 글쓰기", "STEP 2 · 사진 선택", "사진을 골라요", "최대 10장까지, 고른 순서대로 보여요.", "사진 추가"],
   "feed-write-3": ["피드 글쓰기", "STEP 3 · 사진 &amp; 메모", "여행 어땠어요?"],
   "feed-write-4": ["피드 글쓰기", "STEP 4 · 공개 설정", "공개 범위", "친구만"],
   "feed-write-5": ["피드 글쓰기", "STEP 5 · 최종 확인", "게시하기"],
@@ -180,14 +193,22 @@ const expectedTexts = {
   "profile-back": ["프로필", "불러오지 못했어요."],
   "auth-methods": ["로그인 방식", "카카오", "Google", "이메일", "Apple"],
   create: ["모집 만들기 (1/5)", "코스 선택", "등록된 코스로 떠나기", "코스 직접 만들기", "이 코스로 다음"],
-  "custom-course": ["코스 직접 만들기", "방문지 검색", "최소 2개 · 최대 20개", "여행이 확정되기 전까지"],
+  // 「최소 2개 · 최대 20개」는 17 코스 만들기 안내(`ScreenCreateReview`)의 문장이고,
+  // 17-4 에디터는 담긴 수를 세는 「N개 방문지 · 최소 2개」다 — 기획·iOS·안드로이드도 같다.
+  // 여기에 안내 문장을 기대해 두어 **에디터가 깨진 것처럼** 읽혔다 (2026-09-10 바로잡음).
+  "custom-course": ["코스 직접 만들기", "방문지 검색", "개 방문지 · 최소 2개", "여행이 확정되기 전까지"],
   "create-schedule": ["모집 만들기 (2/5)", "일정 정하기", "당일치기", "1박 이상", "집합 장소 · 집합 시간", "이전", "다음"],
-  "create-people": ["모집 만들기 (3/5)", "몇 명이 모이면 좋을까요?", "최소 인원", "최대 인원", "20~100세", "성별 제한", "이전", "다음"],
+  // 나이대 제한 기본이 「제한 없음」으로 바뀌었다 — 호스트가 정한 적 없는 값으로 제약을 걸지 않는다
+  // (2026-09-13). 「20~100세」 안내는 「직접 정하기」를 골라야 나오므로 기본 화면 계약에서 뺐다.
+  "create-people": ["모집 만들기 (3/5)", "몇 명이 모이면 좋을까요?", "최소 인원", "최대 인원", "나이와 상관없이 누구나 신청할 수 있어요.", "성별 제한", "이전", "다음"],
   // 17-4a · 17-4b — 인원수별 멘트 3단계 중 양 끝. 기본값(17-4)은 위 단체 사진 멘트다.
   "create-people-small": ["모집 만들기 (3/5)", "4명", "3 / 4명 · 최소 충족", "말 트기 좋은 작은 그룹이에요"],
   "create-people-large": ["모집 만들기 (3/5)", "10명", "3 / 10명 · 최소 충족", "9명 이상은 친목이 쉽지 않을 수 있어요"],
   "create-detail": ["모집 만들기 (4/5)", "어떤 여행인지 알려주세요", "모집 이름 (채팅방 이름)", "신청 승인 방식", "이전", "다음"],
-  "create-meet": ["모집 만들기 (2/5)", "집합 장소 정하기", "검색하거나 지도의 핀을 움직여 정확한 위치를 알려주세요.", "상세 안내", "좌표 (자동 저장)", "집합 시간", "근처 모집 추천", "이전", "이 위치로 지정"],
+  // 위경도 표시와 「근처 모집 추천」 안내는 **사용자 결정(2026-09-09)으로 화면에서 뺐다** —
+  // 값은 그대로 저장돼 채팅방 지도 카드·길 찾기에 쓰인다(`screens-additions.jsx` 주석).
+  // 네 표면 모두 지운 문구를 여기만 기대하고 있었다.
+  "create-meet": ["모집 만들기 (2/5)", "집합 장소 정하기", "검색하거나 지도의 핀을 움직여 정확한 위치를 알려주세요.", "상세 안내", "집합 시간", "이전", "이 위치로 지정"],
   "create-summary": ["모집 만들기 (5/5)", "이대로 모집을 열까요?", "호스트 직접 코스", "여행이 확정되기 전까지", "이전", "모집 열기"],
   "create-summary-linked": ["모집 만들기 (5/5)", "이대로 모집을 열까요?", "등록된 코스", "경로(방문지·순서)는 수정할 수 없고", "이전", "모집 열기"],
   "course-edit": ["여행 경로", "마감 전까지 경로를 바꿀 수 있어요", "저장하고 멤버에게 알리기"],
@@ -229,13 +250,19 @@ const expectedTexts = {
   // 대상 피드가 정해져야 열리므로, 미로그인에서는 §2 정본 문구만 남는다 —
   // 예전 기대값(신고하기·차단)은 하드코딩 사유와 차단 전용 시트의 잔재였다.
   report: ["신고 사유", "로그인하면 모집 중인 모임을 볼 수 있어요."],
-  blocked: ["차단한 사용자", "차단 해제"],
+  // 「차단 해제」 버튼은 **차단 목록이 있을 때만** 그려진다(목데이터 금지 · 정본 R1).
+  // 이 묶음은 로그인하지 않은 상태로 도는 화면이라 목록이 비어 버튼이 없다 —
+  // 버튼 자체는 QA 의 SOCIAL 모듈에서 실계정으로 본다.
+  blocked: ["차단한 사용자", "상대방에게는 알려지지 않아요"],
   "course-publish": ["코스 공개", "한 번 공개한 코스는", "코스 공개하기"],
   "trip-confirmed": ["여행이 확정됐어요!", "확정된 여행", "채팅방으로 가기"],
   "trip-day": ["로그인하면 모집 중인 모임을 볼 수 있어요."],
   "notif-detail": ["채팅 알림", "방해금지", "멘션·답글만"],
   "account-delete": ["계정 탈퇴", "30일", "탈퇴"],
-  "system-maintenance": ["잠시 점검 중이에요", "다시 확인"],
+  // 「10분마다 자동으로 다시 확인해요」는 **타이머가 없는데 있다고 말하는 문구**였고,
+  // 「예상 종료 · 오늘 오전 4:00」도 근거 없이 박힌 시각이었다 (W-94). 둘 다 없앴다 —
+  // 서버가 예상 종료 시각을 주면 그때만 그린다. 남는 재시도 수단은 「지금 확인」 하나다.
+  "system-maintenance": ["잠시 점검 중이에요", "지금 확인", "점검 중에는 모집·채팅이 열리지 않아요"],
   "system-error": ["무언가 살짝", "잘못됐어요", "새로고침"],
   "feed-comments": ["댓글", "로그인하면 모집 중인 모임을 볼 수 있어요."],
 };
@@ -452,15 +479,46 @@ async function staticTests() {
     "ariaLabel=\"지도에서 보기\"",
     "place-search-map",
     "<MiniMap height={150} markers={mapMarkers}/>",
-    "doc=\"marketing\"",
+    "code=\"MARKETING\"",
     "from=\"settings\"",
+    // 설정 › 개인정보 처리방침은 PRIVACY_POLICY 다. 가입 동의서(PRIVACY_COLLECTION)와 다른 문서라
+    // 둘 다 화면에 있어야 하고, 서로 바뀌면 안 된다 (QA BE-03).
+    "code=\"PRIVACY_POLICY\" from=\"settings\"",
+    "code=\"PRIVACY_COLLECTION\"",
     "current.postalCode",
     "메뉴판 탭은 음식점 콘텐츠에서만",
+    // W-86: 약관 본문을 못 받으면 **빈 화면으로 두지 않고** 이유와 다시 시도를 주고, 동의를 잠근다.
+    // 법적 문서라 「무엇에 동의했는지」가 확정되지 않은 채로 동의를 받으면 안 된다.
+    // 로딩·실패·빈 상태 세 가지가 모두 그려져야 한다.
+    "terms-detail-loading",
+    "terms-detail-offline-notice",
+    "terms-detail-retry",
+    "terms-detail-empty",
+    "disabled={state !== 'ready'} testId=\"terms-detail-agree\"",
+    // 본문은 종류(code)로 받는다. termId 는 판본마다 새로 발급돼 종류를 가리킬 수 없다.
+    "window.MoyeoApi.termLatest(code)",
   ], "changeLog06-07 additions");
+  // 약관 본문 사본이 다시 들어오면 서버 원장과 어긋난다 — 실제로 사본은 「탈퇴 시 30일간 보관」,
+  // 서버 원장은 「탈퇴 시 지체 없이 파기」로 **서로 다른 말을 하고 있었다**. 사본은 되살리지 않는다.
+  assertExcludes(additions4, [
+    "TERMS_DOCUMENTS",
+    "탈퇴 시 30일간 보관",
+    "제6조 (계정과 닉네임)",
+    "2026년 7월 10일 시행",
+    "v1.4",
+    "title.includes",
+  ], "설정 약관 화면에 하드코딩 사본이 없다");
+  // 제목 문자열로 약관을 찾지 않는다 — 그게 처리방침 자리에 가입 동의서를 열던 원인이다 (QA BE-03).
+  assertIncludes(api, [
+    "termLatest: (code) => request(`/api/v1/terms/latest/${code}`, { authenticated: false })",
+  ], "약관은 종류(code)로 현재 판본을 받는다");
   // 모집 이름·소개글·참가비는 사용자가 채우는 빈 폼이다 — 값을 미리 넣어 두면 목데이터다.
   assertIncludes(additions2, [
     "모집 이름 (채팅방 이름)",
-    "20~100세",
+    // 조건 하한은 **가입 최소 연령에서 파생한다**(`ROOM_MIN_CONDITION_AGE = MINIMUM_SIGNUP_AGE`).
+    // 2026-09-14 BE-06 으로 20 → 19 가 됐다 — 숫자를 그대로 박지 않고 유도식을 지킨다.
+    "const ROOM_MIN_CONDITION_AGE = MINIMUM_SIGNUP_AGE;",
+    "${ROOM_MIN_CONDITION_AGE}~${ROOM_MAX_CONDITION_AGE}세",
     "create-detail-title",
     "create-detail-intro",
     "create-detail-fee",
@@ -472,7 +530,9 @@ async function staticTests() {
     "terms-open-${testId}",
     "window.MoyeoApi.terms()",
     "agreedTermIds: [...agreedIds]",
-    "nav.go('terms-detail', { termId: term.termId })",
+    // go 는 opts.params 만 화면에 넘긴다 — 최상위로 실으면 termId 가 undefined 가 되어
+    // 세 약관 중 무엇을 눌러도 「이용약관」만 열렸다 (W-76).
+    "nav.go('terms-detail', { params: { termId: term.termId } })",
   ], "server-driven terms agreement");
   assertIncludes(extra2, ["privacy-settings", "terms-settings"], "settings terms entries");
   assertIncludes(prototype, ["'place-search': window.ScreenPlaceSearch", "'terms-marketing': window.ScreenTermsMarketing"], "changeLog06-07 routes");
@@ -482,11 +542,41 @@ async function staticTests() {
   assert.ok(!refined.includes("'추천시기','봄-가을'"), "course detail must remove recommendation season metric");
   // 코스 상세·모집 상세·채팅방의 기획 목데이터는 지웠다 — 서버 값이 없으면 빈 상태만 남는다.
   assertExcludes(refined, [
+    // 09 날씨 히어로의 지명은 **서버 `locationName` 만** 쓴다. 이 폴백이 되살아나면
+    // 서버가 지명을 안 줬을 때 시안 랜드마크 9종이 예보 지점인 척 찍힌다 (NO-MOCK R1).
+    "place || item.place",
   ], "refined screens have no planning mock data");
+  assertIncludes(refined, [
+    "course.distanceKm != null ? ['map', '이동거리'",
+  ], "14 코스 상세는 서버가 준 수치만 적는다");
   assert.ok(!refined.includes("<div style={{ fontSize: 15, fontWeight: 900, marginTop: 24, marginBottom: 10 }}>코스 일정</div>"), "course detail must not duplicate the itinerary already represented by the route preview");
   assert.ok(!refined.includes("<div style={{ fontSize: 15, fontWeight: 900, marginTop: 24, marginBottom: 10 }}>함께 보면 좋은 곳</div>"), "course detail must not add planning-only nearby recommendations");
   assert.ok(!refined.includes("영주 부석사 눈길은 조용해서 더 좋았어요"), "feed mock data must stay aligned with the six planning feed cards");
   assert.ok(!refined.includes("울진 금강송 숲길에서 쉬어간 오후"), "feed mock data must stay aligned with the six planning feed cards");
+  // ── 알림 설정 조회 실패를 「내 설정」으로 그리지 않는다 (NO-MOCK-CANON R1 · 2026-09-15) ──
+  // 36 알림 세부 설정은 조회 전·실패 시 켜짐·월~금·22:30~07:00 을 그대로 그렸고,
+  // 29 설정의 토글 셋도 `: true` 로 켜져 있었다. iOS 가 같은 결함을 고쳤고 웹도 맞춘다.
+  assertExcludes(additions3, [
+    "React.useState(true)",
+    "React.useState(['월', '화', '수', '목', '금'])",
+    "{ start: '22:30', end: '07:00' }",
+    "실패 시 목데이터 유지",
+  ], "36 알림 세부 설정에 기본값 목데이터가 없다");
+  assertIncludes(additions3, [
+    "notif-detail-failed",
+    "notif-detail-retry",
+    "불러오지 못했어요.",
+    "const canEdit = loadStatus === 'ready'",
+  ], "36 알림 세부 설정은 실패를 실패라고 말하고 다시 시도를 준다");
+  assertExcludes(extra2, [
+    "serverProfile ? serverProfile.recruitmentDeadlineEnabled : true",
+    "serverProfile ? serverProfile.socialActivityEnabled : true",
+    "dndSummary || '방해금지 22:30~07:00'",
+  ], "29 설정의 알림 토글에 근거 없는 기본값이 없다");
+  assertIncludes(extra2, [
+    "settings-notif-failed",
+    "settings-notif-retry",
+  ], "29 설정은 알림 조회 실패에 다시 시도를 준다");
   assertIncludes(extra, [
     "host-course-edit",
     "data-testid={`meeting-tab-${id}`}",
@@ -579,6 +669,10 @@ async function staticTests() {
     "currentFcmToken",
     "pushTokenRegistrationPath",
     "setTokenRegistrar",
+    // W-85: 토큰 등록은 서버 계약대로 PUT 이고, 로그아웃은 DELETE 로 기기 토큰을 떼어낸다.
+    // 예전에는 경로가 빈 문자열이라 등록 훅이 아예 설치되지 않았다.
+    "const PUSH_TOKEN_PATH = '/api/v1/notifications/fcm-token'",
+    "method: 'PUT',",
     "return { route: 'onboarding' };",
     // 가입 게이트 (docs/alignment/SIGNUP-GATE-CANON.md R1·R2·R4·R6)
     "SIGNUP_GATE_STATES",
@@ -784,6 +878,13 @@ async function staticTests() {
     "const REGIONS = [",
     "React.useState(['자연', '사진'])",
   ], "28 취향 편집에 목 후보·목 선택이 없다");
+  // 24 피드 글쓰기 — 제목·내용이 **둘 다** 비면 막는다 (2026-09-14 결정 ⑧).
+  // 하나만 채우면 그대로 게시된다: 둘 중 하나를 필수로 만들면 안 된다.
+  assertIncludes(extra2, [
+    "feedContentWithTitle(feedTitle, content).length === 0",
+    "'제목이나 내용 중 하나는 써 주세요.'",
+  ], "24 는 제목·내용이 둘 다 빌 때만 막는다");
+  assertExcludes(extra2, ["공백일 수 없습니다"], "서버 원문을 화면에 적지 않는다");
   assertIncludes(refined, ["function ExploreServerRoomCard"], "explore uses the server card only");
   assertExcludes(refined, ["MOYEO_EXPLORE_ROOMS", "function ExploreRoomCard"], "10 explore has no mock room list");
   assertIncludes(extra2, [
@@ -850,7 +951,9 @@ async function staticTests() {
   // 예전 21 은 `대응 API 가 없다` 는 틀린 주석과 함께 하드코딩된 빈 화면이었다.
   // 6종 전부 API 가 있다 — 다시 비워 두거나 예시 카드를 지어내면 안 된다.
   assertIncludes(refined, [
-    "function SpecialMessageCard({ message, voting = false, onVote = null })",
+    // roomId·mine·onReport 는 정산 카드의 신고 진입점이 쓴다 (2026-09-14).
+    // 21 견본 화면은 그 셋을 넘기지 않아 기본값으로 신고 버튼이 그려지지 않는다.
+    "function SpecialMessageCard({ message, voting = false, onVote = null, roomId = null, mine = false, onReport = null })",
     "function SystemMessageNote({ message, style })",
     "function isSpecialMessageCard(message)",
     "  SpecialMessageCard,",
@@ -983,8 +1086,14 @@ async function staticTests() {
     "MoyeoApi.meetingEditRoomId()",
     "MoyeoApi.updateMeetingInfo(editRoomId, window.MoyeoApi.buildMeetingInfoRequest(editRoom",
     "meeting-info-edit",
-    "MoyeoApi.selectMeetingEditRoom(roomId)",
+    // 18-1 여행 경로의 「수정」은 모집 **만들기** 2/5 가 아니라 18-5 집합 정보 수정으로 간다 (W-134).
+    "nav.go('meeting-edit')",
+    // 집합 시간은 화면에서 고른다 — 07:50 고정값을 그리기만 하던 자리다 (CREATE-037).
+    "meeting-time-input",
   ], "17-3 집합 정보 수정(호스트)");
+  assertIncludes(gaps, [
+    "MoyeoApi.selectMeetingEditRoom(roomId)",
+  ], "18-5 에서 지도 핀은 17-3 화면으로 넘어가 고친다");
   assertIncludes(extra, [
     "MoyeoApi.roomApplications(roomId)",
     "MoyeoApi.approveApplication(roomId, applicationId)",
@@ -1022,13 +1131,18 @@ async function staticTests() {
   // 태그 **표시**용 GET /travel-courses/tags 는 남는다 (09 홈 필터 칩 · 10 탐색).
   assertIncludes(api, ["/api/v1/travel-courses/tags"], "코스 태그 목록은 표시용으로 남는다");
   // 40040 INVALID_MAP_SEARCH_AREA — radiusKm 상한 200km (BE 회신 §3-3). 웹은 120 고정이라
-  // 지금은 안 걸리지만 처리 경로는 있어야 한다. 문구는 서버 errorMessage 를 그대로 쓴다.
+  // 지금은 안 걸리지만 처리 경로는 있어야 한다.
   assertIncludes(api, ["isInvalidMapAreaError", "'40040'"], "40040 은 전용 분기로 판별한다");
+  // 문구는 **`userFacingError` 를 거친다.** 예전에는 `setAreaError(error.message)` 로 예외 원문을
+  // 그대로 그렸는데, 그 자리는 연결이 끊긴 순간의 `TypeError: Failed to fetch` 나 내부 호스트명이
+  // 사용자에게 새는 길이었다(안드로이드가 같은 자리에서 실제로 노출했다).
+  // `userFacingError` 는 서버가 준 한국어 사유는 그대로 통과시키므로 40040 문구는 달라지지 않는다.
   assertIncludes(refined, [
     "window.MoyeoApi.isInvalidMapAreaError(error)",
-    "setAreaError(error.message)",
+    "setAreaError(window.userFacingError(error,",
     "explore-map-area-error",
-  ], "10-1 지도는 40040 을 오류 문구로 그린다");
+  ], "10-1 지도는 40040 을 오류 문구로 그린다(예외 원문을 그대로 쓰지 않는다)");
+  assertExcludes(refined, ["setAreaError(error.message)"], "예외 원문을 화면에 그대로 올리지 않는다");
   // 27-1 매너 점수 — 별점 입력이 생기기 전에는 mannerScore 를 만드는 사람이 아무도 없었다 (§6-2).
   assertIncludes(additions2, [
     "GapStarRating",
@@ -1046,8 +1160,25 @@ async function staticTests() {
     "return Boolean(room?.ended) && room?.status === 'CONFIRMED';",
     "completedTripRoomId",
   ], "다녀온 여행 판정은 ended && CONFIRMED");
-  assertIncludes(additions2, ["MoyeoApi.completedTripRoomId()"], "27-1 은 다녀온 여행만 연다");
-  assertIncludes(gaps, ["MoyeoApi.completedTripRoomId()"], "27-4 는 다녀온 여행만 연다");
+  // 27-1 · 27-4 · 33 은 요약 객체를 그대로 받는다 — 판정에 쓰는 두 필드가 거기에만 있다.
+  assertIncludes(additions2, ["MoyeoApi.completedTripRoom()"], "27-1 은 다녀온 여행만 연다");
+  assertIncludes(gaps, ["MoyeoApi.completedTripRoom()"], "27-4 는 다녀온 여행만 연다");
+  // ── 2026-09-14 서버 추가 필드 두 개 ──
+  // myCourseRating: 27-4 재진입에 내가 준 별을 다시 그린다. 없으면(배포 전) null 이다.
+  assertIncludes(api, ["myCourseRating(room)", "canPublishCourse(room)"], "여행 요약의 두 판정값");
+  assertIncludes(api, ["return room?.coursePublicationAvailable !== false;"], "없는 키를 「공개 불가」로 읽지 않는다");
+  assertIncludes(gaps, [
+    "MoyeoApi.myCourseRating(room)",
+    "course-rating-saved",
+    "이미 별 {savedScore}개를 남기셨어요",
+  ], "27-4 는 이미 남긴 별을 다시 그린다");
+  // coursePublicationAvailable: 이미 공개한 코스에는 false — 진입점도 CTA 도 사라진다.
+  assertIncludes(additions2, [
+    "MoyeoApi.canPublishCourse(room)",
+    "trip-message-course-publish",
+    "already-published",
+    "이미 공개한 코스예요.",
+  ], "이미 공개한 코스에는 공개 버튼을 두지 않는다");
   // 27-3 코스 공개 — `공개할게요` 가 화면만 넘기고 서버를 안 불렀다 (iOS 도 같은 결함이었다).
   assertIncludes(api, ["/api/v1/travel-courses/${courseId}/publication"], "27-3 코스 공개 API");
   assertIncludes(additions2, [
@@ -1056,6 +1187,14 @@ async function staticTests() {
     "course-publish-description",
     "course-publish-confirm",
   ], "27-3 은 실제로 코스를 공개한다");
+  // 결정 ⑨ — 코스 이름 한도는 서버 `@Size(max = 100)` 과 같은 100 이다. 예전에는 27-3 만 24 라,
+  // 100자로 지은 코스 이름이 공개 화면에서만 잘렸다. 24 로 되돌아가면 여기서 잡힌다.
+  assertIncludes(additions2, [
+    "const COURSE_PUBLISH_TITLE_LIMIT = 100;",
+    "maxLength={COURSE_PUBLISH_TITLE_LIMIT}",
+    "course-publish-title-count",
+  ], "27-3 코스 이름 한도는 서버와 같은 100 자");
+  assertExcludes(additions2, ["maxLength={24}"], "화면 한도를 서버보다 좁게 막지 않는다");
   // DELETE /users/me/friends/{...} 의 경로 변수는 friendshipId 가 아니라 상대 userId 다.
   assertIncludes(api, ["removeFriend: (friendUserId)"], "친구 끊기 경로 변수는 상대 userId");
   // 되돌릴 수 없는 동작은 반드시 확인 단계를 거친다 (신청 취소 · 차단 해제 · 친구 끊기 · 공지 삭제).
@@ -1121,14 +1260,105 @@ async function staticTests() {
     !/feedComments\(feedId\)\s*\n?\s*\.then\(\(result\) => \{ if \(Array\.isArray\(result\)\)/.test(additions3),
     "댓글 응답을 배열로 다루던 코드가 되돌아오면 안 된다 (댓글이 0건으로 보인다)",
   );
-  // 23 은 댓글 3건만 보여주고 나머지는 23-1 로 넘긴다 (PDF-REVIEW-2026-08-31 §F1·F3).
+  // 23 은 최상위 댓글 3건 + 대댓글 2건까지 보여주고 나머지는 23-1 로 넘긴다
+  // (PDF-REVIEW-2026-08-31 §F1 · 정본 FEED-COMMENT-PREVIEW-CANON 2026-09-14).
   assertIncludes(refined, [
     "const FEED_DETAIL_COMMENT_PREVIEW = 3;",
+    "const FEED_DETAIL_REPLY_PREVIEW = 2;",
     "window.MoyeoApi.feedComments(feedId, { limit: FEED_DETAIL_COMMENT_PREVIEW })",
     "feed-detail-comment-preview",
-    "댓글 {feed.commentCount}개 모두 보기 →",
+    "댓글 {feed.commentCount}개 전체 보기 →",
     "feed-comments-open",
-  ], "23 피드 상세 · 댓글 일부(3건) + `댓글 N개 모두 보기 →`");
+    "첫 댓글을 남겨보세요.",
+    "답글 {hiddenReplies}개 더 보기",
+    "replies.slice(0, FEED_DETAIL_REPLY_PREVIEW)",
+  ], "23 피드 상세 · 최상위 3건 + 대댓글 2건 + 아래쪽 진입 줄 하나");
+  // 진입 줄은 **댓글 아래 하나뿐이다** — 위의 「좋아요 N개 · 댓글 N개」는 개수 표시로만 남는다.
+  assert.ok(
+    !refined.includes("댓글 {feed.commentCount}개 모두 보기 →"),
+    "댓글 위쪽의 진입 링크가 되돌아오면 안 된다 (같은 기능이 두 군데가 된다 · 정본 §규칙)",
+  );
+  assertIncludes(refined, ["feed-detail-comment-count"], "위 줄은 개수 표시만 한다");
+  // 「방문지 N곳」 → 14 코스 상세. courseId 가 없으면 누를 수 있는 모양을 주지 않는다.
+  assertIncludes(refined, [
+    "feed.trip.courseId != null ? (",
+    "window.MoyeoApi.selectCourse(feed.trip.courseId); nav.go && nav.go('course');",
+    "aria-label={`방문지 ${feed.trip.places.length}곳 · 코스 상세 보기`}",
+  ], "23 「방문지 N곳」 타일이 14 코스 상세로 간다 (정본 2026-09-14 보충)");
+  // 돌아왔을 때 스크롤이 맨 위로 튀지 않는다 — 라우터가 화면을 다시 만들기 때문이다.
+  assertIncludes(refined, [
+    "window.useTabScroll(`feed.detail:${feed?.feedId ?? ''}`)",
+    "ref={bodyScroll.ref} onScroll={bodyScroll.onScroll}",
+  ], "23 피드 상세 스크롤 위치는 코스 상세에 다녀와도 유지된다");
+  // ── 신고 문구 정본 (REPORT-COPY-CANON · 2026-09-14) ──
+  // 같은 오류 코드가 들어온 경로에 따라 다른 문장이 되면 안 된다.
+  assertIncludes(refined, [
+    "40046: '본인이 쓴 댓글은 신고할 수 없어요.',",
+    "40922: '이미 신고한 댓글이에요.',",
+    "40422: '삭제된 댓글이에요.',",
+    "40306: '볼 수 없는 피드의 댓글이에요.',",
+    "40044: '본인이 연 모집은 신고할 수 없어요.',",
+    "40920: '이미 신고한 모집이에요.',",
+    "40045: '자기 자신은 신고할 수 없어요.',",
+    "40921: '이미 신고한 사용자예요.',",
+    "const REPORT_SUBMIT_FAILED = '신고를 접수하지 못했어요.';",
+    "const notice = MEMBER_REPORT_NOTICES[String(submitError?.code || '')];",
+  ], "신고 문구는 오류 코드당 한 문장이다");
+  assert.ok(
+    !refined.includes("이미 신고한 멤버예요."),
+    "정산 카드 경로만 다른 문장을 쓰던 자리가 되돌아오면 안 된다 (40921 은 '이미 신고한 사용자예요.')",
+  );
+  assert.ok(
+    !refined.includes("신고를 접수하지 못했어요. 잠시 후 다시 시도해주세요.")
+      && !additions2.includes("신고를 접수하지 못했어요. 잠시 후 다시 시도해주세요."),
+    "실패 기본 문구는 한 문장이다 (정본 §발견된 어긋남)",
+  );
+  assertIncludes(additions2, [
+    "'본인이 쓴 피드는 신고할 수 없어요.'",
+    "window.REPORT_SUBMIT_FAILED",
+  ], "30-2 피드 신고도 같은 표를 쓴다");
+  // ── 13-2 내보내진 기록 (2026-09-14) ──
+  // 강퇴는 자리가 둘이고 기대값이 **반대**다 (정본 RELATIVE-TIME-CANON 「강퇴는 자리가 둘이다」).
+  //  · 통지 줄(13-1, 내게 일어난 일 한 줄) → 상대 시각 `어제 · 호스트 결정`
+  //  · 이력 목록(13-2, 여러 건을 훑는 표) → 절대 날짜, **날짜까지만** `2026.09.12`
+  assertIncludes(api, [
+    "formatDateOnly(dateTimeText) {",
+  ], "날짜만 내는 표시 유틸이 있다");
+  assertIncludes(gaps, [
+    "window.MoyeoApi.formatDateOnly(row.kickedAt)",
+  ], "13-2 이력 목록은 날짜까지만 낸다 (iOS·안드로이드와 같다)");
+  assert.ok(
+    !gaps.includes("formatDateTime(row.kickedAt)"),
+    "웹만 `2026.09.12 17:11` 로 시:분을 붙이던 코드가 되돌아오면 안 된다",
+  );
+  assertIncludes(extra, [
+    "`${window.MoyeoApi.formatRelative(kick.kickedAt)} · 호스트 결정`",
+  ], "13-1 통지 줄은 상대 시각이다 — 이력 목록과 섞지 않는다");
+  // 웹만 화면은 있는데 들어갈 길이 없었다 — 라우트로만 열렸다(2026-09-14 검증).
+  // iOS·안드로이드가 둘 다 설정 › 계정에 두고 있다. 2026-09-09 에 뺀 것은 13-1 안내 화면의
+  // 「전체 보기」 버튼이고 **설정 항목과는 다른 자리**다.
+  assertIncludes(extra2, [
+    "<Row label=\"내보내진 기록\" onClick={() => nav.go('kick-history')} testId=\"settings-kick-history\"/>",
+  ], "설정 › 계정에 13-2 진입점이 있다 (iOS·안드로이드와 같은 자리·같은 문구)");
+
+  // ── 10 탐색 무한 스크롤 (커서 · 2026-09-14) ──
+  // 21번째 모집부터 볼 방법이 없던 자리다. 커서는 직전 페이지 마지막 roomId 이고,
+  // 받은 개수가 limit 보다 적으면 마지막 페이지다.
+  assertIncludes(api, [
+    "searchRooms: ({ keyword, cursor, limit } = {}) => request(`/api/v1/chat-rooms/search${query({ keyword, cursor, limit })}`)",
+  ], "검색 API 가 커서를 받는다");
+  assertIncludes(refined, [
+    "const EXPLORE_PAGE_SIZE = 20;",
+    "window.MoyeoApi.searchRooms({ cursor, limit: EXPLORE_PAGE_SIZE })",
+    "const cursor = current[current.length - 1]?.roomId;",
+    "if (rows.length < EXPLORE_PAGE_SIZE || fresh.length === 0) setAtEnd(true);",
+    "list.scrollTop + list.clientHeight >= list.scrollHeight - 120",
+  ], "10 탐색 · 커서 무한 스크롤");
+  // 커서가 실서버에 배포되기 전에는 서버가 첫 페이지를 다시 준다 — 중복을 걸러낸다.
+  assertIncludes(refined, [
+    "const seen = new Set(current.map((room) => String(room.roomId)));",
+    "const fresh = rows.filter((room) => room?.roomId != null && !seen.has(String(room.roomId)));",
+  ], "이미 가진 roomId 는 건너뛴다 (커서 미배포 서버에서 같은 카드가 두 번 나오지 않는다)");
   // 23-1 은 무한 스크롤로 다음 묶음을 받는다 — 한 번에 전부 받지 않는다.
   assertIncludes(additions3, [
     "window.MoyeoApi.feedComments(feedId, { beforeCommentId: nextId, limit: FEED_COMMENTS_PAGE_SIZE })",
@@ -1251,7 +1481,9 @@ async function staticTests() {
     "setSelectedNickname('')",
     "animal: candidate?.animal",
     "color: candidate?.color",
-    "ANIMAL_EMOJIS",
+    // 동물 이모지 표는 `MoyeoApi` 한 곳만 갖는다 (NO-MOCK-CANON R5). 온보딩이 들고 있던
+    // 사본에는 `곰` 이 빠져 있어 07 에서만 발자국이 떴다 — 사본이 되살아나면 아래 단언이 깨진다.
+    "mascotEmojiForAnimal",
     "NICKNAME_COLORS",
     "{animalEmoji}",
     "{color.label}",
@@ -1896,7 +2128,10 @@ async function moyeoApiContractTests() {
   const captionParts = requests.filter((entry) => entry.path === "/api/v1/chat-rooms/21/messages/images").pop().options.body.parts;
   assert.equal(captionParts.length, 2);
   assert.equal(captionParts[1][0], "caption");
-  assert.equal(captionParts[1][1], "주산지 물안개", "캡션은 트림해서 보낸다");
+  // 캡션 파트는 **Blob 이어야 한다.** 평문 파트에는 Content-Type 이 붙지 않아 서버가
+  // `@RequestPart` String 으로 못 읽고 400 40033 을 돌려준다 (W-01, 실서버 확인).
+  assert.equal(captionParts[1][1].chunks[0], "주산지 물안개", "캡션은 트림해서 보낸다");
+  assert.equal(captionParts[1][1].type, "text/plain;charset=utf-8", "캡션 파트에 text/plain 을 붙인다");
 
   // 집합 위치 공유는 본문이 없다 — 서버가 방에 저장된 좌표를 카드로 만든다.
   await api.shareRoomLocation(21);
@@ -2548,6 +2783,30 @@ async function dumpDom(chrome, baseUrl, params, budgetMs = 5200) {
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
+  // 잘린 덤프·기동 실패는 **부하 탓으로 한 번씩 난다**(동시 4개 + 에뮬레이터·캡처).
+  // 한 번 더 시도해서 그래도 안 되면 그때 올린다 — 재시도 없이 올리면 앱 코드가 깨진
+  // 것처럼 읽힌다.
+  //
+  // **덤프가 끝났는데 `mw-root` 가 없는 것도 재시도 사유다.** 기계가 바쁘면 가상 시간
+  // 예산이 렌더 전에 소진돼 `<div id="root">` 가 빈 채로 덤프된다 — 그러면 「화면이 안
+  // 그려졌다」로 보고돼 **앱 코드를 의심하게 된다**(2026-09-10 `prof-4`·`terms-location`,
+  // 부하 10.4 에서 재현 · 같은 화면 단독 실행은 3/3 통과). 예산을 늘려 다시 찍는다.
+  let lastError;
+  const label = `${url.searchParams.get("screen")}/${url.searchParams.get("theme")}`;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const dom = await dumpDomAttempt(chrome, url, budgetMs * attempt);
+      if (dom.includes("mw-root")) return dom;
+      throw new Error(`렌더가 끝나기 전에 덤프됐다 (예산 ${budgetMs * attempt}ms, 길이 ${dom.length})`);
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) console.warn(`[retry ${attempt}] ${label}: ${error.message}`);
+    }
+  }
+  throw new Error(`${label} 덤프 3회 실패 — 마지막: ${lastError.message}`);
+}
+
+async function dumpDomAttempt(chrome, url, budgetMs) {
   // **실행마다 프로필을 격리한다.** 이 함수는 `mapWithConcurrency` 로 병렬 호출되는데,
   // `--user-data-dir` 이 없으면 Chrome 인스턴스들이 **기본 프로필 하나를 함께 쓴다.**
   // 그러면 임의의 화면에서 `SIGTRAP` 으로 죽어(매번 다른 화면이라 코드 탓으로 오해했다)
@@ -2609,7 +2868,17 @@ function dumpDomOnce(chrome, chromeArgs, timeoutMs) {
       if (out.includes("</html>")) finish(out);
     });
     child.on("error", (error) => finish(null, error));
-    child.on("close", () => finish(out));
+    // **잘린 덤프를 성공으로 넘기지 않는다.** Chrome 이 덤프 도중 죽으면 `<head>` 까지만
+    // 담긴 문자열이 남는데, 그것을 그대로 돌려주면 「제목은 있는데 `mw-root` 가 없다」로
+    // 보여 **앱 코드의 렌더 실패처럼 읽힌다** — 2026-09-10 에 `prof-4/light` 이 그렇게
+    // 깨졌고, 같은 화면을 혼자 돌리면 3/3 통과했다. `</html>` 이 없으면 실패로 낸다.
+    child.on("close", (code, signal) => {
+      if (out.includes("</html>")) finish(out);
+      else finish(null, new Error(
+        `Chrome 이 DOM 을 다 내놓기 전에 끝났다 (${chromeArgs[chromeArgs.length - 1]}, ` +
+        `종료 ${code ?? signal}, 받은 길이 ${out.length})`,
+      ));
+    });
   });
 }
 
@@ -2679,6 +2948,26 @@ async function browserTests() {
     }
     assert.deepEqual(missingExpectedTexts, [], `browser text contracts drifted:\n${missingExpectedTexts.join("\n")}`);
 
+    // 다시 생기면 안 되는 낱말. 문구를 지우는 것으로 끝나는 결정은 **지운 자리가 다시 차는지**를
+    // 지켜야 한다 — 제목만 고치고 요약·미리보기에 되살아나는 일이 이 프로젝트에서 반복됐다.
+    // 피드 작성 5단계에는 「대표」가 없어야 한다 (2026-09-15 결정 ⑪ · FEED-PHOTO-CANON).
+    // 모집 대표 사진(17-5·18-6)은 서버에 실재하므로 대상이 아니다.
+    const forbiddenTexts = {
+      "feed-write-1": ["대표"],
+      "feed-write-2": ["대표"],
+      "feed-write-3": ["대표"],
+      "feed-write-4": ["대표"],
+      "feed-write-5": ["대표"],
+    };
+    const leakedForbiddenTexts = [];
+    for (const [screen, snippets] of Object.entries(forbiddenTexts)) {
+      const dom = rootOf(await getDom(screen, "dark"));
+      for (const snippet of snippets) {
+        if (dom.includes(snippet)) leakedForbiddenTexts.push(`${screen}: ${snippet}`);
+      }
+    }
+    assert.deepEqual(leakedForbiddenTexts, [], `없어진 개념의 낱말이 화면에 남아 있다:\n${leakedForbiddenTexts.join("\n")}`);
+
     // 렌더된 화면에 화면기획 목데이터가 한 글자도 남지 않아야 한다 (docs/alignment/NO-MOCK-CANON.md).
     // 소스 grep 은 지워진 척을 잡지 못한다 — 실제로 그려진 것만 본다.
     const MOCK_MARKERS = [
@@ -2742,7 +3031,13 @@ async function browserTests() {
         "React",
         "18.3.1",
         "MIT",
-        "원문 확인 · https://github.com/facebook/react",
+        // 원문 주소는 **누를 수 있는 링크**여야 한다 (QA SET-033) — 예전에는 글자뿐이라
+        // 손으로 옮겨 적는 것 말고는 확인할 방법이 없었다. 텍스트가 아니라 anchor 를 확인한다.
+        "원문 확인 · ",
+        '<a data-testid="oss-license-url" href="https://github.com/facebook/react"',
+        'target="_blank"',
+        'rel="noopener noreferrer"',
+        ">https://github.com/facebook/react</a>",
         "Permission is hereby granted",
       ], `29-4a license text (${theme})`);
     }
@@ -2982,6 +3277,91 @@ async function ossLicenseTests() {
   }
 }
 
+// ───────── 상대 시각 경계 (정본 RELATIVE-TIME-CANON · 2026-09-14) ─────────
+//
+// 세 플랫폼이 **같은 표본**으로 고정한다. 값이 아니라 계산 규칙이라 한 글자만 달라도
+// 같은 글이 플랫폼마다 다른 시각으로 보인다. 13개 표본은 정본 §경계 테스트 그대로다.
+async function relativeTimeTests() {
+  const source = await read("src/moyeo-api.js");
+  const window = { MoyeoNet: {}, MoyeoAuth: {} };
+  vm.runInNewContext(source, { window });
+  const api = window.MoyeoApi;
+
+  const SECOND = 1000;
+  const MINUTE = 60 * SECOND;
+  const HOUR = 60 * MINUTE;
+  const DAY = 24 * HOUR;
+  // 표본은 「경과 시간」이다. 호출까지 흐른 몇 ms 는 경과를 **늘리는** 쪽이라
+  // 어느 표본도 아래 구간으로 떨어지지 않는다(전부 구간의 시작이거나 넉넉한 안쪽이다).
+  const ago = (ms) => new Date(Date.now() - ms).toISOString();
+
+  const samples = [
+    [59 * SECOND, "방금 전"],
+    [1 * MINUTE, "1분 전"],
+    [59 * MINUTE, "59분 전"],
+    [1 * HOUR, "1시간 전"],
+    [23 * HOUR, "23시간 전"],
+    [24 * HOUR, "어제"],
+    [47 * HOUR, "어제"],
+    [48 * HOUR, "2일 전"],
+    [29 * DAY, "29일 전"],
+    [30 * DAY, "1개월 전"],
+    [364 * DAY, "12개월 전"],
+    [365 * DAY, "1년 전"],
+  ];
+  samples.forEach(([elapsed, expected]) => {
+    assert.equal(
+      api.formatRelative(ago(elapsed)),
+      expected,
+      `상대 시각 표본: ${elapsed}ms 경과는 '${expected}'`,
+    );
+  });
+  // 13번째 표본 — 미래 시각(시계 오차)은 `방금 전`이다. 「-3분 전」을 만들지 않는다.
+  assert.equal(api.formatRelative(new Date(Date.now() + 5 * MINUTE).toISOString()), "방금 전", "미래 시각은 '방금 전'");
+
+  // 버림(floor)이다 — 90분은 `2시간 전`이 아니라 `1시간 전`.
+  assert.equal(api.formatRelative(ago(90 * MINUTE)), "1시간 전", "90분은 버림해 '1시간 전'");
+  // 개월 = 일수/30, 년 = 일수/365 (달력 계산이 아니다).
+  assert.equal(api.formatRelative(ago(59 * DAY)), "1개월 전", "59일은 '1개월 전'");
+  assert.equal(api.formatRelative(ago(60 * DAY)), "2개월 전", "60일은 '2개월 전'");
+  assert.equal(api.formatRelative(ago(730 * DAY)), "2년 전", "730일은 '2년 전'");
+
+  // **절대 날짜로 떨어지지 않는다.** 예전에는 7일이 넘으면 `2026.09.07` 이었다.
+  [8, 31, 200, 400, 1000].forEach((days) => {
+    const text = api.formatRelative(ago(days * DAY));
+    assert.ok(
+      /^\d+(분|시간|일|개월|년) 전$|^어제$|^방금 전$/.test(text),
+      `${days}일 경과가 절대 날짜로 떨어지면 안 된다 (받은 값: ${text})`,
+    );
+  });
+  // 예전 코드의 흔적(7일 초과 → `YYYY.MM.DD`)이 formatRelative 안에 남아 있으면 안 된다.
+  // 같은 꼴은 formatDate 에는 정상이므로 **함수 본문만** 잘라 본다.
+  const relativeBody = source.slice(source.indexOf("formatRelative(dateTimeText) {"));
+  assert.ok(
+    !relativeBody.slice(0, relativeBody.indexOf("\n    },")).includes("getFullYear()"),
+    "7일 초과를 `YYYY.MM.DD` 로 떨어뜨리던 코드가 formatRelative 로 되돌아오면 안 된다",
+  );
+
+  // 빈 값·파싱 실패는 **지어내지 않는다**.
+  assert.equal(api.formatRelative(null), "", "빈 값은 빈 문자열");
+  assert.equal(api.formatRelative(""), "", "빈 문자열은 빈 문자열");
+  assert.equal(api.formatRelative("어제쯤"), "어제쯤", "파싱 실패는 받은 문자열 그대로");
+
+  // 13-2 강퇴 이력 목록은 **절대 날짜, 날짜까지만**이다 (정본 「강퇴는 자리가 둘이다」).
+  // 문자열 앞 10자를 그대로 자른다 — Date 로 파싱해 지역 시간대로 옮기면 자정 근처에서
+  // 하루가 밀려 세 플랫폼이 다른 날짜를 낸다.
+  assert.equal(api.formatDateOnly("2026-08-24T08:06:49"), "2026.08.24", "iOS kickedAtText 예시와 같다");
+  assert.equal(api.formatDateOnly("2026-09-12T17:11:59.102082"), "2026.09.12", "시:분을 붙이지 않는다");
+  assert.equal(api.formatDateOnly("2026-09-12T23:59:59"), "2026.09.12", "자정 직전에도 날짜가 밀리지 않는다");
+  assert.equal(api.formatDateOnly("2026-09-12"), "2026.09.12", "날짜만 와도 같은 꼴");
+  assert.equal(api.formatDateOnly(null), "", "빈 값은 빈 문자열");
+  assert.equal(api.formatDateOnly("언제"), "언제", "파싱 실패는 받은 문자열 그대로");
+
+  // 채팅은 이 규칙을 따르지 않는다(정본 §쓰지 않는 곳) — 그 함수들이 상대 시각으로
+  // 바뀌면 말풍선·날짜 구분선이 `3시간 전` 이 된다.
+  assert.equal(api.formatChatDay(new Date().toISOString()), "오늘", "채팅 날짜 구분선은 상대 시각이 아니다");
+}
+
 async function main() {
   await staticTests();
   await clientPrefsTests();
@@ -2989,6 +3369,7 @@ async function main() {
   await authContractTests();
   await tabCacheTests();
   await moyeoApiContractTests();
+  await relativeTimeTests();
   await pushContractTests();
   await tourismContractTests();
   if (!process.env.MOYEO_SKIP_BROWSER_TESTS) {

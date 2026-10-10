@@ -54,13 +54,15 @@ function useMyFeed(feedId, ready) {
 // 되돌릴 수 없는 동작의 확인 시트 — 23-3 · 20-6 이 같은 골격을 쓴다.
 // 기획과 같은 구조여야 "지우는 건 다 이렇게 생겼다"고 학습된다.
 function DestructiveConfirmSheet({ backdrop, title, preview, previewIcon, consequences, cta, busy, error, onCancel, onConfirm, testId }) {
+  // 시트 접근성은 공용 훅 한 곳에서 본다 (QA ENV-007 · shared.jsx `useSheetA11y`).
+  const sheet = window.useSheetA11y({ label: typeof title === 'string' ? title : '확인', onClose: onCancel });
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative', overflow: 'hidden' }}>
         <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>{backdrop}</div>
         <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
 
-        <div data-testid={testId} style={{
+        <div {...sheet.rootProps} data-testid={testId} style={{
           position: 'absolute', left: 0, right: 0, bottom: 0,
           background: RF.card, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3,
         }}>
@@ -114,6 +116,8 @@ function DestructiveConfirmSheet({ backdrop, title, preview, previewIcon, conseq
 // 내 피드에는 신고가 없다 — 자기 글은 신고할 수 없다(서버가 400 `40039` 로 막는다).
 function ScreenFeedActions() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 시트 접근성은 공용 훅 한 곳에서 본다 (QA ENV-007 · shared.jsx `useSheetA11y`).
+  const sheet = window.useSheetA11y({ label: '내가 쓴 여행 기록', onClose: nav.back });
   const { liveMode, feedId, ready } = useEditFeed();
   const { feed, state } = useMyFeed(feedId, ready);
 
@@ -142,7 +146,7 @@ function ScreenFeedActions() {
         <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}><ScreenFeedDetail/></div>
         <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
 
-        <div style={{
+        <div {...sheet.rootProps} data-testid="feed-actions-sheet" style={{
           position: 'absolute', left: 0, right: 0, bottom: 0,
           background: RF.card, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3,
         }}>
@@ -187,7 +191,7 @@ function ScreenFeedDelete() {
       window.MoyeoApi.selectFeed(null);
       nav.go('feed');
     } catch (deleteError) {
-      setError(deleteError?.message || '기록을 지우지 못했어요.');
+      setError(window.userFacingError(deleteError, '기록을 지우지 못했어요.'));
       setBusy(false);
     }
   };
@@ -226,7 +230,10 @@ function ScreenFeedEdit() {
   const [body, setBody] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
-  const LIMIT = 1000;
+  // 서버 `UpdateFeedRequest.content` 가 **max 500** 이다. 1,000 으로 안내하면
+// 그 사이 길이는 카운터가 초록불인 채 저장 순간 400 이 나고 글을 잃는다.
+// 피드 **작성** 화면은 이미 500 으로 맞다 — 수정 화면만 틀렸었다 (2026-09-12 감사).
+const LIMIT = 500;
 
   React.useEffect(() => { if (feed) setBody(feed.content || ''); }, [feed]);
 
@@ -237,7 +244,12 @@ function ScreenFeedEdit() {
   const trimmed = body.trim();
   const changed = trimmed !== (feed.content || '').trim();
   const photos = (feed.images || []).length;
-  const visibilityText = feed.visibility === 'PRIVATE' ? '나만 보기' : '전체 공개';
+  // 공개 범위 세 값(PUBLIC · FRIENDS · PRIVATE)을 두 갈래로만 갈라서, **친구만 공개한 기록이
+  // 「전체 공개」로 적혀 있었다.** 못 바꾸는 값을 틀리게 적으면 사용자는 자기 글이 누구에게
+  // 보이는지 잘못 안다(2026-09-14 QA FEED-029 에서 잡았다 — 피드 102 는 FRIENDS 인데 전체 공개로 찍혔다).
+  // 문구는 24-4 공개 설정(FEED_VISIBILITY)이 쓰는 말을 그대로 쓴다.
+  const VISIBILITY_LABEL = { PUBLIC: '전체공개', FRIENDS: '친구만', PRIVATE: '나만 보기' };
+  const visibilityText = VISIBILITY_LABEL[feed.visibility] || '전체공개';
 
   const save = async () => {
     if (!trimmed || !changed || busy) return;
@@ -247,7 +259,7 @@ function ScreenFeedEdit() {
       await window.MoyeoApi.updateFeed(feedId, trimmed);
       nav.back();
     } catch (saveError) {
-      setError(saveError?.message || '기록을 수정하지 못했어요.');
+      setError(window.userFacingError(saveError, '기록을 수정하지 못했어요.'));
       setBusy(false);
     }
   };
@@ -327,6 +339,16 @@ function newestOwnComment(comments, myId) {
   return null;
 }
 
+// 목록에서 고르고 온 댓글을 최상위·답글 어느 쪽에서든 찾는다 (W-37).
+function findComment(comments, commentId) {
+  for (const comment of comments) {
+    if (String(comment.commentId) === String(commentId)) return comment;
+    const reply = findComment(comment.replies || [], commentId);
+    if (reply) return reply;
+  }
+  return null;
+}
+
 // ───────── 23-1a · 내 댓글 수정 · 삭제 ─────────
 // 댓글은 **그 자리에서** 고친다 — 별 화면으로 보내면 어느 댓글을 고치는지 잃는다.
 // 서버 한도는 **500자**다(신고 details 의 300자와 다르다).
@@ -361,6 +383,12 @@ function ScreenCommentEdit() {
         // 대상이 없다 — 그때는 **내 가장 최근 댓글**을 편집 상태로 연다(기획 23-1a 와 같은 상태).
         setEditingId((current) => {
           if (current) return current;
+          // 목록(23-1)에서 「수정 · 삭제」를 눌러 왔으면 그 댓글을 연다 (W-37).
+          const requested = nav.params?.commentId;
+          if (requested != null) {
+            const picked = findComment(list, requested);
+            if (picked) { setDraft(picked.content || ''); return picked.commentId; }
+          }
           const mine = newestOwnComment(list, mineId);
           if (!mine) return current;
           setDraft(mine.content || '');
@@ -386,7 +414,7 @@ function ScreenCommentEdit() {
       setBusy(false);
       setReloadToken((n) => n + 1);
     } catch (saveError) {
-      setError(saveError?.message || '댓글을 수정하지 못했어요.');
+      setError(window.userFacingError(saveError, '댓글을 수정하지 못했어요.'));
       setBusy(false);
     }
   };
@@ -401,7 +429,7 @@ function ScreenCommentEdit() {
       setBusy(false);
       setReloadToken((n) => n + 1);
     } catch (deleteError) {
-      setError(deleteError?.message || '댓글을 지우지 못했어요.');
+      setError(window.userFacingError(deleteError, '댓글을 지우지 못했어요.'));
       setBusy(false);
     }
   };
@@ -507,6 +535,13 @@ function ScreenCommentEdit() {
 // `PATCH /chat-rooms/{roomId}` (multipart · BE 회신 §4).
 // 18-5 집합 정보 수정과 **다른 화면**이다 — 그쪽은 `PUT .../meeting-info` 다.
 // **모집 중인 방의 호스트만** 되고, 확정한 뒤에는 아무것도 못 고친다.
+// 18-6 모집 제목 화면 한도. 서버 `UpdateChatRoomRequest.title` 은 `@Size(max = 100)` 이다.
+// 2026-09-14 결정 ②: 화면을 24 로 좁혀 두던 것을 **서버와 같은 100** 으로 맞춘다 —
+// 25자 넘는 제목의 모집은 제목을 건드리지 않아도 저장이 막혔다(ROUND-2026-09-14-DECISIONS ②).
+// **서버에서 읽어 온 값은 자르지 않는다.** 자르고 저장하면 사용자가 건드린 적 없는 제목이
+// 짧아진 채로 덮어써진다 — 그래서 넘친 상태는 그대로 두고 저장만 막는다(W-129).
+const RECRUIT_TITLE_LIMIT = 100;
+
 function ScreenRecruitEdit() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const { liveMode, roomId, ready } = useEditRoom();
@@ -515,6 +550,9 @@ function ScreenRecruitEdit() {
   const [form, setForm] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
+  // 이 방의 코스가 직접 만든(CUSTOM) 것인지. 18-7 로 가는 버튼을 낼지 여기서 갈린다.
+  // 방 상세에는 코스 **제목**만 있어 코스 조회로 따로 읽는다.
+  const [courseType, setCourseType] = React.useState(null);
   // 새 대표 사진. 고르지 않으면 보내지 않아 **서버가 지금 사진을 그대로 둔다**(PATCH 규칙).
   const [thumbnailFile, setThumbnailFile] = React.useState(null);
   const [thumbnailPreview, setThumbnailPreview] = React.useState('');
@@ -554,6 +592,10 @@ function ScreenRecruitEdit() {
         setState(host && recruiting ? 'ready' : 'empty');
       })
       .catch(() => { if (active) setState('error'); });
+    // 코스 종류는 있으면 쓰고 없으면 없는 대로 둔다 — 못 읽었다고 이 화면을 막지는 않는다.
+    window.MoyeoApi.roomCourse(roomId)
+      .then((result) => { if (active && result?.course) setCourseType(result.course.type || null); })
+      .catch(() => {});
     return () => { active = false; };
   }, [roomId, ready]);
 
@@ -562,19 +604,71 @@ function ScreenRecruitEdit() {
   }
 
   const patch = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  // 날짜·인원·참가비를 고칠 수 있게 되면서 **틀린 값도 들어올 수 있게 됐다.**
+  // 서버가 400 으로 돌려보내기 전에 같은 규칙으로 여기서 먼저 잡고, 어디가 틀렸는지 한국어로 말한다.
+  const validate = () => {
+    if (!form.title.trim()) return '모집 제목을 적어 주세요.';
+    // 만들 때는 한도가 없어서 24자가 넘는 제목으로 열린 모집이 있다. 그런 제목을 여기서
+    // 말없이 잘라 저장하면 사용자가 고친 적 없는 이름이 짧아진다 — 대신 저장을 막고 알린다.
+    if (form.title.length > RECRUIT_TITLE_LIMIT) {
+      return `모집 제목이 ${form.title.length}자예요. ${RECRUIT_TITLE_LIMIT}자까지만 저장할 수 있어요 — 먼저 줄여 주세요.`;
+    }
+    // 소개 500자는 서버 한도 그대로다(`UpdateChatRoomRequest.description` @Size(max = 500)).
+    if (form.description.length > 500) {
+      return `소개가 ${form.description.length}자예요. 500자까지만 저장할 수 있어요 — 먼저 줄여 주세요.`;
+    }
+    if (!form.startDate) return '여행 날짜를 정해 주세요.';
+    if (!form.recruitmentDeadlineDate) return '모집 마감일을 정해 주세요.';
+    if (form.recruitmentDeadlineDate > form.startDate) return '모집 마감일은 여행 날짜보다 앞이어야 해요.';
+    if (form.tripType === 'DAY_TRIP') {
+      if (!form.dayTripStartTime || !form.dayTripEndTime) return '당일치기는 시작·종료 시각을 정해 주세요.';
+      if (form.dayTripStartTime >= form.dayTripEndTime) return '종료 시각은 시작 시각보다 뒤여야 해요.';
+    } else if (!form.endDate) {
+      return '1박 이상이면 종료 날짜를 정해 주세요.';
+    } else if (form.endDate <= form.startDate) {
+      return '종료 날짜는 여행 시작 날짜보다 뒤여야 해요.';
+    }
+    const min = form.minimumParticipants;
+    const max = form.maxParticipants;
+    if (min === null || max === null) return '인원을 정해 주세요.';
+    if (min < 3 || max < 3) return '인원은 3명부터 정할 수 있어요.';
+    if (min > max) return '최소 인원이 최대 인원보다 많아요.';
+    if (max < (room.participantCount ?? 0)) return `이미 ${room.participantCount}명이 참여 중이라 최대 인원을 그보다 적게 줄일 수 없어요.`;
+    return '';
+  };
+
   const save = async () => {
-    if (busy || !form.title.trim()) return;
+    if (busy) return;
+    const invalid = validate();
+    if (invalid) { setError(invalid); return; }
     setBusy(true);
     setError('');
     try {
-      await window.MoyeoApi.updateRoom(roomId, { ...form, title: form.title.trim(), description: form.description.trim() }, thumbnailFile);
+      // 여행 유형에 따라 **반대쪽 값은 반드시 비워 보낸다** — 서버가 둘 다 차 있으면 거절한다.
+      const payload = {
+        ...form,
+        title: form.title.trim(),
+        description: form.description.trim(),
+        endDate: form.tripType === 'OVERNIGHT' ? form.endDate : null,
+        dayTripStartTime: form.tripType === 'DAY_TRIP' ? form.dayTripStartTime : null,
+        dayTripEndTime: form.tripType === 'DAY_TRIP' ? form.dayTripEndTime : null,
+        participationFee: form.participationFee ?? 0,
+      };
+      await window.MoyeoApi.updateRoom(roomId, payload, thumbnailFile);
+      // 제목·대표 사진·일정이 바뀌면 목록 카드의 내용도 바뀐다 — 탭 보관소를 덜어내지 않으면
+      // 모임 목록이 옛 제목을 그대로 들고 있다(W-140 · TAB-STATE-CANON R4).
+      window.MoyeoTabCache?.invalidate?.(window.MoyeoTabCache.ROOM_LIST_KEYS);
       nav.back();
     } catch (saveError) {
-      setError(saveError?.message || '모집 정보를 수정하지 못했어요.');
+      setError(window.userFacingError(saveError, '모집 정보를 수정하지 못했어요.'));
       setBusy(false);
     }
   };
 
+  // 입력값은 한도를 넘겨도 **자르지 않는다** — 넘친 글자를 말없이 지우면 무엇이 저장됐는지
+  // 알 수 없고, 서버에서 읽어 온 긴 제목이 사용자가 건드리지도 않은 채 짧아진다(W-129).
+  // 넘친 것은 카운터가 빨갛게 말하고 `validate()` 가 저장을 막는다.
   const FieldBox = ({ label, value, hint, required, locked, lockReason, multiline, onChange, testId, limit }) => (
     <div style={{ marginTop: 16 }}>
       <div style={{ fontSize: 12.5, fontWeight: 900, marginBottom: 7, color: T.text900, display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -590,26 +684,90 @@ function ScreenRecruitEdit() {
           fontSize: 13, lineHeight: '20px', color: locked ? T.text500 : T.text900,
         }}>{value}</div>
       ) : multiline ? (
-        <textarea value={value} onChange={(event) => onChange(event.target.value.slice(0, limit || 1000))} aria-label={label} data-testid={testId} style={{
+        <textarea value={value} onChange={(event) => onChange(event.target.value)} aria-label={label} data-testid={testId} style={{
           width: '100%', minHeight: 92, borderRadius: 12, border: `1px solid ${T.line200}`, padding: 12,
           fontSize: 13, lineHeight: '20px', color: T.text900, fontFamily: T.fontStack,
           resize: 'none', background: 'transparent', boxSizing: 'border-box',
         }}/>
       ) : (
-        <input value={value} onChange={(event) => onChange(event.target.value.slice(0, limit || 24))} aria-label={label} data-testid={testId} style={{
+        <input value={value} onChange={(event) => onChange(event.target.value)} aria-label={label} data-testid={testId} style={{
           width: '100%', height: 46, borderRadius: 12, border: `1px solid ${T.line200}`, padding: '0 12px',
           fontSize: 13, color: T.text900, fontFamily: T.fontStack, background: 'transparent', boxSizing: 'border-box',
         }}/>
       )}
-      {/* 글자 수는 네 표면이 같은 자리(입력창 아래 우측)에 그린다 */}
-      {limit && !locked && (
-        <div style={{ textAlign: 'right', marginTop: 5, fontSize: 11, color: T.text400, fontVariantNumeric: 'tabular-nums' }}>
-          {String(value || '').length}/{limit.toLocaleString('ko-KR')}
-        </div>
-      )}
+      {/* 글자 수는 네 표면이 같은 자리(입력창 아래 우측)에 그린다.
+          한도를 넘긴 값(서버에서 그대로 읽어 온 긴 제목)은 「29/24」처럼 그려질 수밖에 없는데,
+          예전에는 회색이라 정상으로 보였다 — 넘친 것은 빨갛게 적고 무엇을 해야 하는지 말한다. */}
+      {limit && !locked && (() => {
+        const length = String(value || '').length;
+        const over = length > limit;
+        return (
+          <div style={{ textAlign: 'right', marginTop: 5, fontSize: 11, color: over ? T.danger : T.text400, fontWeight: over ? 800 : 400, fontVariantNumeric: 'tabular-nums' }}>
+            {length}/{limit.toLocaleString('ko-KR')}{over ? ` · ${length - limit}자 넘었어요` : ''}
+          </div>
+        );
+      })()}
       {(hint || lockReason) && (
         <div style={{ fontSize: 11, color: T.text400, marginTop: 6, lineHeight: '16px' }}>{lockReason || hint}</div>
       )}
+    </div>
+  );
+
+  // 라벨·필수 표시·안내문만 FieldBox 와 똑같이 그리고, **안은 호출부가 채운다.**
+  // 날짜·시각·인원처럼 입력 요소가 여러 개인 칸에 쓴다.
+  const FieldGroup = ({ label, required, hint, children }) => (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 12.5, fontWeight: 900, marginBottom: 7, color: T.text900, display: 'flex', gap: 6, alignItems: 'center' }}>
+        {label}
+        {required && <span style={{ color: T.danger }}>*</span>}
+      </div>
+      {children}
+      {hint && <div style={{ fontSize: 11, color: T.text400, marginTop: 6, lineHeight: '16px' }}>{hint}</div>}
+    </div>
+  );
+
+  const boxStyle = {
+    flex: 1, height: 46, borderRadius: 12, border: `1px solid ${T.line200}`, padding: '0 12px',
+    fontSize: 13, color: T.text900, fontFamily: T.fontStack, background: 'transparent', boxSizing: 'border-box',
+  };
+
+  // 서버는 `2026-10-24` 꼴을 받는다 — `<input type="date">` 의 값이 그대로 그 꼴이다.
+  const DateInput = ({ value, onChange, label, testId }) => (
+    <input type="date" value={value || ''} onChange={(event) => onChange(event.target.value || null)}
+      aria-label={label} data-testid={testId} style={boxStyle}/>
+  );
+
+  // 서버는 `09:00:00` 꼴을 받는데 `<input type="time">` 은 `09:00` 을 준다 — 초를 붙여 보낸다.
+  const TimeInput = ({ value, onChange, label, testId }) => (
+    <input type="time" value={String(value || '').slice(0, 5)}
+      onChange={(event) => onChange(event.target.value ? `${event.target.value}:00` : null)}
+      aria-label={label} data-testid={testId} style={boxStyle}/>
+  );
+
+  // 숫자만 남긴다. 지우는 도중(빈 값)에는 null 로 두고 저장할 때 막는다 —
+  // 여기서 곧바로 0 이나 최솟값으로 되돌리면 한 글자도 지울 수 없다.
+  // **아래 한도는 여기서 막지 않는다.** 최소 인원 3명인데 「12」를 치려면 먼저 「1」을 지나야 하고,
+  // 그때 3으로 끌어올리면 두 자리 수를 아예 입력할 수 없다. 하한은 저장할 때 `validate()` 가 본다.
+  const NumberInput = ({ value, onChange, label, suffix, max, testId }) => (
+    <div style={{ ...boxStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={value === null || value === undefined ? '' : String(value)}
+        onChange={(event) => {
+          const digits = event.target.value.replace(/[^0-9]/g, '').slice(0, String(max).length);
+          if (digits === '') { onChange(null); return; }
+          onChange(Math.min(Number(digits), max));
+        }}
+        aria-label={label}
+        data-testid={testId}
+        style={{
+          flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent',
+          fontSize: 13, color: T.text900, fontFamily: T.fontStack, textAlign: 'right',
+          fontVariantNumeric: 'tabular-nums', padding: 0,
+        }}
+      />
+      <span style={{ fontSize: 12, color: T.text400 }}>{suffix}</span>
     </div>
   );
 
@@ -631,8 +789,8 @@ function ScreenRecruitEdit() {
             여행을 확정하면 더는 고칠 수 없어요 — 이미 신청한 분의 약속이 달라지니까요.
           </div>
 
-          <FieldBox label="모집 제목" required limit={24} value={form.title} onChange={(value) => patch('title', value)} hint="24자까지" testId="recruit-edit-title"/>
-          <FieldBox label="소개" multiline limit={1000} value={form.description} onChange={(value) => patch('description', value)} hint="1,000자까지" testId="recruit-edit-description"/>
+          <FieldBox label="모집 제목" required limit={RECRUIT_TITLE_LIMIT} value={form.title} onChange={(value) => patch('title', value)} hint={`${RECRUIT_TITLE_LIMIT}자까지 · 모임 목록과 홈에 이 이름이 보여요`} testId="recruit-edit-title"/>
+          <FieldBox label="소개" multiline limit={500} value={form.description} onChange={(value) => patch('description', value)} hint="500자까지" testId="recruit-edit-description"/>
 
           {/* 대표 사진 — 서버는 선택 `thumbnail` 파일 파트를 받는다 (BE 회신 §4).
               **고르지 않으면 보내지 않아** 지금 사진이 그대로 남는다. 비우는 길은 없다. */}
@@ -645,18 +803,23 @@ function ScreenRecruitEdit() {
             onChange={(event) => { setThumbnailFile(event.target.files?.[0] || null); event.target.value = ''; }}
             style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
           />
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            {thumbnailPreview
-              ? <img src={thumbnailPreview} alt="" style={{ width: 92, height: 68, borderRadius: 10, objectFit: 'cover', border: `1px solid ${RF.softLine}` }}/>
-              : room.thumbnail
-                ? <CachedImage src={room.thumbnail} alt="" style={{ width: 92, height: 68, borderRadius: 10, objectFit: 'cover' }}/>
-                : <ImgPlaceholder hue="forest" height={68} radius={10}/>}
-            <div style={{ flex: 1 }}>
-              <Btn onClick={() => fileInputRef.current?.click()} testId="recruit-edit-thumbnail-pick">사진 바꾸기</Btn>
-              <div style={{ fontSize: 11, color: T.text400, marginTop: 6, lineHeight: '16px' }}>
-                {thumbnailFile ? '저장하면 이 사진으로 바뀌어요' : '바꾸지 않으면 지금 사진이 그대로 남아요'}
-              </div>
+          {/* 안내 문구는 두지 않는다 — 안 바꾸면 그대로라는 건 설명할 필요가 없고,
+              새로 고른 건 미리보기 위 배지로 보인다. */}
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <div style={{ position: 'relative', width: 104, height: 78, flexShrink: 0, borderRadius: 12, overflow: 'hidden', border: `1px solid ${RF.softLine}` }}>
+              {thumbnailPreview
+                ? <img src={thumbnailPreview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}/>
+                : room.thumbnail
+                  ? <CachedImage src={room.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}/>
+                  : <ImgPlaceholder hue="forest" height={78} radius={0}/>}
+              {thumbnailFile && (
+                <span style={{
+                  position: 'absolute', left: 6, bottom: 6, padding: '2px 7px', borderRadius: 6,
+                  background: T.primary500, color: '#fff', fontSize: 10, fontWeight: 800, letterSpacing: '-0.2px',
+                }}>새 사진</span>
+              )}
             </div>
+            <Btn variant="secondary" icon="camera" onClick={() => fileInputRef.current?.click()} testId="recruit-edit-thumbnail-pick">사진 바꾸기</Btn>
           </div>
 
           <div style={{ fontSize: 12.5, fontWeight: 900, margin: '18px 0 8px', color: T.text900 }}>
@@ -675,21 +838,67 @@ function ScreenRecruitEdit() {
           </div>
           <div style={{ fontSize: 11, color: T.text400, marginTop: 6 }}>당일치기는 시작·종료 시각을, 1박 이상은 종료 날짜를 받아요</div>
 
-          <FieldBox label="여행 날짜" required value={scheduleText} hint="모집 마감일보다 뒤여야 해요"/>
-          <FieldBox label="모집 마감일" required value={dateText(form.recruitmentDeadlineDate)} hint="여행 날짜보다 앞이어야 해요"/>
-          <FieldBox
-            label="인원"
-            required
-            value={`최소 ${form.minimumParticipants ?? '-'}명 · 최대 ${form.maxParticipants ?? '-'}명 (지금 ${room.participantCount ?? 0}명 참여 중)`}
-            hint="최대 인원을 지금 참여 중인 인원보다 적게 줄일 수 없어요"
-          />
-          <FieldBox label="참가비" value={`1인 ${Number(form.participationFee || 0).toLocaleString('ko-KR')}원`} hint="0원이면 “무료”로 보여요"/>
+          {/* 날짜·인원·참가비는 **서버가 받는 값**이다 (`PUT /chat-rooms/{roomId}` 의
+              startDate·endDate·recruitmentDeadlineDate·min/maxParticipants·participationFee).
+              예전에는 입력처럼 생긴 상자에 요약 문구만 찍어 놓고 `onChange` 를 주지 않아
+              **필수(*) 표시와 규칙 안내까지 달린 채 아무것도 고칠 수 없었다** (W-106, 2026-09-12). */}
+          <FieldGroup label="여행 날짜" required hint={form.tripType === 'DAY_TRIP' ? '모집 마감일보다 뒤여야 해요' : '종료 날짜는 시작 날짜보다 뒤여야 해요'}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <DateInput value={form.startDate} onChange={(value) => patch('startDate', value)} label="여행 시작 날짜" testId="recruit-edit-start-date"/>
+              {form.tripType === 'OVERNIGHT' && (
+                <DateInput value={form.endDate} onChange={(value) => patch('endDate', value)} label="여행 종료 날짜" testId="recruit-edit-end-date"/>
+              )}
+            </div>
+            {form.tripType === 'DAY_TRIP' && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <TimeInput value={form.dayTripStartTime} onChange={(value) => patch('dayTripStartTime', value)} label="시작 시각" testId="recruit-edit-start-time"/>
+                <TimeInput value={form.dayTripEndTime} onChange={(value) => patch('dayTripEndTime', value)} label="종료 시각" testId="recruit-edit-end-time"/>
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: T.text400, marginTop: 6 }}>지금 설정: {scheduleText}</div>
+          </FieldGroup>
+
+          <FieldGroup label="모집 마감일" required hint="여행 날짜보다 앞이어야 해요">
+            <DateInput value={form.recruitmentDeadlineDate} onChange={(value) => patch('recruitmentDeadlineDate', value)} label="모집 마감일" testId="recruit-edit-deadline"/>
+            <div style={{ fontSize: 11, color: T.text400, marginTop: 6 }}>지금 설정: {dateText(form.recruitmentDeadlineDate) || '없음'}</div>
+          </FieldGroup>
+
+          <FieldGroup label="인원" required hint={`최대 인원은 지금 참여 중인 ${room.participantCount ?? 0}명보다 적게 줄일 수 없어요 · 3~20명`}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <NumberInput value={form.minimumParticipants} onChange={(value) => patch('minimumParticipants', value)} label="최소 인원" suffix="명" max={20} testId="recruit-edit-min-participants"/>
+              <NumberInput value={form.maxParticipants} onChange={(value) => patch('maxParticipants', value)} label="최대 인원" suffix="명" max={20} testId="recruit-edit-max-participants"/>
+            </div>
+          </FieldGroup>
+
+          <FieldGroup label="참가비" hint="0원이면 “무료”로 보여요">
+            <NumberInput value={form.participationFee} onChange={(value) => patch('participationFee', value)} label="1인 참가비" suffix="원" max={9999999} testId="recruit-edit-fee"/>
+          </FieldGroup>
+
+          {/* 2026-09-15 결정 ⑫ — 예전 문구 「코스 자체는 여기서 못 바꿔요」는
+              「여기서는 못 한다 = 다른 데서는 된다」로 읽혀 사용자가 있지도 않은 화면을 찾게 했다.
+              서버 `UpdateChatRoomRequest` 에 `courseId` 가 없다 — 코스는 방을 만들 때만 붙는다.
+              코스를 **교체**하는 것과 코스의 **내용을 고치는** 것은 다르므로 뒷문장으로 갈라 둔다. */}
           <FieldBox
             label="연결된 코스"
             locked
             value={`${room.courseTitle || '연결된 코스 없음'}`}
-            lockReason="코스는 여기서 못 고쳐요. 경로는 18-1, 이름과 소개는 18-7 에서 고쳐요."
+            lockReason="모집을 만든 뒤에는 코스를 바꿀 수 없어요. 방문지 순서는 「여행 경로」에서 고쳐요."
           />
+          {/* 코스 이름·소개를 고치는 화면(18-7)은 만들어져 있는데 **앱 어디에도 여는 곳이 없었다**
+              — 그런데 이 화면이 사용자에게 「18-7 에서 고쳐요」라고 내부 화면 번호까지 보여 줬다 (W-108).
+              단, 18-7 은 **직접 만든 코스만** 받는다. 등록 코스 방에서는 눌러도
+              「직접 만든 코스만, 여행 확정 전에 고칠 수 있어요.」 한 줄짜리 빈 화면이 열렸다
+              (W-123 · HOST-025). 죽은 버튼을 두지 않되 왜 없는지는 적는다 —
+              iOS `RecruitEditCourseSections.swift` 와 같은 처리다. */}
+          <div style={{ marginTop: 10 }}>
+            {courseType === 'CUSTOM' ? (
+              <Btn onClick={() => nav.go('course-title-edit')} testId="recruit-edit-open-course-title">코스 이름·소개 고치기</Btn>
+            ) : courseType ? (
+              <div data-testid="recruit-edit-course-title-locked" style={{ fontSize: 11, color: T.text400, lineHeight: '16px' }}>
+                등록된 코스를 그대로 쓰는 모임이라 코스 이름·소개는 고칠 수 없어요.
+              </div>
+            ) : null}
+          </div>
 
           <div style={{ marginTop: 16, padding: '11px 13px', borderRadius: 10, background: T.bgSubtle, border: `1px solid ${RF.softLine}`, display: 'flex', gap: 9, alignItems: 'flex-start' }}>
             <Icon name="chat" size={15} color={T.text400}/>
@@ -708,7 +917,7 @@ function ScreenRecruitEdit() {
               방을 아예 지우는 건 없어요.
             </div>
             <div style={{ marginTop: 10 }}>
-              <button type="button" onClick={() => nav.go('host-manage')} style={{
+              <button type="button" onClick={() => nav.go('trip-status')} style={{
                 width: '100%', height: 44, borderRadius: 12, cursor: 'pointer',
                 border: `1px solid ${T.line200}`, background: 'transparent', fontFamily: T.fontStack,
                 color: T.danger, fontSize: 13, fontWeight: 800,
@@ -718,7 +927,7 @@ function ScreenRecruitEdit() {
         </div>
 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}` }}>
-          <Btn variant="primary" full disabled={busy || !form.title.trim()} onClick={save}>
+          <Btn variant="primary" full disabled={busy} onClick={save}>
             {busy ? '저장하는 중이에요…' : '수정 저장'}
           </Btn>
         </div>
@@ -741,8 +950,13 @@ function ScreenCourseTitleEdit() {
   const [description, setDescription] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
-  const TITLE_LIMIT = 24;
-  const DESC_LIMIT = 1000;
+  // 코스 제목 한도는 **100** 이다 — 서버 `UpdateTravelCourseRequest.title` `maxLength: 100`
+  // (실서버 `/api-docs` 확인 2026-09-14)이고 17-1 코스 만들기도 `100` 으로 센다.
+  // 여기만 24 라서, 25자 넘는 코스 이름은 한 글자도 안 고쳤는데 저장이 막혔다 (QA HOST-026).
+  // (18-6 **모집 제목**의 24 와 다른 값이다 — 그쪽은 모집 제목이고 이건 코스 제목이다.)
+  const TITLE_LIMIT = 100;
+  // 서버 `UpdateTravelCourseRequest.description` 도 **max 500** 이다.
+  const DESC_LIMIT = 500;
 
   React.useEffect(() => {
     if (!ready) return undefined;
@@ -772,19 +986,43 @@ function ScreenCourseTitleEdit() {
   }
 
   const trimmed = title.trim();
+  const titleOver = title.length > TITLE_LIMIT;
   const save = async () => {
     if (!trimmed || busy) return;
+    if (titleOver) {
+      setError(`코스 이름이 ${title.length}자예요. ${TITLE_LIMIT}자까지만 저장할 수 있어요 — 먼저 줄여 주세요.`);
+      return;
+    }
     setBusy(true);
     setError('');
     try {
+      // `places` 는 **선택이 아니라 필수**다(최소 2개). 제목·소개만 보내면 서버가 400 `40033` 을 낸다 —
+      // 이 화면은 방문지를 바꾸지 않으므로 **지금 방문지를 그대로 되돌려 보낸다** (W-115, 2026-09-13).
+      // 서버는 응답의 `visitTime` 을 **nullable** 로 주면서 요청에서는 **필수**(`LocalTime`)로 받는다.
+      // 시각이 빈 방문지를 그대로 되돌려 보내면 400 이라, 코스를 만들 때와 같은 규칙으로 채운다
+      // (10:00 부터 2시간 30분씩). 호스트가 정한 시각이 있으면 그것을 그대로 쓴다.
+      const places = (course.places || []).map((place) => ({
+        contentId: Number(place.contentId),
+        dayNumber: place.dayNumber,
+        sequence: place.sequence,
+        visitTime: String(place.visitTime || '').slice(0, 5) || defaultStopTime(place.sequence || 1),
+      }));
+      if (places.length < 2) {
+        setError('방문지가 2곳 이상이어야 코스를 고칠 수 있어요.');
+        setBusy(false);
+        return;
+      }
       // 제목은 항상 보내고(빈 값은 서버가 400), 소개는 비었으면 보내지 않아 기존 값을 남긴다.
       await window.MoyeoApi.updateRoomCourse(roomId, {
+        places,
         title: trimmed,
         ...(description.trim() ? { description: description.trim() } : {}),
       });
+      // 목록 카드에는 코스 이름도 함께 적힌다 — 같은 이유로 보관소를 덜어낸다(W-140).
+      window.MoyeoTabCache?.invalidate?.(window.MoyeoTabCache.ROOM_LIST_KEYS);
       nav.back();
     } catch (saveError) {
-      setError(saveError?.message || '코스 이름을 수정하지 못했어요.');
+      setError(window.userFacingError(saveError, '코스 이름을 수정하지 못했어요.'));
       setBusy(false);
     }
   };
@@ -795,19 +1033,23 @@ function ScreenCourseTitleEdit() {
         <Header title="코스 이름 수정" left center onBack={nav.back}/>
 
         <div style={{ position: 'absolute', top: 92, left: 0, right: 0, bottom: 96, overflow: 'auto', padding: '16px 20px 20px' }}>
-          <div style={{ padding: '11px 13px', borderRadius: 10, background: T.bgSubtle, border: `1px solid ${RF.softLine}`, fontSize: 11.5, color: T.text500, lineHeight: '17px', marginBottom: 18 }}>
-            <b style={{ color: T.text700 }}>직접 만든 코스</b>라 고칠 수 있어요.
-            등록된 코스를 그대로 쓰는 모임은 이름을 바꿀 수 없고, 여행을 확정한 뒤에도 못 바꿔요.
-          </div>
-
+          {/* 고칠 수 있는 화면이 열렸으면 고칠 수 있는 것이다 — 왜 열렸는지는 설명하지 않는다.
+              못 고치는 경우는 위의 `GapNotice` 빈 화면이 이미 이유를 말한다. */}
           <div style={{ fontSize: 12.5, fontWeight: 900, marginBottom: 7, color: T.text900 }}>
             코스 이름 <span style={{ color: T.danger }}>*</span>
           </div>
-          <input value={title} onChange={(event) => setTitle(event.target.value.slice(0, TITLE_LIMIT))} aria-label="코스 이름" data-testid="course-title-edit-title" style={{
+          {/* **자르지 않는다.** 서버는 100자까지 받으므로 불러온 이름이 24자를 넘을 수 있고,
+              `slice()` 로 자르면 사용자가 손대지도 않은 이름이 잘려 저장된다 (W-124).
+              대신 넘쳤다는 것을 아래 카운터가 말하고 저장을 막는다 — 18-6 과 같은 규칙이다. */}
+          <input value={title} onChange={(event) => setTitle(event.target.value)} aria-label="코스 이름" data-testid="course-title-edit-title" style={{
             width: '100%', height: 46, borderRadius: 12, border: `1px solid ${T.line200}`, padding: '0 12px',
             fontSize: 13, color: T.text900, fontFamily: T.fontStack, background: 'transparent', boxSizing: 'border-box',
           }}/>
-          <div style={{ fontSize: 11, color: T.text400, marginTop: 6 }}>{TITLE_LIMIT}자까지 · 모임 목록과 홈에 이 이름이 보여요</div>
+          <div style={{ fontSize: 11, color: titleOver ? T.danger : T.text400, marginTop: 6 }}>
+            {titleOver
+              ? `${title.length}/${TITLE_LIMIT} · ${title.length - TITLE_LIMIT}자 넘었어요`
+              : `${title.length}/${TITLE_LIMIT} · 모임 목록과 홈에 이 이름이 보여요`}
+          </div>
 
           <div style={{ fontSize: 12.5, fontWeight: 900, margin: '18px 0 7px', color: T.text900 }}>코스 소개</div>
           <textarea value={description} onChange={(event) => setDescription(event.target.value.slice(0, DESC_LIMIT))} aria-label="코스 소개" data-testid="course-title-edit-description" style={{
@@ -815,15 +1057,10 @@ function ScreenCourseTitleEdit() {
             fontSize: 13, lineHeight: '20px', color: T.text900, fontFamily: T.fontStack,
             resize: 'none', background: 'transparent', boxSizing: 'border-box',
           }}/>
-          <div style={{ fontSize: 11, color: T.text400, marginTop: 6 }}>1,000자까지 · 비워 두면 지금 소개가 그대로 남아요</div>
+          <div style={{ fontSize: 11, color: T.text400, marginTop: 6 }}>500자까지 · 비워 두면 지금 소개가 그대로 남아요</div>
 
-          <div style={{ marginTop: 18, padding: '11px 13px', borderRadius: 10, background: T.bgSubtle, border: `1px solid ${RF.softLine}`, display: 'flex', gap: 9, alignItems: 'flex-start' }}>
-            <Icon name="map" size={15} color={T.text400}/>
-            <div style={{ flex: 1, fontSize: 11.5, color: T.text500, lineHeight: '17px' }}>
-              방문지 {(course.places || []).length}곳과 순서는 여기서 안 바꿔요. <b style={{ color: T.text700 }}>여행 경로 수정</b>에서 고쳐요.
-            </div>
-          </div>
-          <div style={{ marginTop: 10 }}>
+          {/* 방문지·순서를 어디서 고치는지는 바로 아래 버튼 이름이 말한다 */}
+          <div style={{ marginTop: 18 }}>
             <Btn full icon="map" onClick={() => nav.go('course-edit')}>여행 경로 수정으로 가기</Btn>
           </div>
 
@@ -860,8 +1097,15 @@ function ScreenMessageDelete() {
       .then(([page, me]) => {
         if (!active) return;
         const list = page?.messages || [];
+        // 채팅방에서 그 말풍선의 「삭제」를 눌러 왔으면 **그 메시지**를 연다 (W-37).
+        // 라우트로 바로 열면 대상이 없다 — 그때만 내가 보낸 가장 최근 일반 메시지로 떨어진다.
+        const requested = nav.params?.messageId;
+        const picked = requested != null
+          ? list.find((item) => String(item?.messageId) === String(requested) && item?.type !== 'SYSTEM')
+          : null;
         // 내가 보낸 **일반** 메시지 중 가장 최근 것. 시스템 메시지는 지울 수 없다.
-        const mine = list.find((item) => Number(item?.senderId) === Number(me?.userId) && item?.type !== 'SYSTEM');
+        const mine = picked
+          || list.find((item) => Number(item?.senderId) === Number(me?.userId) && item?.type !== 'SYSTEM');
         setMessage(mine || null);
         setState(mine ? 'ready' : 'empty');
       })
@@ -881,7 +1125,7 @@ function ScreenMessageDelete() {
       await window.MoyeoApi.deleteRoomMessage(roomId, message.messageId);
       nav.go('chat');
     } catch (deleteError) {
-      setError(deleteError?.message || '메시지를 지우지 못했어요.');
+      setError(window.userFacingError(deleteError, '메시지를 지우지 못했어요.'));
       setBusy(false);
     }
   };

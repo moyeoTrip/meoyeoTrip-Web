@@ -17,6 +17,8 @@
   // 캐시가 없는 상태로 실패한 기록. 캐시가 있으면 실패를 기록하지 않는다 —
   // 가진 데이터를 오류로 덮지 않기 위해서다 (R2).
   const failures = new Map();
+  // 값을 마지막으로 받은 시각. 'keep' 이 **영원히** 다시 부르지 않던 것을 고치기 위해 쓴다 (W-07).
+  const fetchedAt = new Map();
   // 사용자가 고른 값(필터·세그먼트·탭)과 스크롤 위치. 서버 데이터가 아니라 화면 상태다.
   const uiState = new Map();
   const scrollTops = new Map();
@@ -35,6 +37,7 @@
 
   function clearAll() {
     values.clear();
+    fetchedAt.clear();
     pending.clear();
     failures.clear();
     uiState.clear();
@@ -52,11 +55,30 @@
 
   // 화면이 읽는 한 컷. 값이 있으면 요청이 도는 중이어도 항상 'ready' 다 —
   // 갱신 중에 로딩 문구로 덮지 않는다 (R2 · R3).
+  // `refreshFailed` 는 「가진 값은 있는데 **다시 받아오는 데 실패**했다」는 뜻이다.
+  // 예전에는 캐시가 있으면 실패를 아예 기록하지 않아, 갱신이 계속 실패해도 화면이
+  // 낡은 목록을 아무 말 없이 최신인 척 보여줬다 (QA NAV-013 · OFF-015).
+  // 목록을 지우지 않는 것(R2)과 실패를 숨기는 것은 다른 일이다.
+  // `error` 는 마지막 실패 객체다. 화면은 이것으로 403·503 을 갈라 말한다 (QA OFF-013 · OFF-020).
+  // 문구가 아니라 **객체**를 넘긴다 — 화면 문장은 클라이언트가 status·code 로 고른다(결정 ⑩).
   function snapshot(key) {
-    if (values.has(key)) return { status: 'ready', value: values.get(key) };
-    if (pending.has(key)) return { status: 'loading', value: undefined };
-    if (failures.has(key)) return { status: 'failed', value: undefined };
-    return { status: 'idle', value: undefined };
+    if (values.has(key)) return { status: 'ready', value: values.get(key), refreshFailed: failures.has(key), error: failures.get(key) || null };
+    if (pending.has(key)) return { status: 'loading', value: undefined, refreshFailed: false, error: null };
+    if (failures.has(key)) return { status: 'failed', value: undefined, refreshFailed: false, error: failures.get(key) || null };
+    return { status: 'idle', value: undefined, refreshFailed: false, error: null };
+  }
+
+  // 'keep' 은 "보던 상태를 지킨다"는 뜻이지 "영원히 다시 안 본다"는 뜻이 아니다 (W-07).
+  // 예전에는 캐시에 값이 한 번 들어가면 탭을 아무리 오가도 재조회가 나가지 않아,
+  // 다른 기기·다른 사람이 만든 모집·피드가 **새로고침 전까지 영원히** 보이지 않았다.
+  // 값이 오래됐으면 뒤에서 조용히 다시 부른다 — 화면은 가진 값을 계속 그리므로
+  // 로딩 문구로 덮이거나 스크롤이 튀지 않는다 (R2 · R3 유지).
+  const STALE_AFTER_MS = 60 * 1000;
+
+  function isStale(key) {
+    const at = fetchedAt.get(key);
+    if (at == null) return true;
+    return Date.now() - at >= STALE_AFTER_MS;
   }
 
   function load(key, run, accept) {
@@ -67,11 +89,12 @@
       .then((result) => {
         // accept 는 "이 응답을 보관해도 되는가" 판정이다. 모양이 어긋난 응답으로
         // 보관소를 더럽히면 다음 진입에서 그 값이 그대로 다시 그려진다.
-        if (!accept || accept(result)) values.set(key, result);
+        if (!accept || accept(result)) { values.set(key, result); fetchedAt.set(key, Date.now()); failures.delete(key); }
         return result;
       })
       .catch((error) => {
-        if (!values.has(key)) failures.set(key, error);
+        // 캐시가 있어도 기록한다 — 값은 그대로 두고(R2) 실패했다는 사실만 남긴다.
+        failures.set(key, error);
         throw error;
       })
       .finally(() => {
@@ -87,6 +110,7 @@
     // 그 화면이 바꾼 데이터만 골라 갈아끼운다 (R4 — 찜 토글·신청·글쓰기 등).
     write(key, value) {
       values.set(key, value);
+      fetchedAt.set(key, Date.now());
       failures.delete(key);
       return value;
     },
@@ -96,6 +120,7 @@
     },
     drop(key) {
       values.delete(key);
+      fetchedAt.delete(key);
       failures.delete(key);
       pending.delete(key);
     },
@@ -120,7 +145,8 @@
 
   // 탭 화면이 서버 값을 읽는 표준 경로.
   //
-  //  mode 'keep'       — 탐색·모임·피드. 보관소에 값이 있으면 **다시 부르지 않는다** (R3).
+  //  mode 'keep'       — 탐색·모임·피드. 보관소의 값이 아직 싱싱하면(60초) 다시 부르지 않는다 (R3).
+  //                      오래됐으면 가진 값을 그대로 그린 채 뒤에서 조용히 갱신한다 (W-07).
   //  mode 'revalidate' — 홈·마이. 가진 값을 즉시 그리고 뒤에서 조용히 갱신한다 (R3).
   //
   // 돌려주는 status 는 화면이 그대로 쓴다:
@@ -134,18 +160,18 @@
     // 사용자가 명시적으로 누른 "다시 시도" 만 mode 를 무시하고 다시 부른다 (R4).
     const forcedRef = React.useRef(false);
 
-    const [view, setView] = React.useState(() => (enabled && key ? snapshot(key) : { status: 'idle', value: undefined }));
+    const [view, setView] = React.useState(() => (enabled && key ? snapshot(key) : { status: 'idle', value: undefined, error: null }));
     const [attempt, setAttempt] = React.useState(0);
 
     React.useEffect(() => {
       if (!enabled || !key) {
-        setView({ status: 'idle', value: undefined });
+        setView({ status: 'idle', value: undefined, error: null });
         return undefined;
       }
       syncOwner();
       const forced = forcedRef.current;
       forcedRef.current = false;
-      if (cache.has(key) && mode === 'keep' && !forced) {
+      if (cache.has(key) && mode === 'keep' && !forced && !isStale(key)) {
         // 재진입이다. 보던 상태를 그대로 그리고 조회를 내보내지 않는다.
         setView(snapshot(key));
         return undefined;
@@ -171,7 +197,7 @@
       return next;
     }, [key]);
 
-    return { status: view.status, value: view.value, reload, replace };
+    return { status: view.status, value: view.value, refreshFailed: Boolean(view.refreshFailed), error: view.error || null, reload, replace };
   }
 
   // 사용자가 고른 필터·세그먼트·탭. 탭을 떠나도 유지된다 (R3 "선택한 필터가 그대로다").

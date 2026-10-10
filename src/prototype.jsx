@@ -3,7 +3,7 @@
 // And window.PrototypePhone — a wrapper that gives any artboard a navigable router context.
 
 (function () {
-  const { createContext, useContext, useState, useCallback, useMemo, useEffect } = React;
+  const { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } = React;
 
   const NavCtx = createContext(null);
 
@@ -20,12 +20,11 @@
       'email-auth': window.ScreenEmailAuth,
       terms: window.ScreenTerms,
       'terms-detail': window.ScreenTermsDetail,
+      'terms-history': window.ScreenTermsHistory,
       'terms-privacy': window.ScreenTermsPrivacy,
-      'terms-location': window.ScreenTermsLocation,
       'terms-marketing': window.ScreenTermsMarketing,
       'terms-settings': window.ScreenTermsSettings,
       'privacy-settings': window.ScreenPrivacySettings,
-      'location-settings': window.ScreenLocationSettings,
       'marketing-settings': window.ScreenMarketingSettings,
       home: window.ScreenHome,
       explore: window.ScreenExplore,
@@ -85,6 +84,8 @@
       'meeting-edit': window.ScreenMeetingEdit,         // 18-5 집합 정보 수정 (호스트)
       'apply-cancel': window.ScreenApplyCancel,         // 19-2 참가 신청 취소 확인
       'favorite-rooms': window.ScreenFavoriteRooms,     // 26-1 찜한 모집
+      'favorite-courses': window.ScreenFavoriteCourses, // 26 찜한 코스
+      'my-feeds': window.ScreenMyFeeds,                 // 26-2 내 피드
       'course-rating': window.ScreenCourseRating,       // 27-4 코스 평가
       'friend-manage': window.ScreenFriendManage,       // 27-2a 친구 정리
       'unblock-confirm': window.ScreenUnblockConfirm,   // 29-1a 차단 해제 확인
@@ -170,7 +171,7 @@
           // 로그인 화면으로 보내는 것 자체가 안내이므로 배너를 남기지 않는다.
           // 네트워크·서버 실패(§3)는 그대로 알린다.
           if (!error?.sessionExpired) {
-            window.__moyeoAuthStartupError = error?.message || '로그인 상태를 확인하지 못했어요.';
+            window.__moyeoAuthStartupError = window.userFacingError(error, '로그인 상태를 확인하지 못했어요.');
           }
           const remainingSplash = Math.max(0, 1800 - (Date.now() - startedAt));
           await new Promise((resolve) => window.setTimeout(resolve, remainingSplash));
@@ -194,16 +195,41 @@
       return () => window.removeEventListener('moyeo:signup-gate', onSignupGate);
     }, []);
 
+    // 서버 점검(503 · 50300)도 같은 관례로 받는다 (QA OFF-013).
+    // 만들어만 두고 어디서도 열리지 않던 38 점검 안내 화면의 유일한 진입점이다.
+    // **교체**한다 — 점검 중에 뒤로 가면 같은 503 을 다시 맞을 뿐이다.
+    // 이미 점검 화면이면 아무것도 하지 않는다(다시 쌓이거나 되돌아가는 길이 사라지지 않게).
+    useEffect(() => {
+      const onMaintenance = (event) => {
+        const next = event.detail?.route || 'system-maintenance';
+        setStack((s) => (s[s.length - 1] === next ? s : [...s.slice(0, -1), next]));
+      };
+      window.addEventListener('moyeo:server-maintenance', onMaintenance);
+      return () => window.removeEventListener('moyeo:server-maintenance', onMaintenance);
+    }, []);
+
     const [params, setParams] = useState({});
 
     // 라우트는 문자열 하나뿐이라 화면에 값을 넘길 방법이 없었다.
     // 프로필 카드처럼 "누구의" 화면인지가 필요한 경우를 위해 opts.params 를 실어 보낸다.
     // 다음 go 까지만 유효하다(프로필은 말단 화면이라 충분하다).
+    // opts.exitFlow: 여러 단계를 거치는 흐름(모집 만들기 5단계 등)을 **끝낼 때** 쓴다.
+    // 스택 맨 위에 쌓여 있던 그 흐름의 화면들을 덜어내고 결과 화면을 얹는다 —
+    // 예전에는 모집을 만든 뒤 뒤로 가면 이미 비워진 초안으로 5/5 리뷰가 다시 열렸고,
+    // 또 뒤로 가면 빈 4/5 가 나와 새로고침해야 빠져나올 수 있었다(CREATE-071).
     const go = useCallback((next, opts = {}) => {
       if (!next || next === route) return;
       setParams(opts.params || {});
       setTransition(opts.transition || 'forward');
-      setStack((s) => (opts.replace ? [...s.slice(0, -1), next] : [...s, next]));
+      setStack((s) => {
+        let base = opts.replace ? s.slice(0, -1) : s;
+        if (opts.exitFlow) {
+          while (base.length > 1 && String(base[base.length - 1]).startsWith(opts.exitFlow)) {
+            base = base.slice(0, -1);
+          }
+        }
+        return [...base, next];
+      });
       setTimeout(() => setTransition(null), 320);
     }, [route]);
 
@@ -219,6 +245,24 @@
         return s.slice(0, -1);
       });
     }, []);
+
+    // 브라우저 뒤로가기가 **사이트를 통째로 벗어났다** (W-28) — 화면 스택이 React state 뿐이라
+    // 히스토리에 항목이 하나도 쌓이지 않았기 때문이다. 모집을 만들다가 뒤로 가면 앱에서 튕겨 나갔다.
+    // 항목을 하나 쌓아 두고, 뒤로가기가 들어오면 그 항목을 다시 채운 뒤 앱 뒤로가기를 수행한다.
+    // 루트 화면에서는 다시 쌓지 않는다 — 그때는 사이트를 떠나는 것이 맞다.
+    const stackRef = useRef(stack);
+    stackRef.current = stack;
+    useEffect(() => {
+      if (!window.history?.pushState) return undefined;
+      window.history.pushState({ moyeoApp: 1 }, '');
+      const onPop = () => {
+        if (stackRef.current.length <= 1) return;
+        window.history.pushState({ moyeoApp: 1 }, '');
+        back();
+      };
+      window.addEventListener('popstate', onPop);
+      return () => window.removeEventListener('popstate', onPop);
+    }, [back]);
 
     const openModal = useCallback((kind, data) => setModal({ kind, data }), []);
     const closeModal = useCallback(() => setModal(null), []);
@@ -269,10 +313,18 @@
       perspective: 1000,
     };
 
+    // 화면 전환 애니메이션이 **인라인 스타일**이라 `@media (prefers-reduced-motion: reduce)` 가
+    // 닿지 않았다 — 모션 감소를 켠 사용자에게도 매번 슬라이드가 돌았다 (W-82).
+    // 인라인 스타일은 CSS 로 끌 수 없으므로 여기서 직접 본다.
+    const reduceMotion = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
     const animStyle = {
       width: '100%',
       height: '100%',
-      animation: transition === 'forward'
+      animation: reduceMotion
+        ? 'none'
+        : transition === 'forward'
         ? 'mt-slide-in 320ms cubic-bezier(0.22, 1, 0.36, 1)'
         : transition === 'back'
         ? 'mt-slide-back 320ms cubic-bezier(0.22, 1, 0.36, 1)'
@@ -314,63 +366,13 @@
     );
   }
 
-  // Modal layer — currently handles 'friend' detail
+  // 모달 층. 예전에는 27 도감의 「친구 상세」 시트를 여기서 그렸는데, 그 시트는
+  // **호출부가 하나도 없는 죽은 UI**였고(`openModal('friend', …)` 를 부르는 곳이 없다)
+  // 안에 든 수치는 서버 값이 아니라 동행 횟수에 4·2 를 곱해 **지어낸 것**이었다
+  // (「공유 사진 N장」 · 「피드 댓글 N개」 — NO-MOCK-CANON R1). 2026-09-15 에 지웠다.
+  // `openModal` 자체는 nav 계약의 일부라 남긴다 — 새 모달이 생기면 여기에 갈래를 더한다.
   function ModalLayer() {
-    const { modal, closeModal } = useNav();
-    if (!modal) return null;
-
-    if (modal.kind === 'friend') {
-      const f = modal.data || {};
-      return (
-        <div onClick={closeModal} style={{
-          position: 'absolute', inset: 0, background: 'rgba(15,23,20,0.55)',
-          display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-          zIndex: 200, animation: 'mt-fade-in 200ms ease', borderRadius: 56, overflow: 'hidden',
-        }}>
-          <style>{`
-            @keyframes mt-fade-in { from { opacity: 0; } to { opacity: 1; } }
-            @keyframes mt-sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
-          `}</style>
-          <div onClick={(e) => e.stopPropagation()} style={{
-            width: '100%', background: T.bgBase, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-            padding: '24px 24px 32px', animation: 'mt-sheet-up 280ms cubic-bezier(0.22, 1, 0.36, 1)',
-          }}>
-            <div style={{ width: 36, height: 4, borderRadius: 999, background: T.line200, margin: '0 auto 20px' }}/>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <AnimalAvatar kind={f.k || 'deer'} size={64} bg={T.primary50}/>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.3px' }}>{f.n}</div>
-                <div style={{ fontSize: 12, color: T.text500, marginTop: 4 }}>마지막 동행 · {f.last}</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 22, fontWeight: 700, color: T.primary700, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{f.trips}</div>
-                <div style={{ fontSize: 10, color: T.text500, marginTop: 2 }}>회 동행</div>
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 20, padding: '14px 4px', borderTop: `1px solid ${T.line100}`, borderBottom: `1px solid ${T.line100}` }}>
-              <Stat label="함께 간 곳" value={`${f.trips}곳`}/>
-              <Stat label="공유 사진" value={`${(f.trips || 1) * 4}장`}/>
-              <Stat label="피드 댓글" value={`${(f.trips || 1) * 2}개`}/>
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-              <Btn variant="ghost" full>프로필 보기</Btn>
-              <div style={{ flex: 1 }}><Btn variant="primary" full>다음에 또 만나기</Btn></div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
     return null;
-  }
-
-  function Stat({ label, value }) {
-    return (
-      <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: T.text900, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-        <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>{label}</div>
-      </div>
-    );
   }
 
   // The artboard wrapper — wraps a single phone into an interactive router stage

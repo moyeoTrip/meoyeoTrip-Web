@@ -4,7 +4,10 @@
 // 라이선스 식별자를 추정해서 바꾸지 말 것 — 실제 LICENSE 파일에서 확인한 값이다.
 // 의존성(index.html CDN · package.json)을 바꾸는 작업에서 정본과 이 파일을 함께 갱신한다.
 (function bootstrapMoyeoOssLicenses(global) {
-  const UPDATED_AT = "2026-08-24";
+  // 정본(`docs/oss/oss-licenses.json`)이 2026-09-14 로 올라갔다 — 사본의 날짜만 뒤처져
+  // `npm test` 의 정본 대조가 깨졌다. web 항목 7건은 정본과 같고 날짜만 맞춘다.
+  // (이번 회차에 추가한 `src/stomp-client.js` 는 직접 쓴 모듈이라 새 고지 항목이 아니다.)
+  const UPDATED_AT = "2026-09-14";
 
   // MIT · BSD-3-Clause · Zlib 전문은 저작권 줄을 뺀 본문 템플릿이다.
   // 저작권 표기를 지어내지 않고 화면에서 `원문 확인 · {url}` 로 원 저작권 표기를 안내한다.

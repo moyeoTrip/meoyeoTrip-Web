@@ -1,3 +1,42 @@
+// 모집 연령 조건으로 고를 수 있는 범위.
+//
+// **하한은 가입 최소 연령과 같은 값에서 파생한다** — 서버도 그렇게 정의한다
+// (`ChatRoom.MINIMUM_CONDITION_AGE = AgePolicy.MINIMUM_SIGNUP_AGE`).
+// 조건 하한이 가입 연령보다 높으면 **그 나이로 가입한 사람이 연령 조건이 걸린 모집에
+// 영영 들어갈 수 없다** — 2026-09-14 BE-06 으로 20 → 19 가 됐다.
+// `MINIMUM_SIGNUP_AGE` 는 screens-extra.jsx 가 정의하고 index.html 이 이 파일보다 먼저 싣는다.
+const ROOM_MIN_CONDITION_AGE = MINIMUM_SIGNUP_AGE;
+const ROOM_MAX_CONDITION_AGE = 100;
+
+// 만 나이 한 칸. 숫자만 남기고, 지우는 도중 빈 값은 그대로 둔다 —
+// 여기서 곧바로 하한값으로 되돌리면 한 글자도 지울 수 없다.
+function AgeInput({ value, onChange, label, testId }) {
+  return (
+    <div style={{
+      flex: 1, height: 44, borderRadius: 12, border: `1px solid ${T.line200}`,
+      display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', boxSizing: 'border-box',
+    }}>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={value === null ? '' : String(value)}
+        onChange={(event) => {
+          const digits = event.target.value.replace(/[^0-9]/g, '').slice(0, 3);
+          onChange(digits === '' ? null : Number(digits));
+        }}
+        aria-label={label}
+        data-testid={testId}
+        style={{
+          flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent',
+          fontSize: 13, fontWeight: 800, color: T.text900, fontFamily: T.fontStack,
+          textAlign: 'right', fontVariantNumeric: 'tabular-nums', padding: 0,
+        }}
+      />
+      <span style={{ fontSize: 12, color: T.text400 }}>세</span>
+    </div>
+  );
+}
+
 // 화면 감사(2026-08-17)에서 드러난 빈칸을 메우는 화면 모음
 //
 // (1) 모집 생성 Step 3 인원 / Step 4 세부 — 5단계 중 비어 있던 두 칸
@@ -14,18 +53,41 @@
 function ScreenCreatePeople({ initialMax = 5 }) {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const initialMaxValue = Math.min(20, Math.max(4, Math.floor(Number(initialMax) || 5)));
-  const [min, setMin] = React.useState(3);
-  const [max, setMax] = React.useState(initialMaxValue);
-  const [gender, setGender] = React.useState('all');
-  // 17-5 요약이 이어받는 값. 서버 요청에는 최소 인원 필드가 없어 최대 인원·성별 제한만 보낸다.
+  // 뒤로 갔다 오면 라우터가 이 화면을 다시 마운트한다. 상수로 시작하면 그때마다 고른 인원·조건이
+  // 지워졌다 — 단계들이 공유하는 초안을 다시 읽어 초기값으로 쓴다 (안드 AND-114 의 웹판).
+  // 초안에 없는 값(첫 진입)만 화면 기본값으로 시작한다.
+  const saved = window.MoyeoApi?.roomDraft?.() || {};
+  const [min, setMin] = React.useState(() => Number(saved.minParticipants) || 3);
+  const [max, setMax] = React.useState(() => Number(saved.maxParticipants) || initialMaxValue);
+  const [gender, setGender] = React.useState(
+    () => ({ NONE: 'all', FEMALE_ONLY: 'female', MALE_ONLY: 'male' }[saved.genderRestriction] || 'all'),
+  );
+  // 나이 제한은 **기본이 「제한 없음」**이다. 예전에는 고를 수단이 없는 채로 `25 ~ 35세` 를
+  // 하드코딩해 보내서, 웹에서 만든 모든 모집이 호스트가 정한 적 없는 나이 제한을 달고
+  // 다른 나이대 신청자를 막았다 (2026-09-12 감사).
+  const [ageLimited, setAgeLimited] = React.useState(() => saved.minimumAge != null || saved.maximumAge != null);
+  const [minAge, setMinAge] = React.useState(() => (saved.minimumAge != null ? Number(saved.minimumAge) : ROOM_MIN_CONDITION_AGE));
+  const [maxAge, setMaxAge] = React.useState(() => (saved.maximumAge != null ? Number(saved.maximumAge) : ROOM_MAX_CONDITION_AGE));
+  const ageInvalid = ageLimited
+    && (minAge < ROOM_MIN_CONDITION_AGE || maxAge > ROOM_MAX_CONDITION_AGE || minAge > maxAge);
+  // 17-5 요약이 이어받는 값. 최소 인원도 **서버 필수 필드**(`minimumParticipants`)로 함께 나간다.
+  // 서버는 나이 둘 다 nullable 이고 [ROOM_MIN_CONDITION_AGE]~[ROOM_MAX_CONDITION_AGE] 만
+  // 받는다 — 제한을 걸지 않으면 보내지 않는다.
+  const draftPatch = {
+    minParticipants: min,
+    maxParticipants: max,
+    genderRestriction: { all: 'NONE', female: 'FEMALE_ONLY', male: 'MALE_ONLY' }[gender] || 'NONE',
+    minimumAge: ageLimited ? minAge : null,
+    maximumAge: ageLimited ? maxAge : null,
+  };
+  // **「다음」에서만 내보내면 「이전」으로 나갈 때 그대로 사라진다.** 화면에 보이는 값을 바로 초안에 적어
+  // 돌아왔을 때 같은 값이 보이게 한다 (위 초기값 복원과 한 쌍이다).
+  React.useEffect(() => {
+    window.MoyeoApi?.updateRoomDraft?.(draftPatch);
+  }, [min, max, gender, ageLimited, minAge, maxAge]);
   const goNext = () => {
-    window.MoyeoApi?.updateRoomDraft({
-      minParticipants: min,
-      maxParticipants: max,
-      genderRestriction: { all: 'NONE', female: 'FEMALE_ONLY', male: 'MALE_ONLY' }[gender] || 'NONE',
-      minimumAge: 25,
-      maximumAge: 35,
-    });
+    if (ageInvalid) return;
+    window.MoyeoApi?.updateRoomDraft(draftPatch);
     nav.go('create-detail');
   };
 
@@ -35,18 +97,20 @@ function ScreenCreatePeople({ initialMax = 5 }) {
       ? { text: '단체 사진 예쁘게 나오는 최적 인원이에요', tone: 'ok' }
       : { text: '9명 이상은 친목이 쉽지 않을 수 있어요', tone: 'warn' };
 
-  const Stepper = ({ label, value, onMinus, onPlus, hint }) => (
+  // 한계에 닿은 버튼은 **눌리지 않는 것처럼 보여야** 한다. 예전에는 `disabled` 도 안내도 없이
+  // 그냥 아무 일이 안 일어나서, 왜 더 못 줄이는지 알 수 없었다(CREATE-045).
+  const Stepper = ({ label, value, onMinus, onPlus, hint, canMinus = true, canPlus = true, testId }) => (
     <div>
       <AddFieldLabel required>{label}</AddFieldLabel>
       <div style={{
         height: 48, borderRadius: 12, border: `1px solid ${T.line200}`, background: RF.card,
         display: 'flex', alignItems: 'center', padding: '0 8px', gap: 8,
       }}>
-        <button type="button" onClick={onMinus} style={{ width: 32, height: 32, borderRadius: 999, border: `1px solid ${T.line200}`, background: RF.card, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <button type="button" onClick={onMinus} disabled={!canMinus} aria-label={`${label} 줄이기`} data-testid={testId ? `${testId}-minus` : undefined} style={{ width: 32, height: 32, borderRadius: 999, border: `1px solid ${T.line200}`, background: RF.card, cursor: canMinus ? 'pointer' : 'default', opacity: canMinus ? 1 : 0.35, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="minus" size={15} color={T.text700}/>
         </button>
         <div style={{ flex: 1, textAlign: 'center', fontSize: 15, fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>{value}명</div>
-        <button type="button" onClick={onPlus} style={{ width: 32, height: 32, borderRadius: 999, border: 'none', background: T.primary500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <button type="button" onClick={onPlus} disabled={!canPlus} aria-label={`${label} 늘리기`} data-testid={testId ? `${testId}-plus` : undefined} style={{ width: 32, height: 32, borderRadius: 999, border: 'none', background: T.primary500, cursor: canPlus ? 'pointer' : 'default', opacity: canPlus ? 1 : 0.35, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="plus" size={15} color="#fff"/>
         </button>
       </div>
@@ -65,19 +129,27 @@ function ScreenCreatePeople({ initialMax = 5 }) {
           <div style={{ fontSize: 12, color: T.text500, marginTop: 6 }}>최소 인원은 3명부터예요. 낯선 사람과 단둘이 되는 일은 생기지 않아요.</div>
 
           <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {/* 서버 규칙 그대로다(`ChatRoom.init`): 최대는 3~20, 최소는 3 이상 **최대 이하**.
+                최소=최대(3/3 같은 정원 딱 맞추기)도 서버가 받는데 화면이 `최소+1` 로 막고 있었다(W-58·CREATE-045). */}
             <Stepper
               label="최소 인원"
               value={min}
+              testId="create-people-min"
+              canMinus={min > 3}
+              canPlus={min < max}
               onMinus={() => setMin((v) => Math.max(3, v - 1))}
-              onPlus={() => setMin((v) => Math.min(max - 1, v + 1))}
-              hint="3명 미만은 선택할 수 없어요"
+              onPlus={() => setMin((v) => Math.min(max, v + 1))}
+              hint={min <= 3 ? '3명 미만은 선택할 수 없어요' : '최대 인원까지 올릴 수 있어요'}
             />
             <Stepper
               label="최대 인원"
               value={max}
-              onMinus={() => setMax((v) => Math.max(min + 1, v - 1))}
+              testId="create-people-max"
+              canMinus={max > Math.max(3, min)}
+              canPlus={max < 20}
+              onMinus={() => setMax((v) => Math.max(Math.max(3, min), v - 1))}
               onPlus={() => setMax((v) => Math.min(20, v + 1))}
-              hint="최대 20명까지"
+              hint={max <= Math.max(3, min) ? `최소 인원 ${min}명보다 적게는 못 정해요` : '최대 20명까지'}
             />
           </div>
 
@@ -125,41 +197,115 @@ function ScreenCreatePeople({ initialMax = 5 }) {
 
           <div style={{ marginTop: 20 }}>
             <AddFieldLabel>나이대 제한</AddFieldLabel>
-            <AddFieldBox icon="users" value="25 ~ 35세" chevron caption="최소·최대 모두 20~100세 사이에서 정할 수 있어요. 조건에 맞지 않는 사용자에게는 신청 버튼이 비활성으로 보여요."/>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[[false, '제한 없음'], [true, '직접 정하기']].map(([value, label]) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setAgeLimited(value)}
+                  data-testid={`create-people-age-${value ? 'custom' : 'none'}`}
+                  style={{
+                    flex: 1, height: 42, borderRadius: 12, cursor: 'pointer', fontFamily: T.fontStack,
+                    fontSize: 13, fontWeight: 800,
+                    border: `1px solid ${ageLimited === value ? T.primary500 : T.line200}`,
+                    background: ageLimited === value ? T.primary50 : RF.card,
+                    color: ageLimited === value ? T.primary700 : T.text700,
+                  }}>{label}</button>
+              ))}
+            </div>
+            {ageLimited && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                <AgeInput value={minAge} onChange={setMinAge} label="최소 나이" testId="create-people-age-min"/>
+                <span style={{ fontSize: 13, color: T.text400 }}>~</span>
+                <AgeInput value={maxAge} onChange={setMaxAge} label="최대 나이" testId="create-people-age-max"/>
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: ageInvalid ? T.danger : T.text500, marginTop: 7, lineHeight: '16px' }}>
+              {ageInvalid
+                ? `최소·최대 모두 ${ROOM_MIN_CONDITION_AGE}~${ROOM_MAX_CONDITION_AGE}세 사이여야 하고, 최소가 최대보다 클 수 없어요.`
+                : ageLimited
+                  ? `최소·최대 모두 ${ROOM_MIN_CONDITION_AGE}~${ROOM_MAX_CONDITION_AGE}세 사이에서 정할 수 있어요. 조건에 맞지 않는 사용자에게는 신청 버튼이 비활성으로 보여요.`
+                  : '나이와 상관없이 누구나 신청할 수 있어요.'}
+            </div>
           </div>
         </div>
 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}>
           <Btn variant="ghost" onClick={nav.back}>이전</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={goNext}>다음</Btn></div>
+          <div style={{ flex: 1 }}><Btn variant="primary" full disabled={ageInvalid} onClick={goNext}>다음</Btn></div>
         </div>
       </div>
     </Phone>
   );
 }
 
+// 모집 이름 한도. **18-6 모집 내용 수정의 `RECRUIT_TITLE_LIMIT` 과 같은 값**이어야 한다 —
+// 예전에는 만들 때는 한도가 없고 고칠 때는 24자라, 25자 이상으로 지은 제목은 나중에 한 글자도
+// 고칠 수 없었다.
+// 2026-09-14 결정 ②: 화면 한도를 **서버와 같은 100자**로 올린다. 24 로 좁혀 두는 바람에
+// 25자 넘는 제목의 모집은 한 글자도 안 고쳤는데 저장이 거절됐다(ROUND-2026-09-14-DECISIONS ②).
+// 서버 `CreateChatRoomRequest.title` 은 `@Size(max = 100)` 이다.
+// 넘친 글자는 자르지 않는다 — 카운터로 보여주고 다음 단계로 못 가게 한다(18-7 과 같은 방식).
+const ROOM_TITLE_LIMIT = 100;
+// 27-3 코스 공개의 코스 이름 한도. 서버 `PublishTravelCourseRequest.title` 의 `@Size(max = 100)` 과
+// 같은 값이다. 예전에는 24 였는데, 그 값을 정한 이유가 「18-7 코스 이름 수정이 24자라서」였다.
+// 18-7 이 100 으로 올라간 뒤에도 여기만 24 로 남아, 100자로 만든 코스 이름이 공개 화면에서만
+// 잘렸다. 2026-09-15 결정 ⑨로 **세 화면·세 플랫폼 모두 100** 이다.
+const COURSE_PUBLISH_TITLE_LIMIT = 100;
+// 참가비 자릿수 상한. 정산 메모(SETTLEMENT_TOTAL_MAX_DIGITS)와 같은 9 자리다.
+const PARTICIPATION_FEE_MAX_DIGITS = 9;
+// 소개글 한도. 서버 값 그대로다 (`CreateChatRoomRequest.description` `@Size(max = 500)`).
+const ROOM_INTRO_LIMIT = 500;
+
 // ───────── 17-7 · 모집 만들기 Step 4 — 세부 정보 ─────────
 function ScreenCreateDetail() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
-  const [approval, setApproval] = React.useState('auto');
+  // 3/5 로 갔다 돌아오면 라우터가 이 화면을 다시 마운트한다. 빈 문자열로 시작하던 탓에
+  // 호스트가 공들여 쓴 모집 이름·소개글·비용이 말없이 사라졌다 (안드 AND-114 의 웹판, 웹은 범위가 더 넓다).
+  // **초안에 있는 값만** 되살린다 — 목데이터를 미리 채우는 것이 아니라, 사용자가 직접 쓴 값을 돌려주는 것이다
+  // (NO-MOCK-CANON R1 은 그대로 지켜진다). iOS 는 단계들이 draft 하나를 공유해 이 문제가 없다.
+  const saved = window.MoyeoApi?.roomDraft?.() || {};
+  const [approval, setApproval] = React.useState(() => (saved.joinApprovalMode === 'MANUAL' ? 'manual' : 'auto'));
   // 키워드 추천 칩은 스펙아웃 — 자동 추출 근거가 없어 화면기획에서 삭제됐다
-  // 모집 이름·소개글·참가비는 **사용자가 직접 채우는 값**이다. 미리 넣어 두면 그건 목데이터다.
-  // 안드로이드·iOS 도 빈 폼으로 시작한다 (NO-MOCK-CANON R1).
-  const [intro, setIntro] = React.useState('');
-  const [roomTitle, setRoomTitle] = React.useState('');
-  const [fee, setFee] = React.useState('');
+  const [intro, setIntro] = React.useState(() => saved.description || '');
+  const [roomTitle, setRoomTitle] = React.useState(() => saved.title || '');
+  const [fee, setFee] = React.useState(() => (saved.participationFee != null ? String(saved.participationFee) : ''));
+  // 예전에는 `replace(/[^0-9]/g, '')` 한 줄이라 `1234.56` 이 `123456`(100 배)으로,
+  // `-500` 이 `500` 으로 **말없이** 바뀌었다. 버린 글자와 상한을 칸 아래에 적는다 (W-15).
+  const [feeNotice, setFeeNotice] = React.useState('');
+  const changeFee = (next) => {
+    const digits = next.replace(/[^0-9]/g, '');
+    if (digits.length !== next.length) setFeeNotice('숫자만 넣을 수 있어요. 쉼표·소수점 없이 원 단위로 적어주세요.');
+    else if (digits.length > PARTICIPATION_FEE_MAX_DIGITS) setFeeNotice(`참가비는 ${PARTICIPATION_FEE_MAX_DIGITS}자리까지 넣을 수 있어요.`);
+    else setFeeNotice('');
+    setFee(digits.slice(0, PARTICIPATION_FEE_MAX_DIGITS));
+  };
   // Step 1 에서 고른 코스 이름. 로그인 상태에서는 서버 코스 제목이 들어온다.
   const liveMode = window.MoyeoApi?.live();
   const courseTitle = (liveMode && window.MoyeoApi.roomDraft().courseTitle) || '';
   // 17-5 요약이 이어받는 값. 이 화면에 보이는 문구·금액을 그대로 요청에 싣는다.
+  const draftPatch = {
+    title: roomTitle.trim(),
+    description: intro.trim() || null,
+    // 비워 두면 참가비 없음이다 — 임의의 금액을 넣지 않는다.
+    participationFee: fee.trim() ? Number(fee.replace(/[^0-9]/g, '')) : null,
+    joinApprovalMode: approval === 'manual' ? 'MANUAL' : 'AUTO',
+  };
+  // **「다음」에서만 내보내면 「이전」으로 나갈 때 그대로 사라진다.** 이 화면이 AND-114 의 재현 지점이다 —
+  // 한 글자 칠 때마다 초안에 적어 두고, 위에서 그 초안을 초기값으로 다시 읽는다.
+  React.useEffect(() => {
+    window.MoyeoApi?.updateRoomDraft?.(draftPatch);
+  }, [roomTitle, intro, fee, approval]);
+  // 넘친 글자는 **말없이 자르지 않는다** — 카운터로 넘친 만큼을 보여주고 다음으로 못 가게 한다
+  // (18-6 모집 내용 수정이 이미 같은 방식이다).
+  const titleOver = roomTitle.trim().length > ROOM_TITLE_LIMIT;
+  // 제목은 **필수**다(서버 `CreateChatRoomRequest` 도 비워 두면 받지 않는다). 예전에는
+  // `titleOver` 만 봐서 **빈 제목으로도 「다음」이 활성**이었고, 5/5 에서 서버 오류로 튕겼다 (W-90).
+  const titleEmpty = roomTitle.trim().length === 0;
+  const introOver = intro.length > ROOM_INTRO_LIMIT;
   const goNext = () => {
-    window.MoyeoApi?.updateRoomDraft({
-      title: roomTitle.trim(),
-      description: intro.trim() || null,
-      // 비워 두면 참가비 없음이다 — 임의의 금액을 넣지 않는다.
-      participationFee: fee.trim() ? Number(fee.replace(/[^0-9]/g, '')) : null,
-      joinApprovalMode: approval === 'manual' ? 'MANUAL' : 'AUTO',
-    });
+    if (titleOver || titleEmpty || introOver) return;
+    window.MoyeoApi?.updateRoomDraft(draftPatch);
     nav.go((window.__moyeoCourseSource || 'custom') === 'linked' ? 'create-summary-linked' : 'create-summary');
   };
 
@@ -193,6 +339,12 @@ function ScreenCreateDetail() {
               testId="create-detail-title"
               caption="어떤 사람들과 어떻게 가고 싶은지를 담아요. 채팅방 이름으로도 쓰여요."
             />
+            <div data-testid="create-detail-title-count" style={{ textAlign: 'right', fontSize: 11, color: titleOver ? T.danger : T.text400, marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>{roomTitle.trim().length}/{ROOM_TITLE_LIMIT}</div>
+            {titleOver && (
+              <div role="alert" style={{ fontSize: 11.5, fontWeight: 800, color: T.danger, marginTop: 4, lineHeight: '16px' }}>
+                모집 이름이 {roomTitle.trim().length}자예요. {ROOM_TITLE_LIMIT}자까지만 저장할 수 있어요 — 먼저 줄여 주세요.
+              </div>
+            )}
           </div>
 
           <div style={{ marginTop: 20 }}>
@@ -200,7 +352,7 @@ function ScreenCreateDetail() {
             <textarea
               data-testid="create-detail-intro"
               value={intro}
-              onChange={(event) => setIntro(event.target.value.slice(0, 500))}
+              onChange={(event) => setIntro(event.target.value)}
               placeholder="어떤 여행이 될지 한두 줄로 알려주세요."
               style={{
                 width: '100%', minHeight: 96, borderRadius: 12, border: `1px solid ${T.line200}`,
@@ -208,7 +360,9 @@ function ScreenCreateDetail() {
                 fontFamily: T.fontStack, resize: 'none', outline: 'none', boxSizing: 'border-box',
               }}
             />
-            <div style={{ textAlign: 'right', fontSize: 11, color: T.text400, marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>{intro.length}/500</div>
+            {/* 넘친 글자를 `slice(0, 500)` 으로 말없이 버리고 있었다 — 붙여넣은 소개글이
+                조용히 잘렸다. 자르지 않고 넘친 만큼을 적고 「다음」을 잠근다 (W-17 · W-90). */}
+            <div data-testid="create-detail-intro-count" style={{ textAlign: 'right', fontSize: 11, color: introOver ? T.danger : T.text400, marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>{intro.length}/{ROOM_INTRO_LIMIT}{introOver ? ` · ${intro.length - ROOM_INTRO_LIMIT}자 넘었어요` : ''}</div>
           </div>
 
           <div style={{ marginTop: 12 }}>
@@ -217,11 +371,13 @@ function ScreenCreateDetail() {
             <AddFieldInput
               icon="money"
               value={fee}
-              onChange={(next) => setFee(next.replace(/[^0-9]/g, ''))}
+              onChange={changeFee}
               placeholder="비워 두면 참가비 없음"
               inputMode="numeric"
               testId="create-detail-fee"
-              caption="1인당 예상 비용이에요. 정하지 않았으면 비워 두세요."
+              caption="정하지 않았으면 비워 두세요. 참고용으로만 보여줘요."
+              notice={feeNotice}
+              noticeTestId="create-detail-fee-notice"
             />
           </div>
 
@@ -271,7 +427,7 @@ function ScreenCreateDetail() {
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}>
           <Btn variant="ghost" onClick={nav.back}>이전</Btn>
           {/* 등록된 코스로 만든 모집은 링크된 요약(17-7)으로 간다 */}
-          <div style={{ flex: 1 }}><Btn variant="primary" full onClick={goNext}>다음</Btn></div>
+          <div style={{ flex: 1 }}><Btn variant="primary" full disabled={titleOver || titleEmpty || introOver} onClick={goNext}>다음</Btn></div>
         </div>
       </div>
     </Phone>
@@ -297,22 +453,29 @@ function ChatMenuBody() {
   const [room, setRoom] = React.useState(null);
   const [memberList, setMemberList] = React.useState(null);
   const [notices, setNotices] = React.useState(null);
-  // 접수 API 가 없는 신고를 누른 자리에서 안내한다 (정본 REPORT-CANON §3)
-  const [reportNoticeOpen, setReportNoticeOpen] = React.useState(false);
+  // 모집(채팅방) 신고 시트. 2026-09-14 실서버 확인으로 접수 API 가 생겨
+  // 「문의로 안내」(`ReportUnsupportedDialog`)에서 실제 접수로 바꿨다.
+  const [reportOpen, setReportOpen] = React.useState(false);
   const [course, setCourse] = React.useState(null);
   // 방별 알림 설정 · 동행자 매너 점수 — 서버가 값을 안 주면 null 로 남겨 표기를 숨긴다.
   const [roomAlarm, setRoomAlarm] = React.useState(null);
   const [companions, setCompanions] = React.useState(null);
   const [alarmBusy, setAlarmBusy] = React.useState(false);
+  // **불러오는 중과 0건은 다르다** — 조회가 끝나기 전에 「참여 중인 모임이 없어요.」를 먼저 그리면
+  // 느린 회선에서는 방이 사라진 것처럼 읽힌다(W-139).
+  const [loading, setLoading] = React.useState(Boolean(liveMode && roomId));
   React.useEffect(() => {
-    if (!liveMode || !roomId) return undefined;
+    if (!liveMode || !roomId) { setLoading(false); return undefined; }
     let active = true;
-    window.MoyeoApi.roomDetail(roomId)
+    setLoading(true);
+    const detailTask = window.MoyeoApi.roomDetail(roomId)
       .then((result) => { if (active && result?.roomId != null) setRoom(result); })
       .catch(() => { /* 실패 시 목데이터 유지 */ });
-    window.MoyeoApi.roomMembers(roomId)
+    const membersTask = window.MoyeoApi.roomMembers(roomId)
       .then((result) => { if (active && Array.isArray(result?.members)) setMemberList(result); })
       .catch(() => { /* 403(미참여) 이면 목데이터 유지 */ });
+    // 이 화면이 열리는 조건은 방 상세 + 멤버 목록 둘이다 — 둘이 끝나면 로딩이 끝난다.
+    Promise.all([detailTask, membersTask]).then(() => { if (active) setLoading(false); });
     window.MoyeoApi.roomNotices(roomId)
       .then((result) => { if (active && Array.isArray(result?.pinnedNotices)) setNotices(result); })
       .catch(() => { /* 403(미참여) 이면 공지 수를 숨긴다 */ });
@@ -403,9 +566,13 @@ function ChatMenuBody() {
       ? `${window.MoyeoApi.formatTime(room.dayTripStartTime)} – ${window.MoyeoApi.formatTime(room.dayTripEndTime)}`
       : '';
     const meetingTime = room.meetingDateTime ? window.MoyeoApi.formatTime(String(room.meetingDateTime).split('T')[1]) : '';
+    // 불발된 방(서버 `ChatRoomStatus.CANCELLED`)은 더 이상 모집도 채팅도 되지 않는다
+    // (`ChatRoom.kt:238` `canChat()`). 이 화면은 그 사실을 어디에도 적지 않았다 (W-112).
+    const cancelled = room.status === 'CANCELLED';
     const conditions = [
       room.participationFee != null ? (Number(room.participationFee) > 0 ? `1인 ${Number(room.participationFee).toLocaleString()}원` : '참가비 없음') : null,
-      room.recruitmentDDay != null ? `마감 D-${room.recruitmentDDay}` : null,
+      // 불발된 방에 「마감 D-11」을 남기면 아직 모집 중인 것처럼 읽힌다.
+      (!cancelled && room.recruitmentDDay != null) ? `마감 D-${room.recruitmentDDay}` : null,
       room.minimumAge != null && room.maximumAge != null ? `${room.minimumAge}~${room.maximumAge}세` : null,
       { NONE: '성별 무관', MALE_ONLY: '남성만', FEMALE_ONLY: '여성만' }[room.genderRestriction] || null,
     ].filter(Boolean);
@@ -440,17 +607,28 @@ function ChatMenuBody() {
           <div style={{ padding: '0 20px' }}>
             {memberList.members.map((member) => (
               <div key={member.userId} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 0' }}>
+                {/* 동행자 행이 눌리지 않아 채팅방에서 사람에게 가는 길이 없었다 (W-88·W-35).
+                    이름·사진 자리만 버튼으로 둔다 — 행 전체를 버튼으로 만들면 오른쪽 ⋯ 가 버튼 안의 버튼이 된다.
+                    내 카드로 가 봐야 할 일이 없어 나는 제외한다. */}
+                <button
+                  type="button"
+                  data-testid={`member-profile-${member.userId}`}
+                  aria-label={`${member.nickname || '동행자'} 프로필 보기`}
+                  disabled={Boolean(member.me)}
+                  onClick={() => nav.go('public-profile', { params: { userId: member.userId } })}
+                  style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 11, border: 0, background: 'transparent', padding: 0, textAlign: 'left', fontFamily: T.fontStack, cursor: member.me ? 'default' : 'pointer' }}>
                 {member.profileImageUrl
                   ? <img src={member.profileImageUrl} alt="" style={{ width: 38, height: 38, borderRadius: 999, objectFit: 'cover', background: T.primary50 }}/>
                   : <span style={{ width: 38, height: 38, borderRadius: 999, background: T.primary50, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="user" size={19} color={T.primary600}/></span>}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{member.nickname}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: T.text900 }}>{member.nickname}</div>
                   {/* 멤버 목록에는 매너 점수가 없다 — 완료 여행이면 companions 의 mannerRating 으로 채우고,
                       값이 null 이면(현재 서버 상태) 여행 횟수만 적는다 */}
                   <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>
                     {mannerByUserId.has(member.userId) ? `매너 ${mannerByUserId.get(member.userId)} · ` : ''}여행 {member.completedTripCount}회
                   </div>
                 </div>
+                </button>
                 {member.host
                   ? <Chip variant="soft">호스트</Chip>
                   : member.me
@@ -462,22 +640,72 @@ function ChatMenuBody() {
 
           <div style={{ height: 8, background: T.bgSubtle, margin: '16px 0 8px' }}/>
 
+          {/* 18 모집 관리 — **호스트만.** 웹에는 이 화면으로 가는 앱 내 진입점이 **아예 없었다**(W-05).
+              화면과 서버 동작은 멀쩡한데 길이 없어서, 호스트가 신청 승인·여행 확정·집합 정보 수정·
+              모집 내용 수정을 하나도 할 수 없었다. 안드로이드도 같은 자리에 두었다.
+              불발(CANCELLED)된 방에서는 감춘다 — 승인할 신청도 확정할 여행도 남아 있지 않은데
+              이 줄만 그대로 있어서 모집 중인 방과 구분되지 않았다 (W-112). */}
+          {cancelled ? (
+            /* 누를 곳이 아니라 상태 안내다 — 눌리지 않는 행(버튼)을 두지 않는다. */
+            <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 20px' }}>
+              <Icon name="close" size={19} color={T.dangerText}/>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: T.dangerText }}>불발된 모임</div>
+                <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>새 글은 쓸 수 없고, 지난 대화는 14일 동안 볼 수 있어요</div>
+              </div>
+            </div>
+          ) : memberList.members.some((member) => member.host && member.me) && (
+            <Row
+              icon="users"
+              label="모집 관리"
+              sub="신청 승인 · 여행 확정 · 모집 내용 수정"
+              onClick={() => nav.go('host-manage')}
+            />
+          )}
           <Row icon="note" label="공지" sub={notices ? `고정 ${pinnedCount}개 · 전체 ${noticeCount}개` : null} onClick={() => nav.go('notice-history')}/>
           {/* 토글은 이 방의 알림만 끈다 (PUT notifications/settings/chat-rooms/{roomId}).
               행 자체는 20-1c 이 모임 알림으로 이어진다 — 예전에는 전역 방해금지(29-2)로 갔다.
               "이 모임만"이라고 써놓고 계정 전체 설정을 열면, 방 하나 끄려던 사람이 모든 알림을 끈다
               (ATTACH-COMPOSER-CANON §6-1). 서버 값을 못 읽으면 토글만 숨긴다. */}
           <Row icon="bell" label="알림 설정" sub="이 모임의 알림만 끄기" onClick={() => nav.go('room-notif')} rightAction={roomAlarm === null ? null : <RoomAlarmToggle/>}/>
-          {/* 채팅방·멤버 신고는 접수 API 가 없다 — 30-2 시트(피드 전용)로 보내지 않고
-              누른 자리에서 문의 안내를 띄운다 (정본 REPORT-CANON §3).
-              차단은 20-1a 멤버 액션에서 한다(대상이 확실한 자리). */}
-          <Row icon="flag" label="신고 · 문의" sub="부적절한 대화는 GitHub 이슈나 이메일로 알려주세요" onClick={() => setReportNoticeOpen(true)}/>
+          {/* 모집(채팅방) 신고 — POST /chat-rooms/{roomId}/reports (204).
+              사유는 `/chat-rooms/report-reasons` 가 준다 (피드·멤버와 **다른 목록**이다).
+              내가 만든 모집은 서버가 400 `40044` 로 막으므로 호스트에게는 줄을 두지 않는다 —
+              항상 실패하는 버튼을 두지 않는다는 30-2 와 같은 규칙이다.
+              차단은 20-1a 멤버 액션에서 한다(대상이 확실한 자리) — 신고와 섞지 않는다. */}
+          {!memberList.members.some((member) => member.host && member.me) && (
+            <Row icon="flag" label="이 모임 신고" sub="부적절한 모집 내용을 알려주세요" onClick={() => setReportOpen(true)}/>
+          )}
 
           <div style={{ height: 8, background: T.bgSubtle, margin: '8px 0' }}/>
 
-          <Row icon="close" label="채팅방 나가기" sub="나가면 대기 중인 다음 신청자가 자동으로 합류해요" danger onClick={() => nav.go('leave-alert')}/>
+          {/* 불발된 방에는 채울 자리도 대기자도 없다 — 그 안내를 그대로 두면 거짓말이 된다 (W-112). */}
+          {/* 호스트에게 「대기 중인 다음 신청자가 자동으로 합류해요」라고 말하면 안 된다 —
+              호스트가 나가면 합류가 아니라 **모임이 끝난다**. 확인 화면(`leave-alert`)은 이미
+              호스트·참가자를 갈라 말하는데(`screens-extra.jsx` 「호스트가 나가면 이 모임은 종료돼요」)
+              그 앞의 이 줄만 참가자 기준이라 서로 반대되는 말을 했다 (QA MEET-017).
+              안드로이드가 이미 같은 모양이다(`ChangeLogScreens.kt` `if (amHost) "호스트가 나가면 이 모임은 종료돼요"`) —
+              **라벨은 두 쪽 모두 「채팅방 나가기」로 두고 보조 문구만 가른다.** iOS 는 아직 고정 문구다. */}
+          <Row
+            icon="close"
+            label="채팅방 나가기"
+            sub={cancelled
+              ? '나가면 지난 대화를 더 볼 수 없어요'
+              : (memberList.members.some((member) => member.host && member.me)
+                ? '호스트가 나가면 이 모임은 종료돼요'
+                : '나가면 대기 중인 다음 신청자가 자동으로 합류해요')}
+            danger
+            onClick={() => nav.go('leave-alert')}
+          />
         </div>
-        {reportNoticeOpen && <ReportUnsupportedDialog onClose={() => setReportNoticeOpen(false)}/>}
+        {reportOpen && window.ReportReasonSheet && React.createElement(window.ReportReasonSheet, {
+          testId: 'room-report-sheet',
+          subtitle: `「${room.title}」 모집을 신고해요.`,
+          loadReasons: () => window.MoyeoApi.roomReportReasons(),
+          submitReport: ({ reason, details }) => window.MoyeoApi.reportRoom(roomId, { reason, details }),
+          noticeByCode: window.ROOM_REPORT_NOTICES,
+          onClose: () => setReportOpen(false),
+        })}
       </div>
     );
   }
@@ -487,7 +715,7 @@ function ChatMenuBody() {
       <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
         <Header title="모임 정보" left center onBack={nav.back}/>
         <div role="status" style={{ padding: '48px 20px', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '21px' }}>
-          {liveMode ? '참여 중인 모임이 없어요.' : '로그인하면 모집 중인 모임을 볼 수 있어요.'}
+          {loading ? '불러오는 중이에요…' : liveMode ? '참여 중인 모임이 없어요.' : '로그인하면 모집 중인 모임을 볼 수 있어요.'}
         </div>
       </div>
   );
@@ -522,8 +750,10 @@ function ScreenMemberActions() {
   const member = useTargetRoomMember(liveMode);
   const [requestState, setRequestState] = React.useState('idle');
   const [requestError, setRequestError] = React.useState('');
-  // 멤버 신고는 접수 API 가 없다 — 누른 자리에서 문의 안내를 띄운다 (정본 REPORT-CANON §3).
-  const [reportNoticeOpen, setReportNoticeOpen] = React.useState(false);
+  // 멤버 신고 시트 — POST /chat-rooms/{roomId}/members/{memberId}/reports (204).
+  // 2026-09-14 실서버 확인으로 접수 API 가 생겨 문의 안내에서 실제 접수로 바꿨다.
+  const [reportOpen, setReportOpen] = React.useState(false);
+  const reportRoomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
   // 차단은 신고와 분리한다. 대상이 확실한 이 자리에서 바로 보낸다
   // (POST users/me/blocks/{userId} · 안드로이드 멤버 액션 onBlock 이 정본).
   const [blockState, setBlockState] = React.useState('idle');
@@ -540,7 +770,7 @@ function ScreenMemberActions() {
       setBlockMessage(`${member.nickname}님을 차단했어요.`);
     } catch (error) {
       setBlockState('idle');
-      setBlockError(error?.message || '차단하지 못했어요. 잠시 후 다시 시도해주세요.');
+      setBlockError(window.userFacingError(error, '차단하지 못했어요. 잠시 후 다시 시도해주세요.'));
     }
   };
   const sendFriendRequest = async () => {
@@ -552,9 +782,11 @@ function ScreenMemberActions() {
       setRequestState('sent');
     } catch (error) {
       setRequestState('idle');
-      setRequestError(error?.message || '친구 요청을 보내지 못했어요.');
+      setRequestError(window.userFacingError(error, '친구 요청을 보내지 못했어요.'));
     }
   };
+  // 시트 접근성은 공용 훅 한 곳에서 본다 (QA ENV-007 · shared.jsx `useSheetA11y`).
+  const sheet = window.useSheetA11y({ label: '멤버 메뉴', onClose: nav.back });
   const friendLabel = requestState === 'sent' ? '친구 요청을 보냈어요' : requestState === 'sending' ? '보내는 중...' : '친구 요청하기';
   return (
     <Phone>
@@ -566,7 +798,7 @@ function ScreenMemberActions() {
             피드와 무관하다. 피드 신고 시트는 30-2/32 로 따로 있다 (정본 REPORT-CANON §3).
             그 코드는 이 화면에 없는 `feed` 를 참조해 **화면 전체가 렌더되지 않았다**. */}
         <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
-        <div data-testid="member-actions-sheet" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3 }}>
+        <div {...sheet.rootProps} data-testid="member-actions-sheet" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3 }}>
           <div style={{ width: 36, height: 4, borderRadius: 999, background: T.line300, margin: '0 auto 14px' }}/>
           <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '4px 0 12px' }}>
             {member
@@ -576,8 +808,8 @@ function ScreenMemberActions() {
               : <AnimalAvatar kind="raccoon" size={44} bg={T.primary50}/>}
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14.5, fontWeight: 700 }}>{member?.nickname || ''}</div>
-              {/* 서버 멤버 응답에는 매너 점수·합류 시각이 없어 목데이터에서만 보조 줄을 둔다 */}
-              {!member && <div style={{ fontSize: 11.5, color: T.text500, marginTop: 2 }}>매너 4.8 · 여행 8회 · 어제 합류</div>}
+              {/* 매너 점수·합류 시각은 서버 멤버 응답에 없다 — 없으면 **빈 자리로 둔다**(NO-MOCK R1·R2).
+                  예전에는 member 가 없을 때 「매너 4.8 · 여행 8회 · 어제 합류」라는 지어낸 값을 그렸다. */}
             </div>
           </div>
           <div style={{ height: 1, background: T.line100 }}/>
@@ -610,9 +842,9 @@ function ScreenMemberActions() {
               {blockMessage && <div role="status" data-testid="member-actions-block-done" style={{ fontSize: 11.5, color: T.text500, paddingBottom: 8 }}>{blockMessage}</div>}
               {blockError && <div role="alert" style={{ fontSize: 11.5, color: T.danger, paddingBottom: 8 }}>{blockError}</div>}
               <div style={{ height: 1, background: T.line100 }}/>
-              <button type="button" data-testid="member-actions-report" onClick={() => setReportNoticeOpen(true)} style={{ width: '100%', height: 54, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 11, fontFamily: T.fontStack, cursor: 'pointer', padding: 0 }}>
+              <button type="button" data-testid="member-actions-report" disabled={reportRoomId == null} onClick={() => setReportOpen(true)} style={{ width: '100%', height: 54, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 11, fontFamily: T.fontStack, cursor: reportRoomId == null ? 'default' : 'pointer', padding: 0 }}>
                 <Icon name="flag" size={19} color={T.text700}/>
-                <span style={{ flex: 1, textAlign: 'left', fontSize: 14, fontWeight: 600, color: T.text900 }}>신고 · 문의</span>
+                <span style={{ flex: 1, textAlign: 'left', fontSize: 14, fontWeight: 600, color: T.text900 }}>신고하기</span>
                 <Icon name="arrow" size={15} color={T.text400}/>
               </button>
               <div style={{ height: 12 }}/>
@@ -620,7 +852,17 @@ function ScreenMemberActions() {
           )}
           <Btn variant="secondary" full onClick={() => nav.back()}>닫기</Btn>
         </div>
-        {reportNoticeOpen && <ReportUnsupportedDialog onClose={() => setReportNoticeOpen(false)}/>}
+        {/* 멤버 사유 목록은 피드·모집과 **다르다** — `/chat-rooms/member-report-reasons` 를 쓴다.
+            차단은 위의 「차단하기」로 **따로** 보낸다 (정본 §2 결론 유지). */}
+        {reportOpen && member && reportRoomId != null && window.ReportReasonSheet
+          && React.createElement(window.ReportReasonSheet, {
+            testId: 'member-report-sheet',
+            subtitle: `${member.nickname || '이 사용자'}님을 신고해요.`,
+            loadReasons: () => window.MoyeoApi.memberReportReasons(),
+            submitReport: ({ reason, details }) => window.MoyeoApi.reportMember(reportRoomId, member.userId, { reason, details }),
+            noticeByCode: window.MEMBER_REPORT_NOTICES,
+            onClose: () => setReportOpen(false),
+          })}
       </div>
     </Phone>
   );
@@ -632,6 +874,8 @@ function ScreenMemberActions() {
 // 상대는 13-1 내보내기 안내에서 이 사유를 본다. (changeLog14)
 function ScreenMemberRemove() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 시트 접근성은 공용 훅 한 곳에서 본다 (QA ENV-007 · shared.jsx `useSheetA11y`).
+  const sheet = window.useSheetA11y({ label: '멤버 내보내기', onClose: nav.back });
   const [reason, setReason] = React.useState('');
   // ⚠️ 파괴적 호출이라 QA 방에서 실행해 검증하지 않았다 — 배선만 해 둔다.
   // DELETE chat-rooms/{roomId}/members/{memberId} 는 본문에 사유(1~500자)가 필수다.
@@ -639,6 +883,10 @@ function ScreenMemberRemove() {
   const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
   const member = useTargetRoomMember(liveMode);
   const [busy, setBusy] = React.useState(false);
+  // 실패를 말하지 않으면 호스트는 「눌렀는데 아무 일도 없다」로 읽는다 (QA CHAT-038).
+  // 기획에 오류 문구 자리가 없다는 이유로 조용히 넘기던 자리다 — 되돌릴 수 없는 조작일수록
+  // 성공·실패를 분명히 말해야 한다.
+  const [submitError, setSubmitError] = React.useState('');
   const canSubmit = reason.trim().length >= 10 && !busy;
   const submit = async () => {
     if (!roomId || !member?.userId) { nav.back(); return; }
@@ -647,8 +895,10 @@ function ScreenMemberRemove() {
       await window.MoyeoApi.kickRoomMember(roomId, member.userId, reason);
       window.MoyeoApi.selectMember(null);
       nav.go('chat-menu');
-    } catch (_) {
-      setBusy(false); // 실패 시 시트를 닫지 않는다 (기획에 오류 문구 자리가 없다)
+    } catch (error) {
+      // 시트를 닫지 않고 사유 입력도 그대로 남긴다 — 다시 누르면 된다.
+      setSubmitError(window.userFacingError(error, '내보내지 못했어요.'));
+      setBusy(false);
     }
   };
   return (
@@ -657,7 +907,7 @@ function ScreenMemberRemove() {
         {/* 이전 화면(20-1)이 딤 아래에 그대로 깔려 있어야 시트가 "위에 떠 있다"고 읽힌다 (changeLog14) */}
         <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}><ChatMenuBody/></div>
         <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
-        <div data-testid="member-remove-sheet" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3 }}>
+        <div {...sheet.rootProps} data-testid="member-remove-sheet" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3 }}>
           <div style={{ width: 36, height: 4, borderRadius: 999, background: T.line300, margin: '0 auto 14px' }}/>
           <div style={{ fontSize: 17, fontWeight: 700 }}>멤버 내보내기</div>
           <div style={{ fontSize: 12, color: T.text500, marginTop: 4 }}>내보낸 자리는 대기 큐에서 자동으로 채워져요.</div>
@@ -668,8 +918,7 @@ function ScreenMemberRemove() {
               : <AnimalAvatar kind="raccoon" size={40} bg={T.primary50}/>}
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700 }}>{member?.nickname || ''}</div>
-              {/* 매너 점수·합류 시각은 서버 멤버 목록에 없다 — 서버 모드에서는 표기하지 않는다 */}
-              {!member?.userId && <div style={{ fontSize: 11, color: T.text500, marginTop: 2 }}>매너 4.8 · 여행 8회 · 어제 합류</div>}
+              {/* 매너 점수·합류 시각은 서버 멤버 목록에 없다 — 어느 경우에도 지어내지 않는다(NO-MOCK R1·R2). */}
             </div>
           </div>
 
@@ -697,6 +946,10 @@ function ScreenMemberRemove() {
             ))}
           </div>
 
+          {submitError && (
+            <div role="alert" data-testid="member-remove-error" style={{ marginTop: 12, padding: '11px 13px', borderRadius: 12, border: `1px solid ${T.danger}`, fontSize: 12.5, lineHeight: '19px', color: T.danger }}>{submitError}</div>
+          )}
+
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 18 }}>
             <button type="button" data-testid="member-remove-cancel" onClick={() => nav.back()} style={{ width: 72, height: 52, border: 0, background: 'transparent', fontSize: 14, fontWeight: 600, color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>취소</button>
             {/* 진입 상태는 사유가 비어 있으므로 비활성이다 (changeLog12 진입 상태 원칙) */}
@@ -714,13 +967,30 @@ function ScreenMemberRemove() {
 // 사진·장소·지도만 시트에서 바로 전송돼 미리보기 없이 나갔다(정본 R2 위반).
 function ScreenChatAttach() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 시트 접근성은 공용 훅 한 곳에서 본다 (QA ENV-007 · shared.jsx `useSheetA11y`).
+  const sheet = window.useSheetA11y({ label: '무엇을 공유할까요?', onClose: nav.back });
+  // 공지는 **호스트만** 올릴 수 있다(서버가 403 으로 막는다). 예전에는 참가자에게도 타일이
+  // 보여서, 눌러 다 쓰고 올린 뒤에야 거절당했다 (W-19). 같은 파일의 20-1 멤버 목록이
+  // 이미 `members.some(m => m.host && m.me)` 로 호스트를 가릴 줄 안다 — 같은 근거를 쓴다.
+  const liveMode = window.MoyeoApi?.live();
+  const roomId = liveMode ? window.MoyeoApi.selectedRoomId() : null;
+  // null = 아직 모른다. 모르는 동안에는 타일을 그리지 않는다(있다가 사라지는 편이 더 나쁘다).
+  const [isHost, setIsHost] = React.useState(liveMode && roomId ? null : false);
+  React.useEffect(() => {
+    if (!liveMode || !roomId) return undefined;
+    let active = true;
+    window.MoyeoApi.roomMembers(roomId)
+      .then((result) => { if (active) setIsHost(Boolean((result?.members || []).some((member) => member.me && member.host))); })
+      .catch(() => { if (active) setIsHost(false); });
+    return () => { active = false; };
+  }, [liveMode, roomId]);
   const items = [
     { icon: 'camera', label: '사진', desc: '최대 20MB · 1장씩 전송', route: 'attach-photo' },
     { icon: 'pin', label: '장소', desc: '관광 정보에서 찾기', route: 'attach-place' },
     { icon: 'map', label: '지도', desc: '만날 위치 핀 공유', route: 'attach-map' },
     { icon: 'poll', label: '투표', desc: '2~5개 · 익명 기본', route: 'attach-poll' },
     { icon: 'money', label: '정산', desc: '메모용 · 송금 아님', route: 'attach-settlement' },
-    { icon: 'note', label: '메모', desc: '상단 고정 공지 (호스트)', route: 'attach-notice' },
+    ...(isHost === true ? [{ icon: 'note', label: '메모', desc: '상단 고정 공지 (호스트)', route: 'attach-notice' }] : []),
   ];
   return (
     <Phone>
@@ -729,7 +999,7 @@ function ScreenChatAttach() {
         <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}><ChatRoomBody/></div>
         <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
 
-        <div style={{
+        <div {...sheet.rootProps} data-testid="chat-attach-sheet" style={{
           position: 'absolute', left: 0, right: 0, bottom: 0,
           background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px',
           boxShadow: T.l3,
@@ -772,29 +1042,60 @@ function ScreenChatAttach() {
 function ScreenFriends() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const [tab, setTab] = React.useState('mine');
+  // 「닉네임으로 찾기」 검색창은 **없다** (BE-05 · 2026-09-14 결정 B안).
+  // 서버에 사용자 검색 API 를 만들지 않기로 했다 — 친구는 도감에서만 신청한다.
+  // 예전 검색창은 **이미 친구인 목록만** 좁혀서 모르는 사람을 아무리 쳐도 늘 0건이었다.
+  // 동작하는 것처럼 보이는데 결과가 없는 것이 제일 나쁜 상태라 들어냈고,
+  // 대신 친구를 어떻게 만드는지 안내 한 줄을 둔다.
   // 로그인 상태: GET friends + friend-requests/received·sent 로 대체, 수락/거절/취소 실연동.
   const liveMode = window.MoyeoApi?.live();
   const [serverData, setServerData] = React.useState(null);
+  // 수락·거절·취소가 실패했을 때 사용자에게 하는 말. 예전에는 세 갈래 모두 `catch (_) {}` 로
+  // **아무 말 없이 삼켰다** — 상대가 먼저 처리해 버린 신청의 버튼을 눌러도 화면이 그대로여서
+  // 눌리지 않은 것처럼 보였다 (QA SOCIAL-010).
+  const [requestError, setRequestError] = React.useState('');
+  const loadFriendLists = React.useCallback(() => Promise.all([
+    window.MoyeoApi.friends(),
+    window.MoyeoApi.receivedFriendRequests(),
+    window.MoyeoApi.sentFriendRequests(),
+  ]).then(([friendsResult, receivedResult, sentResult]) => {
+    if (!Array.isArray(friendsResult?.friends)) return false;
+    setServerData({
+      mine: friendsResult.friends,
+      received: receivedResult?.requests || [],
+      sent: sentResult?.requests || [],
+    });
+    return true;
+  }), []);
   React.useEffect(() => {
     if (!liveMode) return undefined;
     let active = true;
-    Promise.all([
-      window.MoyeoApi.friends(),
-      window.MoyeoApi.receivedFriendRequests(),
-      window.MoyeoApi.sentFriendRequests(),
-    ])
-      .then(([friendsResult, receivedResult, sentResult]) => {
-        if (!active || !Array.isArray(friendsResult?.friends)) return;
-        setServerData({
-          mine: friendsResult.friends,
-          received: receivedResult?.requests || [],
-          sent: sentResult?.requests || [],
-        });
-      })
-      .catch(() => { /* 실패 시 목데이터 유지 */ });
+    loadFriendLists()
+      .then(() => { if (!active) setServerData((current) => current); })
+      .catch(() => { /* 캐시가 없으면 빈 상태로 남는다 — 지어내지 않는다 */ });
     return () => { active = false; };
-  }, [liveMode]);
+  }, [liveMode, loadFriendLists]);
+  // 상대가 먼저 처리해 그 신청이 이미 사라진 경우. 서버 코드로만 가른다
+  // (2026-09-15 결정 ⑩ — 서버 `errorMessage` 를 화면에 그대로 올리지 않는다).
+  //   40419 FRIEND_REQUEST_NOT_FOUND · 40420 FRIENDSHIP_NOT_FOUND · 40030 ALREADY_FRIEND
+  const FRIEND_REQUEST_GONE_CODES = window.MOYEO_FRIEND_REQUEST_GONE_CODES;
+  const ALREADY_FRIEND_CODE = '40030';
+  const reportRequestFailure = (error, fallback) => {
+    const code = String(error?.code ?? '');
+    if (code === ALREADY_FRIEND_CODE) {
+      setRequestError('이미 친구가 됐어요. 목록을 새로 불러왔어요.');
+      loadFriendLists().catch(() => {});
+      return;
+    }
+    if (FRIEND_REQUEST_GONE_CODES.includes(code)) {
+      setRequestError(`${window.MOYEO_FRIEND_REQUEST_GONE_MESSAGE} 목록을 새로 불러왔어요.`);
+      loadFriendLists().catch(() => {});
+      return;
+    }
+    setRequestError(window.screenErrorText(error, fallback));
+  };
   const answerRequest = async (requestId, accept) => {
+    setRequestError('');
     try {
       if (accept) await window.MoyeoApi.acceptFriendRequest(requestId);
       else await window.MoyeoApi.rejectFriendRequest(requestId);
@@ -802,17 +1103,52 @@ function ScreenFriends() {
       if (accept) window.MoyeoApi.friends().then((result) => {
         setServerData((current) => (current ? { ...current, mine: result?.friends || current.mine } : current));
       }).catch(() => {});
-    } catch (_) { /* 실패 시 목록 유지 */ }
+    } catch (error) {
+      reportRequestFailure(error, accept ? '친구 신청을 수락하지 못했어요.' : '친구 신청을 거절하지 못했어요.');
+    }
   };
   const cancelSent = async (requestId) => {
+    setRequestError('');
     try {
       await window.MoyeoApi.cancelFriendRequest(requestId);
       setServerData((current) => (current ? { ...current, sent: current.sent.filter((item) => item.requestId !== requestId) } : current));
-    } catch (_) { /* 실패 시 목록 유지 */ }
+    } catch (error) {
+      reportRequestFailure(error, '친구 신청을 취소하지 못했어요.');
+    }
   };
   // 27-2a 친구 정리 시트로 보낸다. 친구를 끊으면 도감 카드까지 함께 사라지므로
   // 행 안의 즉석 확인이 아니라 별도 화면에서 묻는다 (ATTACH-COMPOSER-CANON §6-5).
   // 실제 DELETE users/me/friends/{friendUserId} 는 27-2a 가 부른다.
+  // 친구 프로필로 가는 길이 「친구 정리」 시트 안에만 있었다 — 목록에서 이름을 눌러도
+  // 아무 일이 없어서, 프로필을 보려면 정리 메뉴를 먼저 열어야 했다(안드 AND-121 과 같은 계열).
+  // 이름 줄 자체를 눌러 프로필(공개 프로필)로 간다. ⋯ 의 「친구 정리」는 그대로 둔다.
+  const openFriendProfile = (item) => {
+    const userId = item.user?.userId;
+    if (userId == null) return;
+    nav.go('public-profile', { params: { userId } });
+  };
+  // 이름·사진을 감싸는 눌림 영역. 행을 통째로 button 으로 만들면 안의 수락·거절 버튼이
+  // button 안의 button 이 되므로 이름 줄만 버튼으로 둔다.
+  const FriendIdentity = ({ item, sub }) => (
+    <button
+      type="button"
+      data-testid={`friend-profile-${item.user?.userId ?? 'unknown'}`}
+      onClick={() => openFriendProfile(item)}
+      disabled={item.user?.userId == null}
+      aria-label={`${item.user?.nickname || '친구'} 프로필 보기`}
+      style={{
+        flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 12,
+        border: 0, background: 'transparent', padding: 0, textAlign: 'left',
+        fontFamily: T.fontStack, cursor: item.user?.userId == null ? 'default' : 'pointer',
+      }}>
+      <ServerAvatar src={item.user?.profileImageUrl}/>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: T.text900 }}>{item.user?.nickname}</div>
+        {sub && <div style={{ fontSize: 11.5, color: T.text500, marginTop: 3 }}>{sub}</div>}
+      </div>
+    </button>
+  );
+
   const openFriendManage = (item) => {
     window.MoyeoApi.selectFriend({
       userId: item.user?.userId,
@@ -828,11 +1164,19 @@ function ScreenFriends() {
   );
 
   if (serverData) {
-    const list = serverData[tab] || [];
+    const mineList = serverData.mine;
+    const receivedList = serverData.received;
+    const sentList = serverData.sent;
+    const list = { mine: mineList, received: receivedList, sent: sentList }[tab] || [];
     return (
       <Phone>
         <div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
-          <Header title="친구 관리" left center onBack={nav.back} right={<IconButton name="search"/>}/>
+          <Header
+            title="친구 관리"
+            left
+            center
+            onBack={nav.back}
+          />
           <div style={{ padding: '0 20px', display: 'flex', gap: 20, borderBottom: `1px solid ${RF.softLine}` }}>
             {[
               { id: 'mine', label: '내 친구', count: serverData.mine.length },
@@ -848,8 +1192,18 @@ function ScreenFriends() {
               );
             })}
           </div>
-          <div style={{ position: 'absolute', top: 126, left: 0, right: 0, bottom: 0, overflow: 'auto', padding: '6px 0 24px' }}>
-            {tab === 'received' && serverData.received.length > 0 && (
+          {/* 검색창을 들어낸 자리 — 친구를 어떻게 만드는지 한 줄로 알려 준다.
+              이 안내가 없으면 사용자는 친구를 늘릴 길을 아예 찾지 못한다. */}
+          <div data-testid="friends-how-to-add" style={{ padding: '10px 20px 2px', fontSize: 11.5, lineHeight: '17px', color: T.text500 }}>
+            함께 여행한 사람은 친구 도감에서 신청할 수 있어요.
+          </div>
+          <div style={{ position: 'absolute', top: 158, left: 0, right: 0, bottom: 0, overflow: 'auto', padding: '6px 0 24px' }}>
+            {/* 수락·거절·취소가 실패했을 때 같은 자리에서 알린다. 조용히 삼키면 버튼이
+                눌리지 않은 것으로 읽힌다 (QA SOCIAL-010). */}
+            {requestError && (
+              <div role="alert" data-testid="friends-request-error" style={{ margin: '4px 20px 8px', padding: '10px 12px', borderRadius: 10, border: `1px solid ${T.danger}`, fontSize: 12, lineHeight: '18px', color: T.danger }}>{requestError}</div>
+            )}
+            {tab === 'received' && receivedList.length > 0 && (
               <div style={{ padding: '10px 20px 4px', fontSize: 11.5, color: T.text500 }}>거절해도 상대방에게는 알려지지 않아요.</div>
             )}
             {list.length === 0 && (
@@ -857,36 +1211,25 @@ function ScreenFriends() {
                 {tab === 'mine' ? '아직 친구가 없어요. 여행에서 만난 친구에게 신청해보세요!' : tab === 'received' ? '받은 친구 신청이 없어요.' : '보낸 친구 신청이 없어요.'}
               </div>
             )}
-            {tab === 'mine' && serverData.mine.map((item) => (
+            {tab === 'mine' && mineList.map((item) => (
               <div key={item.friendshipId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px' }}>
-                <ServerAvatar src={item.user?.profileImageUrl}/>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.user?.nickname}</div>
-                  {item.lastActive && <div style={{ fontSize: 11.5, color: T.text500, marginTop: 3 }}>{item.lastActive} 접속</div>}
-                </div>
+                <FriendIdentity item={item} sub={item.lastActive ? `${item.lastActive} 접속` : ''}/>
                 <IconButton name="more" size={18} ariaLabel={`${item.user?.nickname} 친구 정리`} onClick={() => openFriendManage(item)}/>
               </div>
             ))}
-            {tab === 'received' && serverData.received.map((item) => (
+            {tab === 'received' && receivedList.map((item) => (
               <div key={item.requestId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px' }}>
-                <ServerAvatar src={item.user?.profileImageUrl}/>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.user?.nickname}</div>
-                  <div style={{ fontSize: 11.5, color: T.text500, marginTop: 3 }}>{window.MoyeoApi.formatRelative(item.requestedAt)} 신청</div>
-                </div>
+                {/* 받은 신청도 수락 전에 상대가 누구인지 볼 수 있어야 한다 */}
+                <FriendIdentity item={item} sub={`${window.MoyeoApi.formatRelative(item.requestedAt)} 신청`}/>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button type="button" onClick={() => answerRequest(item.requestId, false)} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontSize: 12, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>거절</button>
                   <button type="button" onClick={() => answerRequest(item.requestId, true)} style={{ height: 34, padding: '0 14px', borderRadius: 10, border: 'none', background: T.primary500, color: '#fff', fontSize: 12, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>수락</button>
                 </div>
               </div>
             ))}
-            {tab === 'sent' && serverData.sent.map((item) => (
+            {tab === 'sent' && sentList.map((item) => (
               <div key={item.requestId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px' }}>
-                <ServerAvatar src={item.user?.profileImageUrl}/>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.user?.nickname}</div>
-                  <div style={{ fontSize: 11.5, color: T.text500, marginTop: 3 }}>{window.MoyeoApi.formatRelative(item.requestedAt)} 신청 · 수락 대기 중</div>
-                </div>
+                <FriendIdentity item={item} sub={`${window.MoyeoApi.formatRelative(item.requestedAt)} 신청 · 수락 대기 중`}/>
                 <button type="button" onClick={() => cancelSent(item.requestId)} style={{ height: 34, padding: '0 12px', borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', color: T.text700, fontSize: 12, fontWeight: 800, fontFamily: T.fontStack, cursor: 'pointer' }}>신청 취소</button>
               </div>
             ))}
@@ -927,17 +1270,24 @@ function ScreenTripMessage() {
   // companions 가 409 라 화면이 통째로 비었다 — "동행자가 없다"로 잘못 읽힌다.
   // MoyeoApi.completedTripRoomId 가 고른 방을 검사하고, 아니면 가장 최근에 다녀온 여행으로 바꾼다.
   const [roomId, setRoomId] = React.useState(null);
+  // 여행 요약의 `coursePublicationAvailable`. 서버가 아직 이 필드를 안 주면 true 로 본다.
+  // 로그인 전(프로토타입 모드)에는 판정할 방이 없으므로 예전처럼 그대로 둔다.
+  const [canPublishCourse, setCanPublishCourse] = React.useState(!liveMode);
   React.useEffect(() => {
-    if (!liveMode) { setRoomId(null); return undefined; }
+    if (!liveMode) { setRoomId(null); setCanPublishCourse(true); return undefined; }
     let active = true;
-    window.MoyeoApi.completedTripRoomId()
-      .then((resolved) => {
+    window.MoyeoApi.completedTripRoom()
+      .then((room) => {
         if (!active) return;
+        const resolved = room ? String(room.roomId) : null;
         setRoomId(resolved);
+        // 이미 공개한 코스면 서버가 `coursePublicationAvailable: false` 를 준다 —
+        // 그때는 「코스 공개 →」 줄을 두지 않는다. 눌러 봐야 409 로 막히는 길이다.
+        setCanPublishCourse(Boolean(room) && window.MoyeoApi.canPublishCourse(room));
         // 다녀온 여행이 하나도 없으면 로딩을 끝내고 빈 상태로 남긴다.
         if (!resolved) setCompanionsState('empty');
       })
-      .catch(() => { if (active) { setRoomId(null); setCompanionsState('failed'); } });
+      .catch(() => { if (active) { setRoomId(null); setCanPublishCourse(false); setCompanionsState('failed'); } });
     return () => { active = false; };
   }, [liveMode]);
   const [companions, setCompanions] = React.useState(null);
@@ -1137,11 +1487,13 @@ function ScreenTripMessage() {
             <div style={{ flex: 1, fontSize: 12, color: T.text700, lineHeight: '17px' }}>
               경로가 담긴 <b>피드</b>도 이어서 써볼까요?
             </div>
-            <span onClick={() => nav.go('feed-write')} style={{ fontSize: 12, fontWeight: 800, color: T.primary600, cursor: 'pointer' }}>피드 쓰기 →</span>
+            <span onClick={() => nav.go('feed-write-1')} style={{ fontSize: 12, fontWeight: 800, color: T.primary600, cursor: 'pointer' }}>피드 쓰기 →</span>
           </div>
 
-          {/* 호스트에게만 — 다녀온 코스를 다른 여행자에게 열어두는 선택. 한 번만 조용히 권한다 */}
-          <div style={{ marginTop: 10, padding: 13, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, display: 'flex', alignItems: 'center', gap: 11 }}>
+          {/* 호스트에게만 — 다녀온 코스를 다른 여행자에게 열어두는 선택. 한 번만 조용히 권한다.
+              이미 공개한 코스면 서버가 `coursePublicationAvailable: false` 를 주고, 그때는 줄을 지운다. */}
+          {canPublishCourse && (
+          <div data-testid="trip-message-course-publish" style={{ marginTop: 10, padding: 13, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card, display: 'flex', alignItems: 'center', gap: 11 }}>
             <div style={{ width: 38, height: 38, borderRadius: 11, background: T.primary50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Icon name="map" size={18} color={T.primary600}/>
             </div>
@@ -1150,6 +1502,7 @@ function ScreenTripMessage() {
             </div>
             <span onClick={() => nav.go('course-publish')} style={{ fontSize: 12, fontWeight: 800, color: T.primary600, cursor: 'pointer' }}>코스 공개 →</span>
           </div>
+          )}
         </div>
 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}` }}>
@@ -1164,51 +1517,20 @@ function ScreenTripMessage() {
   );
 }
 
-/**
- * 접수 API 가 없는 신고(멤버·채팅방·댓글)를 **누른 자리에서** 안내한다.
- * 화면을 옮기지 않는다 — 문의 버튼은 29 설정 안에 있어서 거기로 보내면 하려던 일에서 멀어진다.
- * 문구·버튼은 네 표면이 같은 것을 쓴다 (정본 `docs/alignment/REPORT-CANON.md` §3).
- */
-function ReportUnsupportedDialog({ onClose }) {
-  const contact = window.MOYEO_CONTACT || {};
-  const btn = {
-    height: 44, borderRadius: 12, border: `1px solid ${T.line200}`, display: 'flex',
-    alignItems: 'center', justifyContent: 'center', fontSize: 13.5, fontWeight: 800,
-    color: T.text900, textDecoration: 'none', background: 'transparent', cursor: 'pointer',
-    fontFamily: T.fontStack,
-  };
-  return (
-    <div role="dialog" aria-label="신고를 접수하지 못해요" data-testid="report-unsupported" style={{ position: 'absolute', inset: 0, zIndex: 40 }}>
-      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
-      <div style={{
-        position: 'absolute', left: 24, right: 24, top: '50%', transform: 'translateY(-50%)',
-        background: RF.card, borderRadius: 18, padding: '20px 18px 16px', boxShadow: T.l3,
-      }}>
-        <div style={{ fontSize: 15, fontWeight: 900 }}>신고를 접수하지 못해요</div>
-        <div style={{ fontSize: 12.5, color: T.text500, marginTop: 8, lineHeight: '19px' }}>
-          멤버·채팅방 신고는 아직 앱에서 받지 못해요. GitHub 이슈나 이메일로 알려주시면 확인할게요.
-        </div>
-        <div style={{ display: 'grid', gap: 8, marginTop: 16 }}>
-          <a href={contact.issuesUrl} target="_blank" rel="noreferrer" data-testid="report-unsupported-issues" style={btn}>GitHub 이슈로 문의</a>
-          <a href={`mailto:${contact.email}`} data-testid="report-unsupported-email" style={btn}>이메일로 문의</a>
-          <button type="button" onClick={onClose} style={{ ...btn, border: 0, color: T.text500 }}>닫기</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ───────── 30-2 · 피드 신고 시트 ─────────
 //
 // **피드 전용이다** (정본 `docs/alignment/REPORT-CANON.md`).
 // 서버가 받는 신고는 피드뿐이다 — POST /api/v1/feeds/{feedId}/reports → 204 (2026-09-03 실측).
-// 멤버·채팅방·댓글은 접수 API 가 없어 [ReportUnsupportedDialog] 로 그 자리에서 안내한다.
+// 멤버·모집·댓글 신고도 2026-09-14 부터 서버가 받는다 — 대상마다 사유 목록·엔드포인트가
+// 다르므로 공용 [ReportReasonSheet](screens-refined.jsx)가 그쪽을 맡는다.
 //
 // 예전 이 시트는 사유 6종을 직접 갖고 있었고(`스팸 · 도박` 등 **서버 문구와 다른 라벨**이었다)
 // 접수는 하지 않은 채 "신고 접수는 아직 서버에서 받지 않아 차단만 반영돼요" 라고 적었다 —
 // 피드에 대해서는 거짓이라 걷어냈다.
 function ScreenReportSheet() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
+  // 시트 접근성은 공용 훅 한 곳에서 본다 (QA ENV-007 · shared.jsx `useSheetA11y`).
+  const reportSheet = window.useSheetA11y({ label: '신고 사유를 알려주세요', onClose: nav.back });
   const liveMode = window.MoyeoApi?.live();
   // 진입은 23 피드 상세의 신고 버튼이다 — 대상 피드는 selectFeed 로 정해져 있다.
   const feedId = liveMode ? window.MoyeoApi.selectedFeedId() : null;
@@ -1221,7 +1543,9 @@ function ScreenReportSheet() {
   const [reloadKey, setReloadKey] = React.useState(0);
   const [reason, setReason] = React.useState('');
   const [details, setDetails] = React.useState('');
-  const [block, setBlock] = React.useState(true);
+  // 차단은 **되돌릴 수 없는 부수 효과**다(보낸 친구 신청까지 조용히 취소된다 — W-36).
+  // 사용자가 켠 적 없는 값을 기본으로 박지 않는다 (W-101).
+  const [block, setBlock] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState('');
   // 신고와 차단은 **따로** 끝난다 — 신고가 204 여도 차단은 실패할 수 있다 (정본 §2).
@@ -1256,7 +1580,9 @@ function ScreenReportSheet() {
       await window.MoyeoApi.reportFeed(feed.feedId, { reason, details });
     } catch (error) {
       // 409 `40917` 은 이미 신고한 피드다 — 붉은 오류가 아니라 안내다 (정본 §2).
-      if (error?.status === 409) {
+      // 409 는 40917 만이 아니다 — 40918(프로필 이미지 필요)·40902(추가 정보 필요)도 409 다.
+      // 코드를 보지 않고 409 전체를 「이미 신고함」으로 뭉개면 실패를 성공처럼 알린다 (W-102).
+      if (String(error?.code) === '40917') {
         reported = 'already';
       } else if (String(error?.code) === '40039' || error?.status === 403) {
         // 자기 피드다(400 `40039` · 정본이 처음 403 이라 적었던 그 자리). 다른 400 —
@@ -1266,7 +1592,9 @@ function ScreenReportSheet() {
         return;
       } else {
         setSubmitting(false);
-        setSubmitError(error?.message || '신고를 접수하지 못했어요. 잠시 후 다시 시도해주세요.');
+        // 실패 기본 문구는 한 문장이다 — 화면마다 「잠시 후 다시 시도해주세요.」가
+        // 붙었다 떨어졌다 하던 자리다 (정본 REPORT-COPY-CANON §발견된 어긋남).
+        setSubmitError(window.userFacingError(error, window.REPORT_SUBMIT_FAILED));
         return;
       }
     }
@@ -1280,7 +1608,7 @@ function ScreenReportSheet() {
         blocked = 'done';
       } catch (error) {
         blocked = 'failed';
-        blockError = error?.message || '차단하지 못했어요. 잠시 후 다시 시도해주세요.';
+        blockError = window.userFacingError(error, '차단하지 못했어요. 잠시 후 다시 시도해주세요.');
       }
     }
     setSubmitting(false);
@@ -1295,7 +1623,7 @@ function ScreenReportSheet() {
         {/* 시트가 "이전 화면 위에 떠 있다"고 읽히도록 딤만 깐다 — 진입이 23 피드 상세이므로
             예전처럼 채팅방 본문을 배경으로 깔면 엉뚱한 화면이 뒤에 보인다. */}
         <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
-        <div data-testid="report-sheet" style={{
+        <div {...reportSheet.rootProps} data-testid="report-sheet" style={{
           position: 'absolute', left: 0, right: 0, bottom: 0,
           background: T.bgRaised, borderRadius: '24px 24px 0 0', padding: '10px 20px 32px', boxShadow: T.l3,
         }}>
@@ -1331,7 +1659,8 @@ function ScreenReportSheet() {
         <div role="status" style={{ fontSize: 13, color: T.text500, marginTop: 16, lineHeight: '21px' }}>
           {status === 'loading' && '불러오는 중이에요…'}
           {status === 'signed-out' && '로그인하면 모집 중인 모임을 볼 수 있어요.'}
-          {status === 'own-feed' && '내가 쓴 피드는 신고할 수 없어요.'}
+          {/* 40039 — 정본 표의 문장 그대로다. */}
+          {status === 'own-feed' && '본인이 쓴 피드는 신고할 수 없어요.'}
           {status === 'no-target' && '불러오지 못했어요.'}
           {status === 'error' && (
             <>불러오지 못했어요. <button type="button" onClick={() => setReloadKey((key) => key + 1)} style={{ padding: 0, border: 0, background: 'transparent', color: T.primary600, fontFamily: T.fontStack, fontSize: 13, fontWeight: 900, textDecoration: 'underline', cursor: 'pointer' }}>다시 시도</button></>
@@ -1422,6 +1751,8 @@ function ScreenReportSheet() {
       {block && (
         <div style={{ fontSize: 11, color: T.text500, marginTop: 7, lineHeight: '16px' }}>
           차단하면 이 유저가 만들었거나 참여한 모집이 홈·탐색에서 모두 숨겨져요.
+          {/* 친구 관계 정리는 되돌릴 수 없다 — 체크 전에 알아야 한다 (W-36). */}
+          {' '}주고받은 친구 신청은 취소되고, 친구였다면 친구 관계도 끊어져요.
         </div>
       )}
 
@@ -1474,6 +1805,8 @@ function ScreenBlocked() {
         <div style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 0, overflow: 'auto', paddingBottom: 24 }}>
           <div style={{ margin: '10px 20px 14px', padding: 13, borderRadius: 12, background: T.bgSubtle, border: `1px solid ${RF.softLine}`, fontSize: 11.5, lineHeight: '17px', color: T.text700 }}>
             차단하면 그 사람이 <b>만들었거나 참여한 모집</b>이 홈·탐색·코스 상세에서 모두 숨겨져요. 상대방에게는 알려지지 않아요.
+            {/* 차단은 친구 관계까지 정리한다 — 눌러 보고 나서야 알게 되면 늦다 (W-36). */}
+            {' '}<b>주고받은 친구 신청은 취소되고, 친구였다면 친구 관계도 끊어져요.</b>
           </div>
           <div data-testid="blocked-state">
             {status === 'signed-out' && (
@@ -1523,6 +1856,11 @@ function ScreenBlocked() {
 function ScreenCoursePublish() {
   const nav = window.useNav ? window.useNav() : { go: () => {}, back: () => {} };
   const [confirm, setConfirm] = React.useState(false);
+  // 시트 접근성은 공용 훅 한 곳에서 본다 (QA ENV-007 · shared.jsx `useSheetA11y`).
+  const publishConfirmSheet = window.useSheetA11y({
+    label: '코스 공개 확인',
+    onClose: () => { setConfirm(false); setPublishError(''); },
+  });
   const [credit, setCredit] = React.useState(true);
   // 미리보기에 들어가는 코스 이름·작성자는 서버 값만 쓴다 — 기획 예시 코스를 박아두지 않는다.
   const liveMode = window.MoyeoApi?.live();
@@ -1546,23 +1884,38 @@ function ScreenCoursePublish() {
   const [description, setDescription] = React.useState('');
   const [publishBusy, setPublishBusy] = React.useState(false);
   const [publishError, setPublishError] = React.useState('');
+  // 자격이 없으면(다녀온 여행이 없다) 화면이 **정상 레이아웃 그대로** 열리고 CTA 만 비활성이라,
+  // 왜 못 누르는지 알 수 없었다 (W-69). 「없다」·「못 받았다」·「아직」을 갈라 말한다.
+  const [publishStatus, setPublishStatus] = React.useState(liveMode ? 'loading' : 'signed-out');
   React.useEffect(() => {
-    if (!liveMode) return undefined;
+    if (!liveMode) { setPublishStatus('signed-out'); return undefined; }
     let active = true;
-    window.MoyeoApi.completedTripRoomId()
-      .then((roomId) => (roomId ? window.MoyeoApi.roomCourse(roomId) : null))
+    setPublishStatus('loading');
+    // 공개 자격은 **서버가 정한다** — 여행 요약의 `coursePublicationAvailable` 이고,
+    // 이미 공개한 코스에는 false 로 온다 (2026-09-14 서버 추가). 예전에는 이 값을 아무도
+    // 읽지 않아, 이미 공개된 코스에도 「코스 공개하기」가 평소와 똑같이 보이고
+    // 누르면 서버 409 원문이 떴다 (QA AFTER-026).
+    let publicationClosed = false;
+    window.MoyeoApi.completedTripRoom()
+      .then((room) => {
+        publicationClosed = Boolean(room) && !window.MoyeoApi.canPublishCourse(room);
+        return room ? window.MoyeoApi.roomCourse(String(room.roomId)) : null;
+      })
       .then((result) => {
-        if (!active || !result?.course) return;
+        if (!active) return;
+        if (!result?.course) { setPublishStatus('not-eligible'); return; }
         setCourse(result.course);
         setTitle(result.course.title || '');
         setDescription(result.course.description || '');
+        setPublishStatus(publicationClosed ? 'already-published' : 'ready');
       })
-      .catch(() => { /* 코스를 못 읽으면 제목·소개를 비워 둔다 (지어내지 않는다) */ });
+      .catch(() => { if (active) setPublishStatus('error'); });
     return () => { active = false; };
   }, [liveMode]);
   const courseTitle = title;
   // 제목·소개는 서버가 **둘 다 필수**로 받는다. 하나라도 비면 보내지 않는다.
-  const canPublish = Boolean(course?.courseId) && title.trim() && description.trim();
+  const alreadyPublished = publishStatus === 'already-published';
+  const canPublish = Boolean(course?.courseId) && !alreadyPublished && title.trim() && description.trim();
   const publish = async () => {
     if (!canPublish || publishBusy) return;
     setPublishBusy(true);
@@ -1575,7 +1928,7 @@ function ScreenCoursePublish() {
       setConfirm(false);
       nav.go('course');
     } catch (error) {
-      setPublishError(error?.message || '코스를 공개하지 못했어요.');
+      setPublishError(window.userFacingError(error, '코스를 공개하지 못했어요.'));
       setPublishBusy(false);
     }
   };
@@ -1594,6 +1947,15 @@ function ScreenCoursePublish() {
           <div style={{ fontSize: 12, color: T.text500, marginTop: 8, lineHeight: '18px' }}>
             공개하면 탐색과 코스 목록에 올라가고, 다른 사람이 이 코스로 모집을 열 수 있어요.
           </div>
+          {publishStatus !== 'ready' && (
+            <div role={publishStatus === 'error' ? 'alert' : 'status'} data-testid="course-publish-state" style={{ marginTop: 14, padding: 13, borderRadius: 12, background: T.bgSubtle, border: `1px solid ${RF.softLine}`, fontSize: 12.5, lineHeight: '19px', color: T.text700 }}>
+              {publishStatus === 'signed-out' && '로그인하면 모집 중인 모임을 볼 수 있어요.'}
+              {publishStatus === 'loading' && '불러오는 중이에요…'}
+              {publishStatus === 'not-eligible' && '공개할 수 있는 코스는 여행을 마친 모임의 코스예요. 다녀온 여행이 생기면 여기서 공개할 수 있어요.'}
+              {publishStatus === 'already-published' && '이미 공개한 코스예요. 코스 상세에서 다른 여행자에게 보이는 모습을 볼 수 있어요.'}
+              {publishStatus === 'error' && '공개할 코스를 불러오지 못했어요.'}
+            </div>
+          )}
 
           {/* 공개했을 때 다른 유저에게 보이는 모습 그대로 */}
           <div style={{ fontSize: 12, fontWeight: 900, color: T.text500, marginTop: 18, marginBottom: 8 }}>공개하면 이렇게 보여요</div>
@@ -1621,6 +1983,10 @@ function ScreenCoursePublish() {
           </div>
 
           {/* 제목·소개는 서버가 둘 다 **필수**로 받는다 — 읽기 전용 상자로 두면 공개 자체가 불가능하다 */}
+          {/* 이름은 **100자**까지다 — 서버 `PublishTravelCourseRequest.title` 의 `@Size(max = 100)` 과 같은 값이다.
+              예전에는 24 였다. 모집 제목이 같은 이유로 24 였다가 2026-09-15 결정으로 100 이 되었고
+              (`docs/alignment/ROUND-2026-09-14-DECISIONS.md` ⑨), 코스 이름도 같은 규칙을 따른다:
+              **화면이 서버보다 좁게 막지 않는다.** 여기서 공개한 이름을 다시 여는 18-7 도 100 이다. */}
           <div style={{ marginTop: 18 }}>
             <AddFieldLabel required>코스 이름</AddFieldLabel>
             <input
@@ -1628,11 +1994,16 @@ function ScreenCoursePublish() {
               data-testid="course-publish-title"
               aria-label="코스 이름"
               value={title}
-              maxLength={100}
+              maxLength={COURSE_PUBLISH_TITLE_LIMIT}
               onChange={(event) => setTitle(event.target.value)}
               placeholder="공개할 코스 이름"
               style={{ ...publishInputStyle, height: 46 }}
             />
+            {/* 남은 글자 수는 iOS `Changelog02To05Screens.titleLimit` · 안드 `COURSE_PUBLISH_TITLE_MAX` 와
+                같은 문구로 보여 준다 — 세 플랫폼에서 같은 자리에 같은 말이 뜨게 한다. */}
+            <div data-testid="course-publish-title-count" style={{ fontSize: 11, color: T.text400, marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
+              {title.length}/{COURSE_PUBLISH_TITLE_LIMIT} · 공개 코스 목록에 이 이름이 보여요
+            </div>
           </div>
 
           <div style={{ marginTop: 16 }}>
@@ -1682,13 +2053,21 @@ function ScreenCoursePublish() {
         </div>
 
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}>
-          <Btn variant="ghost" onClick={nav.back}>지금은 안 할래요</Btn>
-          <div style={{ flex: 1 }}><Btn variant="primary" full disabled={!canPublish} testId="course-publish-open" onClick={() => setConfirm(true)}>코스 공개하기</Btn></div>
+          {/* 이미 공개한 코스면 공개 버튼 자체를 두지 않는다 — 눌러 봐야 서버가 409 로 막는다
+              (「코스 공개하기」를 그대로 내주던 것이 QA AFTER-026 의 결함이다). */}
+          {alreadyPublished ? (
+            <div style={{ flex: 1 }}><Btn variant="ghost" full onClick={nav.back}>돌아가기</Btn></div>
+          ) : (
+            <>
+              <Btn variant="ghost" onClick={nav.back}>지금은 안 할래요</Btn>
+              <div style={{ flex: 1 }}><Btn variant="primary" full disabled={!canPublish} testId="course-publish-open" onClick={() => setConfirm(true)}>코스 공개하기</Btn></div>
+            </>
+          )}
         </div>
 
         {/* 2단계 확인 — 되돌리기 어려운 액션 */}
         {confirm && (
-          <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div {...publishConfirmSheet.rootProps} data-testid="course-publish-confirm-dialog" style={{ position: 'absolute', inset: 0, background: T.bgOverlay, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
             <div style={{ width: '100%', maxWidth: 320, background: RF.card, borderRadius: 20, padding: 22, boxShadow: T.l3 }}>
               <div style={{ width: 44, height: 44, borderRadius: 999, background: T.warningBg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
                 <Icon name="lock" size={21} color={T.warningText}/>
@@ -1725,7 +2104,6 @@ Object.assign(window, {
   ScreenTripMessage,
   ScreenReportSheet,
   // 15 모집 상세(screens-refined)가 먼저 로드되므로 그 쪽은 window 로 참조한다.
-  ReportUnsupportedDialog,
   ScreenBlocked,
   ScreenCoursePublish,
 });

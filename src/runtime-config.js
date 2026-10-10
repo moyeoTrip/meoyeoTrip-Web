@@ -5,6 +5,7 @@ window.MOYEO_RUNTIME_CONFIG = Object.assign({
   appVersion: '1.0.0',
   firebase: null,
   firebaseVapidKey: '',
+  // 비워 두면 auth-api.jsx 의 서버 계약 기본값(/api/v1/notifications/fcm-token)을 쓴다.
   pushTokenRegistrationPath: '',
   kakaoJavaScriptKey: '',
   kakaoRedirectUri: '',

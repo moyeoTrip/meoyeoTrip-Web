@@ -43,17 +43,22 @@ function ScreenLogin() {
       if (context?.redirecting || context?.cancelled) return;
       continueAuthFlow(nav, context);
     } catch (requestError) {
-      setError(requestError?.message || '로그인을 시작하지 못했어요. 다시 시도해주세요.');
+      setError(window.userFacingError(requestError, '로그인을 시작하지 못했어요. 다시 시도해주세요.'));
     } finally {
       setLoadingProvider('');
     }
   };
 
-  const ProviderButton = ({ provider, background, color, border = 'none', children, icon, fontFamily = T.fontStack }) => (
+  // 2026-09-14 결정 ③: 버튼 문구는 「○○ 로그인」으로 통일한다. 제공자 이름 표기(카카오·Google·Apple)는
+  // 각 브랜드를 따르고 뒤는 전부 「 로그인」이다(ROUND-2026-09-14-DECISIONS ③).
+  // `label` 은 접근성 이름으로도 그대로 쓴다 — 로딩 중에 버튼 이름이 「로그인 확인 중...」으로
+  // 바뀌면 스크린리더에서는 어느 제공자 버튼인지 사라진다.
+  const ProviderButton = ({ provider, label, background, color, border = 'none', children, icon, fontFamily = T.fontStack }) => (
     <button
       type="button"
       data-testid={`auth-login-${provider}`}
       data-network-action="true"
+      aria-label={label}
       disabled={Boolean(loadingProvider)}
       onClick={() => begin(provider)}
       style={{
@@ -96,29 +101,29 @@ function ScreenLogin() {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 24 }}>
           <ProviderButton
-            provider="kakao" background="#FEE500" color="rgba(0,0,0,0.85)"
+            provider="kakao" label="카카오 로그인" background="#FEE500" color="rgba(0,0,0,0.85)"
             icon={<img src="assets/kakao-mark-official.png" width="25" height="25" alt="" aria-hidden="true" style={{ objectFit: 'contain' }}/>}>
             카카오 로그인
           </ProviderButton>
           <ProviderButton
-            provider="google" background="var(--moyeo-google-button-bg)" color="var(--moyeo-google-button-text)"
+            provider="google" label="Google 로그인" background="var(--moyeo-google-button-bg)" color="var(--moyeo-google-button-text)"
             border="1px solid var(--moyeo-google-button-border)" fontFamily='"Google Sans", Roboto, Arial, sans-serif'
             icon={<span aria-hidden="true" style={{ width: 19, height: 19, position: 'relative', display: 'block' }}>
               <img className="moyeo-theme-image moyeo-theme-image-light" src="assets/google-g-light-official.png" width="19" height="19" alt="" style={{ position: 'absolute', inset: 0 }}/>
               <img className="moyeo-theme-image moyeo-theme-image-dark" src="assets/google-g-dark-official.png" width="19" height="19" alt="" style={{ position: 'absolute', inset: 0 }}/>
             </span>}
-          >Google로 계속하기</ProviderButton>
+          >Google 로그인</ProviderButton>
           <ProviderButton
-            provider="email" background={T.bgRaised} color={T.text900} border={`1px solid ${T.line200}`}
+            provider="email" label="이메일 로그인" background={T.bgRaised} color={T.text900} border={`1px solid ${T.line200}`}
             icon={<span aria-hidden="true" style={{ fontSize: 18, color: T.primary600 }}>@</span>}
-          >이메일로 시작하기</ProviderButton>
+          >이메일 로그인</ProviderButton>
           <ProviderButton
-            provider="apple" background={T.text900} color={T.bgBase}
+            provider="apple" label="Apple 로그인" background={T.text900} color={T.bgBase}
             icon={<span aria-hidden="true" style={{ width: 20, height: 20, position: 'relative', display: 'block' }}>
               <img className="moyeo-theme-image moyeo-theme-image-light" src="assets/apple-mark-white-official.png" width="20" height="20" alt="" style={{ position: 'absolute', inset: 0, objectFit: 'contain' }}/>
               <img className="moyeo-theme-image moyeo-theme-image-dark" src="assets/apple-mark-black-official.png" width="20" height="20" alt="" style={{ position: 'absolute', inset: 0, objectFit: 'contain' }}/>
             </span>}>
-            Apple로 계속하기
+            Apple 로그인
           </ProviderButton>
           {/* 오류만 알린다 — 신규/기존 분기는 서버가 정하므로 미리 안내하지 않는다 */}
           <div role="status" data-testid="auth-login-status" style={{ minHeight: 18, fontSize: 12, lineHeight: '18px', color: T.danger, textAlign: 'center' }}>
@@ -153,7 +158,7 @@ function ScreenEmailAuth() {
       const context = await window.MoyeoAuth.begin('email', { email, password });
       continueAuthFlow(nav, context);
     } catch (requestError) {
-      setError(requestError?.message || '이메일 인증을 완료하지 못했어요.');
+      setError(window.userFacingError(requestError, '이메일 인증을 완료하지 못했어요.'));
     } finally {
       setLoading(false);
     }
@@ -203,6 +208,13 @@ function ScreenEmailAuth() {
   );
 }
 
+// 가입 최소 연령. **서버 상수를 따른다** — `AuthService.MINIMUM_SIGNUP_AGE` ·
+// `UserService.MINIMUM_PROFILE_AGE` 가 정본이고, 서버가 바뀌면 이 값도 같이 바꾼다.
+// (2026-09-14 BE-06: 20 → 19. 오류 `40011` 「만 19세 이상만 가입할 수 있습니다.」)
+// 생년월일 피커와 약관 화면의 연령 확인 항목이 **같은 값을 본다** — 둘이 어긋나면
+// 화면이 서로 다른 나이를 말한다.
+const MINIMUM_SIGNUP_AGE = 19;
+
 // ───────── 14 · 프로필 Step 3 (생년월일/성별) ─────────
 function KoreanBirthDatePicker({ value, onChange }) {
   // 고르기 전에는 value 가 비어 있다. 피커를 열 때의 시작 위치만 이 날짜로 둔다 —
@@ -215,13 +227,29 @@ function KoreanBirthDatePicker({ value, onChange }) {
   const { year, month, day } = start;
   const [draft, setDraft] = React.useState(start);
   const [open, setOpen] = React.useState(false);
-  const maxYear = new Date().getFullYear();
+  // 시트 접근성은 공용 훅 한 곳에서 본다 (QA ENV-007 · shared.jsx `useSheetA11y`).
+  const sheet = window.useSheetA11y({ label: '생년월일 선택', onClose: () => setOpen(false) });
+  // **오늘 이후는 고를 수 없다.** 예전에는 연도 상한만 올해로 막아서 올해의 미래 월·일이
+  // 그대로 통과했고(`maxYear` 만 봤다), 태어나지 않은 날짜가 프로필에 저장됐다 (W-78).
+  // 서버도 `@Past` 로 거절한다(`UpdateProfileRequest.birthDate`).
+  //
+  // 나아가 **최소 연령 미만도 고를 수 없다.** 화면이 나이를 전혀 보지 않아, 앞 단계를 다 채운
+  // 마지막에야 서버가 `40011`(「만 19세 이상만 가입할 수 있습니다」)로 떨궜다.
+  // 값은 서버 상수를 따른다 — [MINIMUM_SIGNUP_AGE] 주석 참고.
+  // 고르고 나서 혼내지 않고 **애초에 못 고르게** 한다 — iOS 와 같은 방식이다.
+  const MINIMUM_AGE = MINIMUM_SIGNUP_AGE;
+  const now = new Date();
+  const latest = new Date(now.getFullYear() - MINIMUM_AGE, now.getMonth(), now.getDate());
+  const maxYear = latest.getFullYear();
+  const maxMonth = latest.getMonth() + 1;
+  const maxDay = latest.getDate();
   const minimumYear = 1900;
   const daysInMonth = (targetYear, targetMonth) => new Date(targetYear, targetMonth, 0).getDate();
   const boundsFor = (field, current) => {
     if (field === 'year') return [minimumYear, maxYear];
-    if (field === 'month') return [1, 12];
-    return [1, daysInMonth(current.year, current.month)];
+    if (field === 'month') return [1, current.year === maxYear ? maxMonth : 12];
+    const last = daysInMonth(current.year, current.month);
+    return [1, (current.year === maxYear && current.month === maxMonth) ? Math.min(maxDay, last) : last];
   };
   const wrap = (number, [minimum, maximum]) => {
     if (number < minimum) return maximum;
@@ -231,7 +259,9 @@ function KoreanBirthDatePicker({ value, onChange }) {
   const update = (field, delta) => {
     setDraft((current) => {
       const next = { ...current, [field]: wrap(current[field] + delta, boundsFor(field, current)) };
-      next.day = Math.min(next.day, daysInMonth(next.year, next.month));
+      // 연·월을 바꾸면 그 달의 상한(오늘 포함)으로 일자를 다시 맞춘다.
+      next.month = Math.min(next.month, boundsFor('month', next)[1]);
+      next.day = Math.min(next.day, boundsFor('day', next)[1]);
       return next;
     });
   };
@@ -272,7 +302,7 @@ function KoreanBirthDatePicker({ value, onChange }) {
         <Icon name="arrow" size={18} color={T.text400}/>
       </button>
       {open && (
-        <div role="dialog" aria-modal="true" aria-label="생년월일 선택" data-testid="auth-birth-date-dialog" style={{ position: 'absolute', inset: 0, zIndex: 260, background: T.bgOverlay, display: 'flex', alignItems: 'flex-end' }}>
+        <div {...sheet.rootProps} data-testid="auth-birth-date-dialog" style={{ position: 'absolute', inset: 0, zIndex: 260, background: T.bgOverlay, display: 'flex', alignItems: 'flex-end' }}>
           <div style={{ width: '100%', borderRadius: '22px 22px 0 0', background: T.bgBase, borderTop: `1px solid ${T.line200}`, padding: '10px 20px 30px', boxShadow: T.l3 }}>
             <div style={{ width: 38, height: 4, borderRadius: 999, background: T.line300, margin: '0 auto 16px' }}/>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -281,6 +311,10 @@ function KoreanBirthDatePicker({ value, onChange }) {
               <button type="button" data-testid="auth-birth-date-confirm" onClick={confirm} style={{ width: 52, height: 40, border: 0, background: 'transparent', color: T.primary600, fontSize: 14, fontWeight: 700, fontFamily: T.fontStack, cursor: 'pointer' }}>완료</button>
             </div>
             <div style={{ fontSize: 12, color: T.text500, textAlign: 'center', marginTop: 4 }}>연도 · 월 · 일 순서로 선택해 주세요</div>
+            {/* 고르기 전에 규칙을 알린다 — 피커 자체가 최소 연령 미만을 내어 주지 않는다. */}
+            <div data-testid="auth-birth-date-age-note" style={{ fontSize: 11.5, color: T.text500, textAlign: 'center', marginTop: 6, lineHeight: '17px' }}>
+              만 {MINIMUM_AGE}세 이상만 가입할 수 있어요. {maxYear}년 {maxMonth}월 {maxDay}일까지 고를 수 있어요.
+            </div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginTop: 18 }}>
               <WheelColumn field="year" label="연도" suffix="년" width={1.25}/>
               <WheelColumn field="month" label="월" suffix="월"/>
@@ -332,7 +366,7 @@ function ScreenProfileBasic() {
       window.__moyeoSignupBasics = { gender, birthDate };
       nav.go('prof-4');
     } catch (requestError) {
-      setError(requestError?.message || '회원 정보를 저장하지 못했어요. 다시 시도해주세요.');
+      setError(window.userFacingError(requestError, '회원 정보를 저장하지 못했어요. 다시 시도해주세요.'));
     } finally {
       setSubmitting(false);
     }
@@ -358,10 +392,12 @@ function ScreenProfileBasic() {
           </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: T.text700, marginBottom: 8 }}>성별 <span style={{ color: T.danger }}>*</span></div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div role="radiogroup" aria-label="성별" style={{ display: 'flex', gap: 8 }}>
               {[['F', '여성'], ['M', '남성'], ['N', '선택 안 함']].map(([value, label]) => {
                 const selected = gender === value;
-                return <button type="button" key={value} data-testid={`auth-gender-${value}`} onClick={() => setGender(value)} style={{ flex: 1, height: 48, borderRadius: 12, background: selected ? T.primary100 : T.bgRaised, border: selected ? `1.5px solid ${T.primary500}` : `1px solid ${T.line200}`, fontSize: 14, fontWeight: selected ? 600 : 500, color: selected ? T.primary700 : T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>{label}</button>;
+                // 고른 값이 색으로만 표시돼 보조기술에는 셋 다 똑같이 읽혔다 (QA QA-N05).
+                // 셋 중 하나를 고르는 자리라 `radio` 가 맞는 역할이다.
+                return <button type="button" key={value} role="radio" aria-checked={selected} data-testid={`auth-gender-${value}`} onClick={() => setGender(value)} style={{ flex: 1, height: 48, borderRadius: 12, background: selected ? T.primary100 : T.bgRaised, border: selected ? `1.5px solid ${T.primary500}` : `1px solid ${T.line200}`, fontSize: 14, fontWeight: selected ? 600 : 500, color: selected ? T.primary700 : T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>{label}</button>;
               })}
             </div>
           </div>
@@ -554,20 +590,38 @@ function ScreenProfileTaste() {
 // 약관은 **서버가 주는 목록**을 그대로 그린다 (GET /api/v1/terms · 인증 불필요).
 // 클라가 약관을 따로 갖지 않는다 — 서버에서 늘거나 줄면 화면도 따라 바뀐다.
 // 동의한 termId 는 회원가입 요청의 `agreedTermIds` 로 보낸다(없으면 400 40012).
-// "만 18세 이상"은 서버 약관이 아니라 별도 확인이다 — 서버는 birthDate 로 나이를 본다.
+// 「만 N세 이상」은 서버 약관이 아니라 별도 확인이다 — 서버는 birthDate 로 나이를 본다.
+// N 은 서버 상수를 따르는 `MINIMUM_SIGNUP_AGE`(이 파일 위쪽) 하나에서만 온다.
 function ScreenTerms() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
   const [terms, setTerms] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [loadFailed, setLoadFailed] = React.useState(false);
   const [agreedIds, setAgreedIds] = React.useState(new Set());
-  const [confirmedAge, setConfirmedAge] = React.useState(false);
+
+  // 약관 상세(08-C)에서 「동의하고 돌아가기」를 누르면 여기 체크가 켜져야 한다.
+  // 라우트가 갈라져 있어 콜백을 넘길 수 없으므로 창 이벤트로 받고,
+  // 이 화면이 다시 붙는 경우를 위해 전역에 남은 것도 한 번 주워 간다.
+  React.useEffect(() => {
+    const merge = (ids) => setAgreedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      return next;
+    });
+    if (window.__moyeoAgreedTermIds instanceof Set) merge(window.__moyeoAgreedTermIds);
+    const onAgreed = (event) => merge([event.detail?.termId]);
+    window.addEventListener('moyeo:term-agreed', onAgreed);
+    return () => window.removeEventListener('moyeo:term-agreed', onAgreed);
+  }, []);
+  const [confirmedAge, setConfirmedAge] = React.useState(() => window.__moyeoConfirmedAge === true);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState('');
 
   const loadTerms = React.useCallback(async () => {
     setLoading(true);
     setLoadFailed(false);
+    // 다시 불러오기로 성공해도 앞선 실패 문구가 남아 있었다 (W-79).
+    setError('');
     try {
       const list = await window.MoyeoApi.terms();
       setTerms(Array.isArray(list) ? list : []);
@@ -575,7 +629,7 @@ function ScreenTerms() {
       // 임의의 약관을 지어내지 않는다 — 비운 채 다시 불러오기를 띄운다.
       setTerms([]);
       setLoadFailed(true);
-      setError(requestError?.message || '약관을 불러오지 못했어요.');
+      setError(window.userFacingError(requestError, '약관을 불러오지 못했어요.'));
     } finally {
       setLoading(false);
     }
@@ -586,25 +640,42 @@ function ScreenTerms() {
   const requiredReady = terms.length > 0 && confirmedAge && requiredIds.every((id) => agreedIds.has(id));
   const allAgreed = terms.length > 0 && confirmedAge && terms.every((term) => agreedIds.has(term.termId));
 
+  // 손으로 켠 체크도 화면 밖에 남긴다 (W-77). 예전에는 08-C 약관 본문을 열었다가
+  // 「닫기」로 돌아오면 라우터가 이 화면을 새로 만들어 **그때까지 켠 체크와 연령 확인 항목이
+  // 통째로 풀렸다**(「동의하고 돌아가기」 경로만 살아남았다). 가입이 끝나면 submit 이 지운다.
+  const rememberAgreed = (ids) => { window.__moyeoAgreedTermIds = new Set(ids); };
   const toggleAll = () => {
     if (submitting) return;
     const turningOff = allAgreed;
     setConfirmedAge(!turningOff);
-    setAgreedIds(turningOff ? new Set() : new Set(terms.map((term) => term.termId)));
+    window.__moyeoConfirmedAge = !turningOff;
+    const next = turningOff ? new Set() : new Set(terms.map((term) => term.termId));
+    rememberAgreed(next);
+    setAgreedIds(next);
   };
   const toggleTerm = (termId) => {
     if (submitting) return;
     setAgreedIds((current) => {
       const next = new Set(current);
       if (next.has(termId)) next.delete(termId); else next.add(termId);
+      rememberAgreed(next);
       return next;
+    });
+  };
+  const toggleAge = () => {
+    if (submitting) return;
+    setConfirmedAge((value) => {
+      window.__moyeoConfirmedAge = !value;
+      return !value;
     });
   };
   const displayTitle = (title) => String(title || '').replace('[필수]', '').replace('[선택]', '').trim();
 
   const Row = ({ text, hint, checked, onToggle, onOpenDetail, master, testId }) => (
     <div style={{ width: '100%', minHeight: 52, display: 'flex', alignItems: 'center', borderTop: master ? 'none' : `1px solid ${T.line100}` }}>
-      <button type="button" onClick={onToggle} data-testid={testId} aria-label={`${text} ${checked ? '동의 해제' : '동의'}`} style={{ flex: 1, alignSelf: 'stretch', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 4px', border: 0, background: 'transparent', color: T.text900, textAlign: 'left', fontFamily: T.fontStack, cursor: 'pointer' }}>
+      {/* 체크 상태를 aria-label 문장으로만 담으면 「지금 켜져 있는가」가 역할로 전달되지 않는다.
+          checkbox 역할 + aria-checked 로 상태를 싣고, 라벨은 항목 이름만 읽히게 둔다 (QA QA-N05). */}
+      <button type="button" role="checkbox" aria-checked={Boolean(checked)} onClick={onToggle} data-testid={testId} aria-label={text} style={{ flex: 1, alignSelf: 'stretch', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 4px', border: 0, background: 'transparent', color: T.text900, textAlign: 'left', fontFamily: T.fontStack, cursor: 'pointer' }}>
         <span style={{ width: 24, height: 24, flexShrink: 0, borderRadius: 6, background: checked ? T.primary500 : 'transparent', border: checked ? 'none' : `1.5px solid ${T.line300}`, display: 'grid', placeItems: 'center' }}>{checked && <Icon name="check" size={16} color="#fff" strokeWidth={2.5}/>}</span>
         <span style={{ flex: 1, fontSize: master ? 16 : 14, fontWeight: master ? 600 : 400 }}>{text} {hint && <span style={{ color: T.text500, fontSize: 12, fontWeight: 400 }}>{hint}</span>}</span>
       </button>
@@ -632,9 +703,11 @@ function ScreenTerms() {
       });
       // 서버가 받아 저장했으므로 다음 가입(계정 전환)에 지난 선택이 섞이지 않게 비운다.
       delete window.__moyeoSignupTaste;
+      delete window.__moyeoAgreedTermIds;
+      delete window.__moyeoConfirmedAge;
       nav.go(tokens.signupState === 'PROFILE_IMAGE_REQUIRED' ? 'prof-2' : 'home', { replace: tokens.signupState !== 'PROFILE_IMAGE_REQUIRED' });
     } catch (requestError) {
-      setError(requestError?.message || '회원가입을 완료하지 못했어요. 다시 시도해주세요.');
+      setError(window.userFacingError(requestError, '회원가입을 완료하지 못했어요. 다시 시도해주세요.'));
     } finally {
       setSubmitting(false);
     }
@@ -651,7 +724,10 @@ function ScreenTerms() {
           <div style={{ fontSize: 13, color: T.text500, marginBottom: 20 }}>모여트립 이용을 위해 동의가 필요해요</div>
           <Row master text="모두 동의" checked={allAgreed} onToggle={toggleAll} testId="auth-terms-all"/>
           <div style={{ height: 1, background: T.line200, margin: '4px 0' }}/>
-          <Row text="만 18세 이상" hint="(필수)" checked={confirmedAge} onToggle={() => !submitting && setConfirmedAge((value) => !value)} testId="age"/>
+          <Row text={`만 ${MINIMUM_SIGNUP_AGE}세 이상`} hint="(필수)" checked={confirmedAge} onToggle={toggleAge} testId="age"/>
+          {/* go 는 opts.params 만 화면에 실어 보낸다. 예전에는 termId 를 opts 최상위로 넘겨
+              화면에서 undefined 가 되었고, 세 약관 중 무엇을 눌러도 제목 키워드 폴백이 걸려
+              「이용약관」만 열렸다 (W-76). */}
           {terms.map((term) => (
             <Row
               key={term.termId}
@@ -659,7 +735,7 @@ function ScreenTerms() {
               hint={term.required ? '(필수)' : '(선택)'}
               checked={agreedIds.has(term.termId)}
               onToggle={() => toggleTerm(term.termId)}
-              onOpenDetail={() => nav.go('terms-detail', { termId: term.termId })}
+              onOpenDetail={() => nav.go('terms-detail', { params: { termId: term.termId } })}
               testId={String(term.termId)}
             />
           ))}
@@ -689,23 +765,43 @@ function ScreenHostManage() {
   const [course, setCourse] = React.useState(null);
   const [applications, setApplications] = React.useState(null);
   const [memberList, setMemberList] = React.useState(null);
+  // 대기열 — GET {id}/applications/waitlist. 정원이 찬 방에서 승인한 사람은 멤버가 아니라
+  // 이 줄에 선다(`ApprovalResult.WAITLISTED`). 조회 실패(403 등)는 `null` 로 남겨
+  // 「대기열이 비었다」와 구분한다 — 못 읽은 것을 0건이라고 말하지 않는다.
+  const [waitlist, setWaitlist] = React.useState(null);
+  // 거절 기록 (QA HOST-010). 못 읽었으면 null 이라 묶음 자체를 그리지 않는다 — 대기열과 같은 규칙이다.
+  const [rejected, setRejected] = React.useState(null);
   const [busyId, setBusyId] = React.useState(null);
+  // 승인·거절 실패를 화면에 남기는 자리 (QA HOST-008).
+  const [actionError, setActionError] = React.useState('');
+  // **불러오는 중과 0건은 다르다.** 예전에는 조회가 끝나기 전에도 「지금 모집 중인 모임이 없어요.」를
+  // 먼저 그려서, 느린 회선에서는 방이 사라진 것처럼 보였다(W-139).
+  const [loading, setLoading] = React.useState(Boolean(liveMode && roomId));
   React.useEffect(() => {
-    if (!liveMode || !roomId) return undefined;
+    if (!liveMode || !roomId) { setLoading(false); return undefined; }
     let active = true;
-    window.MoyeoApi.roomDetail(roomId)
+    setLoading(true);
+    const detailTask = window.MoyeoApi.roomDetail(roomId)
       .then((result) => { if (active && result?.roomId != null) setRoom(result); })
       .catch(() => { /* 실패 시 목데이터 유지 */ });
     // 여행 경로 요약(방문지 수·코스 출처)은 방 상세에 없다 — 15 모집 상세와 같은 엔드포인트를 쓴다.
-    window.MoyeoApi.roomCourse(roomId)
+    const courseTask = window.MoyeoApi.roomCourse(roomId)
       .then((result) => { if (active && result?.course) setCourse(result.course); })
       .catch(() => {});
-    window.MoyeoApi.roomApplications(roomId)
+    const applicationsTask = window.MoyeoApi.roomApplications(roomId)
       .then((result) => { if (active && Array.isArray(result)) setApplications(result); })
       .catch(() => { /* 호스트가 아니면 403 — 목데이터 유지 */ });
-    window.MoyeoApi.roomMembers(roomId)
+    const membersTask = window.MoyeoApi.roomMembers(roomId)
       .then((result) => { if (active && Array.isArray(result?.members)) setMemberList(result); })
       .catch(() => {});
+    window.MoyeoApi.roomWaitlist(roomId)
+      .then((result) => { if (active && Array.isArray(result)) setWaitlist(result); })
+      .catch(() => { /* 호스트가 아니면 403 — 대기열 자리를 아예 그리지 않는다 */ });
+    window.MoyeoApi.roomRejectedApplications(roomId)
+      .then((result) => { if (active && Array.isArray(result)) setRejected(result); })
+      .catch(() => { /* 호스트가 아니면 403 — 거절 기록 자리를 아예 그리지 않는다 */ });
+    Promise.all([detailTask, courseTask, applicationsTask, membersTask])
+      .then(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [liveMode, roomId]);
   const serverMode = Boolean(room && applications);
@@ -713,15 +809,38 @@ function ScreenHostManage() {
   const answerApplication = async (applicationId, approve) => {
     if (busyId != null) return;
     setBusyId(applicationId);
+    setActionError('');
     try {
       if (approve) await window.MoyeoApi.approveApplication(roomId, applicationId);
       else await window.MoyeoApi.rejectApplication(roomId, applicationId);
       setApplications((current) => (current || []).filter((item) => item.applicationId !== applicationId));
+      if (!approve) {
+        // 거절한 신청은 **거절 기록으로 옮겨 간다** — 그 줄을 다시 읽지 않으면 방금 거절한 사람이
+        // 승인 대기에서만 사라지고 어디에도 안 보인다 (QA HOST-010).
+        const refreshedRejected = await window.MoyeoApi.roomRejectedApplications(roomId).catch(() => null);
+        if (Array.isArray(refreshedRejected)) setRejected(refreshedRejected);
+      }
       if (approve) {
         const refreshed = await window.MoyeoApi.roomMembers(roomId).catch(() => null);
         if (Array.isArray(refreshed?.members)) setMemberList(refreshed);
+        // 헤더의 「1 / 6명」도 함께 다시 읽는다 — 예전에는 아래 「승인된 동행자 (3)」만 늘고
+        // 헤더는 그대로라, 같은 화면 안에서 두 숫자가 어긋났다(W-138).
+        const refreshedRoom = await window.MoyeoApi.roomDetail(roomId).catch(() => null);
+        if (refreshedRoom?.roomId != null) setRoom(refreshedRoom);
+        // 정원이 차 있으면 승인은 멤버가 아니라 **대기열**로 간다 — 그 줄도 다시 읽는다.
+        const refreshedWaitlist = await window.MoyeoApi.roomWaitlist(roomId).catch(() => null);
+        if (Array.isArray(refreshedWaitlist)) setWaitlist(refreshedWaitlist);
+        // 목록 카드의 인원 수도 바뀐다 (TAB-STATE-CANON R4).
+        window.MoyeoTabCache?.invalidate?.(window.MoyeoTabCache.ROOM_LIST_KEYS);
       }
-    } catch (_) { /* 실패 시 목록을 유지한다 */ }
+    } catch (error) {
+      // 목록은 그대로 둔다(되돌리지 않는다). 다만 **아무 말도 하지 않으면** 호스트는
+      // 눌렀는데 아무 일도 안 일어난 것으로 읽는다 — 다른 기기에서 이미 처리된 신청이면
+      // 특히 그렇다 (QA HOST-008). 실패 이유를 한 줄로 알리고 목록을 다시 읽는다.
+      setActionError(window.userFacingError(error, approve ? '승인하지 못했어요.' : '거절하지 못했어요.'));
+      const refreshed = await window.MoyeoApi.roomApplications(roomId).catch(() => null);
+      if (Array.isArray(refreshed)) setApplications(refreshed);
+    }
     setBusyId(null);
   };
   // 프로필 요약 — 서버는 나이·성별만 준다. 매너 점수·여행 횟수는 신청 응답에 없어 표기하지 않는다.
@@ -740,7 +859,7 @@ function ScreenHostManage() {
             <span aria-hidden="true" style={{ width: 24, height: 24 }}/>
           </div>
           <div role="status" style={{ padding: '48px 20px', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '21px' }}>
-            {liveMode ? '지금 모집 중인 모임이 없어요.' : '로그인하면 모집 중인 모임을 볼 수 있어요.'}
+            {loading ? '불러오는 중이에요…' : liveMode ? '지금 모집 중인 모임이 없어요.' : '로그인하면 모집 중인 모임을 볼 수 있어요.'}
           </div>
         </div>
       </Phone>
@@ -770,12 +889,19 @@ function ScreenHostManage() {
             <Icon name="map" size={18} color={T.primary600}/>
             <div style={{ flex: 1, minWidth: 0 }}>
               {/* 서버 모드에서는 방문지 수·코스 출처·마감 D-day 를 모두 방의 값으로 쓴다.
-                  D-day 는 확정·취소된 방에서 null 로 오므로 그럴 땐 D 표기 없이 문장만 남긴다. */}
+                  D-day 는 확정·취소된 방에서 null 로 오므로 그럴 땐 D 표기 없이 문장만 남긴다.
+                  **등록된 코스 방은 경로를 못 고친다** — 그런데도 「확정 전까지 수정할 수 있어요」라고
+                  적어 두고, 들어가면 「등록된 코스라 경로는 고정이에요」가 떴다(W-132).
+                  18-1 이 실제로 보는 조건(코스가 CUSTOM 이고 모집 중)과 같은 말을 적는다. */}
               <div style={{ fontSize: 13, fontWeight: 600, color: T.primary700 }}>{course ? `여행 경로 · 방문지 ${course.places?.length || 0}곳` : '여행 경로'}</div>
               <div style={{ fontSize: 11, color: T.primary600, marginTop: 3 }}>
-                {course
-                  ? `확정 전${room.recruitmentDDay != null ? `(D-${room.recruitmentDDay})` : ''}까지 수정할 수 있어요 · ${course.type === 'CUSTOM' ? '호스트 직접 코스' : '등록된 코스'}`
-                  : ''}
+                {!course
+                  ? ''
+                  : course.type !== 'CUSTOM'
+                    ? '등록된 코스라 경로는 고정이에요 · 보기만 할 수 있어요'
+                    : room.status !== 'RECRUITING'
+                      ? '여행이 확정돼 경로가 잠겼어요 · 호스트 직접 코스'
+                      : `확정 전${room.recruitmentDDay != null ? `(D-${room.recruitmentDDay})` : ''}까지 수정할 수 있어요 · 호스트 직접 코스`}
               </div>
             </div>
             <Icon name="arrow" size={16} color={T.primary600}/>
@@ -795,35 +921,164 @@ function ScreenHostManage() {
               color: T.text700, fontSize: 13, fontWeight: 700, fontFamily: T.fontStack, cursor: 'pointer',
             }}>집합 정보 수정</button>
           </div>
+          {/* 18-6 모집 내용 수정 — 화면(`ScreenRecruitEdit`)은 완성돼 있는데 `nav.go('recruit-edit')`
+              를 부르는 곳이 앱 전체에 **하나도 없었다.** 제목·소개글·대표 사진을 고칠 길이 없었다
+              (안드로이드도 같은 구멍이라 같이 고쳤다). 확정 뒤에는 서버가 막으므로 모집 중일 때만 둔다. */}
+          {room.status === 'RECRUITING' && (
+            <div style={{ marginTop: 8 }}>
+              <button type="button" data-testid="host-recruit-edit" onClick={() => nav.go('recruit-edit')} style={{
+                width: '100%', height: 42, borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent',
+                color: T.text700, fontSize: 13, fontWeight: 700, fontFamily: T.fontStack, cursor: 'pointer',
+              }}>모집 내용 수정</button>
+            </div>
+          )}
         </div>
         <div style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: T.text700 }}>승인 대기 ({applications.length})</div>
             <div style={{ fontSize: 11, color: T.text500 }}>48시간 후 자동 거절</div>
           </div>
+          {actionError && (
+            <div role="alert" data-testid="host-application-error" style={{ marginBottom: 12, padding: '11px 13px', borderRadius: 12, background: T.bgBase, border: `1px solid ${T.danger}`, fontSize: 12.5, lineHeight: '19px', color: T.danger }}>{actionError}</div>
+          )}
           {applications.length === 0 && (
             <div style={{ background: T.bgBase, borderRadius: 16, padding: 20, marginBottom: 12, border: `1px solid ${T.line100}`, textAlign: 'center', fontSize: 13, color: T.text500 }}>승인 대기 중인 신청이 없어요.</div>
           )}
           {applications.map((item) => (
             <div key={item.applicationId} data-testid={`host-application-${item.applicationId}`} style={{ background: T.bgBase, borderRadius: 16, padding: 16, marginBottom: 12, border: `1px solid ${T.line100}` }}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                {/* 신청 행이 눌리지 않아 **누구인지 모르는 채로** 승인·거절을 정해야 했다 (W-88).
+                    응답의 `applicant.userId`(`ApplicantProfileResponse`)로 25 공개 프로필을 연다.
+                    한마디와 버튼까지 버튼 안에 넣으면 버튼 안의 버튼이 되므로 이름·사진 자리만 감싼다.
+                    userId 를 못 받은 신청은 **누를 수 있는 모양을 주지 않는다.** */}
+                <button
+                  type="button"
+                  data-testid={`host-applicant-profile-${item.applicationId}`}
+                  aria-label={`${item.applicant?.nickname || '신청자'} 프로필 보기`}
+                  disabled={item.applicant?.userId == null}
+                  onClick={() => nav.go('public-profile', { params: { userId: item.applicant.userId } })}
+                  style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flex: 1, minWidth: 0, border: 0, background: 'transparent', padding: 0, textAlign: 'left', fontFamily: T.fontStack, cursor: item.applicant?.userId == null ? 'default' : 'pointer' }}>
                 <ProfileAvatar src={item.applicant?.profileImageUrl} size={48}/>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>{item.applicant?.nickname}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: T.text900 }}>{item.applicant?.nickname}</div>
                   {applicantSummary(item.applicant || {}) && (
                     <div style={{ fontSize: 12, color: T.text500, marginTop: 2 }}>{applicantSummary(item.applicant)}</div>
                   )}
-                  {item.applicationMessage && (
-                    <div style={{ fontSize: 12, color: T.text700, marginTop: 8, padding: 10, background: T.bgSubtle, borderRadius: 10, lineHeight: 1.5 }}>{item.applicationMessage}</div>
-                  )}
                 </div>
+                </button>
               </div>
+              {item.applicationMessage && (
+                <div style={{ fontSize: 12, color: T.text700, marginTop: 10, padding: 10, background: T.bgSubtle, borderRadius: 10, lineHeight: 1.5 }}>{item.applicationMessage}</div>
+              )}
               <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
                 <button type="button" disabled={busyId != null} data-testid={`host-reject-${item.applicationId}`} onClick={() => answerApplication(item.applicationId, false)} style={{ flex: 1, height: 40, borderRadius: 10, border: `1px solid ${T.line200}`, background: 'transparent', fontSize: 13, fontWeight: 600, color: T.text700, fontFamily: T.fontStack, cursor: 'pointer' }}>거절</button>
                 <button type="button" disabled={busyId != null} data-testid={`host-approve-${item.applicationId}`} onClick={() => answerApplication(item.applicationId, true)} style={{ flex: 1, height: 40, borderRadius: 10, border: 'none', background: T.primary500, fontSize: 13, fontWeight: 600, color: '#fff', fontFamily: T.fontStack, cursor: 'pointer' }}>승인</button>
               </div>
             </div>
           ))}
+          {/* 대기열 — 「승인 대기」 바로 다음 자리다. 정원이 찬 방에서 승인한 사람이 여기 선다.
+              `position` 은 서버가 매긴 순번이라 그대로 쓴다(클라가 다시 세지 않는다).
+              못 읽었으면(403 · 실패) `null` 이라 이 묶음 자체를 그리지 않는다 —
+              읽지 못한 것을 「대기 중인 사람이 없어요」라고 말하지 않는다. */}
+          {waitlist && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 24, marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text700 }}>대기열 ({waitlist.length})</div>
+                {/* 문구는 REPORT-COPY-CANON 대기열 표 그대로다 — 세 플랫폼이 한 글자도 다르면 안 된다. */}
+                {waitlist.length > 0 && <div style={{ fontSize: 11, color: T.text500 }}>자리가 나면 순서대로 합류</div>}
+              </div>
+              {waitlist.length === 0 ? (
+                <div data-testid="host-waitlist-empty" style={{ background: T.bgBase, borderRadius: 16, padding: 20, border: `1px solid ${T.line100}`, textAlign: 'center', fontSize: 13, color: T.text500, lineHeight: '20px' }}>대기 중인 사람이 없어요. 정원이 찬 뒤 승인한 신청이 이곳에 쌓여요.</div>
+              ) : waitlist.map((item) => {
+                const applicant = item.applicant || {};
+                const summary = applicantSummary(applicant);
+                const openProfile = applicant.userId == null
+                  ? null
+                  : () => nav.go('public-profile', { params: { userId: applicant.userId } });
+                const body = (
+                  <>
+                    <ProfileAvatar src={applicant.profileImageUrl} size={40}/>
+                    <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: T.text900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{applicant.nickname}</div>
+                      <div style={{ fontSize: 12, color: T.text500, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                        대기 {item.position}번{summary ? ` · ${summary}` : ''}
+                      </div>
+                    </div>
+                    {/* 열 프로필이 없으면 화살표도 그리지 않는다 — 눌릴 것처럼 보이면서 안 눌리면 그게 결함이다. */}
+                    {openProfile && <Icon name="arrow" size={16} color={T.text400}/>}
+                  </>
+                );
+                const rowStyle = {
+                  background: T.bgBase, borderRadius: 16, padding: 16, marginBottom: 12,
+                  border: `1px solid ${T.line100}`, display: 'flex', alignItems: 'center', gap: 12,
+                  width: '100%', fontFamily: T.fontStack,
+                };
+                return openProfile ? (
+                  <button
+                    key={item.applicationId}
+                    type="button"
+                    data-testid={`host-waitlist-${item.applicationId}`}
+                    aria-label={`${applicant.nickname || '대기자'} 프로필 보기. 대기 ${item.position}번`}
+                    onClick={openProfile}
+                    style={{ ...rowStyle, cursor: 'pointer', textAlign: 'left' }}>
+                    {body}
+                  </button>
+                ) : (
+                  <div key={item.applicationId} data-testid={`host-waitlist-${item.applicationId}`} style={rowStyle}>{body}</div>
+                );
+              })}
+            </>
+          )}
+          {/* 거절 기록 — 호스트가 거절한 신청이 최신순으로 남는다. 「누구를 이미 거절했는지」를
+              기억에 기대지 않고 확인하는 자리다. 서버가 `rejectedAt` 을 주므로 날짜는 지어내지 않는다.
+              여러 건을 훑는 표라 **절대 날짜, 날짜까지만** 쓴다 (RELATIVE-TIME-CANON 강퇴 이력과 같은 규칙). */}
+          {rejected && (
+            <>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.text700, marginTop: 24, marginBottom: 12 }}>거절 기록 ({rejected.length})</div>
+              {rejected.length === 0 ? (
+                <div data-testid="host-rejected-empty" style={{ background: T.bgBase, borderRadius: 16, padding: 20, border: `1px solid ${T.line100}`, textAlign: 'center', fontSize: 13, color: T.text500, lineHeight: '20px' }}>거절한 신청이 없어요.</div>
+              ) : rejected.map((item) => {
+                const applicant = item.applicant || {};
+                const summary = applicantSummary(applicant);
+                const openProfile = applicant.userId == null
+                  ? null
+                  : () => nav.go('public-profile', { params: { userId: applicant.userId } });
+                const body = (
+                  <>
+                    <ProfileAvatar src={applicant.profileImageUrl} size={40}/>
+                    <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: T.text900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{applicant.nickname}</div>
+                      <div style={{ fontSize: 12, color: T.text500, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                        {[window.MoyeoApi.formatDateOnly(item.rejectedAt), summary].filter(Boolean).join(' 거절 · ') || '거절'}
+                      </div>
+                      {item.applicationMessage && (
+                        <div style={{ fontSize: 11.5, color: T.text500, marginTop: 6, lineHeight: '17px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>“{item.applicationMessage}”</div>
+                      )}
+                    </div>
+                    {openProfile && <Icon name="arrow" size={16} color={T.text400}/>}
+                  </>
+                );
+                const rowStyle = {
+                  background: T.bgBase, borderRadius: 16, padding: 16, marginBottom: 12,
+                  border: `1px solid ${T.line100}`, display: 'flex', alignItems: 'center', gap: 12,
+                  width: '100%', fontFamily: T.fontStack,
+                };
+                return openProfile ? (
+                  <button
+                    key={item.applicationId}
+                    type="button"
+                    data-testid={`host-rejected-${item.applicationId}`}
+                    aria-label={`${applicant.nickname || '신청자'} 프로필 보기. 거절한 신청`}
+                    onClick={openProfile}
+                    style={{ ...rowStyle, cursor: 'pointer', textAlign: 'left' }}>
+                    {body}
+                  </button>
+                ) : (
+                  <div key={item.applicationId} data-testid={`host-rejected-${item.applicationId}`} style={rowStyle}>{body}</div>
+                );
+              })}
+            </>
+          )}
           {memberList && (
             <>
               <div style={{ fontSize: 13, fontWeight: 600, color: T.text700, marginTop: 24, marginBottom: 12 }}>승인된 동행자 ({memberList.participantCount})</div>
@@ -1005,14 +1260,16 @@ function ScreenChatList({ initialTab = 'live' }) {
           )}
           {/* 목 모임 카드는 없다 — 미로그인이면 로그인 안내만, 로그인했는데 아직 못 받았으면
               로딩 문구만 남는다 (TAB-STATE-CANON R2 · NO-MOCK-CANON §2). */}
-          {!serverMode && (
-            <TabDataNotice
-              status={tab === 'applied' ? waitingData.status : roomsData.status}
-              signedOut={!liveMode}
-              onRetry={tab === 'applied' ? waitingData.reload : roomsData.reload}
-              style={{ padding: 40, textAlign: 'center', fontSize: 13 }}
-            />
-          )}
+          {/* 값이 있으면 `TabDataNotice` 가 스스로 null 을 돌려주므로 `!serverMode` 로 감싸지 않는다 —
+              감싸 두면 **갱신 실패 줄까지 함께 숨어서** 낡은 목록이 최신인 척 남는다 (QA NAV-013). */}
+          <TabDataNotice
+            status={tab === 'applied' ? waitingData.status : roomsData.status}
+            refreshFailed={tab === 'applied' ? waitingData.refreshFailed : roomsData.refreshFailed}
+            error={tab === 'applied' ? waitingData.error : roomsData.error}
+            signedOut={!liveMode}
+            onRetry={tab === 'applied' ? waitingData.reload : roomsData.reload}
+            style={{ padding: serverMode ? '8px 4px' : 40, textAlign: 'center', fontSize: 13 }}
+          />
         </div>
         <BottomNav active="group"/>
       </div>
@@ -1027,6 +1284,14 @@ function ScreenChatListApplied() { return <ScreenChatList initialTab="applied"/>
 const NOTIFICATION_TYPE_STYLES = {
   CHAT_ROOM_CREATED: { icon: 'users', tone: 'primary' },
   CHAT_ROOM_KICKED: { icon: 'warning', tone: 'danger' },
+  // BE-32 — 모임 진행 알림. 승격은 좋은 소식이라 기본색, 불발은 강퇴와 같은 경고색으로 둔다.
+  CHAT_ROOM_WAITLIST_PROMOTED: { icon: 'users', tone: 'primary' },
+  CHAT_ROOM_CONFIRMED: { icon: 'check', tone: 'primary' },
+  CHAT_ROOM_CANCELLED: { icon: 'warning', tone: 'danger' },
+  // BE-33 — 공지·신청 결과. 거절만 위험색이고 나머지는 기본색이다.
+  CHAT_ROOM_NOTICE_POSTED: { icon: 'pin', tone: 'primary' },
+  CHAT_ROOM_APPLICATION_APPROVED: { icon: 'check', tone: 'primary' },
+  CHAT_ROOM_APPLICATION_REJECTED: { icon: 'close', tone: 'danger' },
   CHAT_MESSAGE_RECEIVED: { icon: 'chat', tone: 'accent' },
   TRAVEL_COURSE_UPDATED: { icon: 'refresh', tone: 'primary' },
   MEETING_INFO_UPDATED: { icon: 'pin', tone: 'primary' },
@@ -1037,20 +1302,94 @@ const NOTIFICATION_TYPE_STYLES = {
   MARKETING: { icon: 'sparkle', tone: 'primary' },
 };
 
+// 13 알림 센터의 필터 칩. `Chip` 은 버튼이 아니라 표시용이라 핸들러를 달 수 없었다 (W-09).
+const NOTIF_CHIP_STYLE = (on) => ({
+  height: 32, padding: '0 13px', borderRadius: 999, cursor: 'pointer', fontFamily: T.fontStack,
+  fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap',
+  border: `1px solid ${on ? T.primary500 : T.line200}`,
+  background: on ? T.primary50 : 'transparent',
+  color: on ? T.primary700 : T.text700,
+});
+
 function ScreenNotifications() {
   const nav = (window.useNav ? window.useNav() : { go: () => {}, back: () => {} });
   // 로그인 상태에서는 GET /api/v1/notifications 로 목록을 대체한다.
   const liveMode = window.MoyeoApi?.live();
   const [serverPage, setServerPage] = React.useState(null);
+  // 「전체 / 안읽음」 칩이 장식이었다 — `moyeo-api.js` 의 `unreadOnly` 를 부르는 곳이
+  // 소스 전체에 없었다 (W-09). 고른 값을 그대로 서버 파라미터로 보낸다.
+  const [unreadOnly, setUnreadOnly] = React.useState(false);
+  // 500 을 「로그인하면 …」으로 보여주던 자리다. 실패를 실패라고 말하고 재시도를 준다 (W-08).
+  const [notifStatus, setNotifStatus] = React.useState(liveMode ? 'loading' : 'signed-out');
+  // 2026-09-14 결정 ④: 커서 무한 스크롤. 예전에는 `size: 50` 한 번으로 끝나 51번째 알림부터는
+  // 볼 방법이 아예 없었다(ROUND-2026-09-14-DECISIONS ④).
+  // **끝 판단은 서버가 주는 `hasNext` 로만 한다** — 탐색 목록처럼 「받은 개수 < size」로 세지 않는다
+  // (읽음 필터 때문에 묶음이 덜 찰 수 있는데 그걸 끝으로 읽으면 남은 알림이 사라진다).
+  // 커서는 응답의 `nextLastId` 다(실서버 확인 2026-09-14: `?size=3` → `{nextLastId, hasNext, unreadCount}`).
+  const NOTIF_PAGE_SIZE = 20;
+  const scrollRef = React.useRef(null);
+  const [loadingMore, setLoadingMore] = React.useState(false);
+  const [moreError, setMoreError] = React.useState('');
   const loadNotifications = React.useCallback(() => {
-    if (!liveMode) return;
-    window.MoyeoApi.notifications({ size: 50 })
-      .then((result) => { if (Array.isArray(result?.notifications)) setServerPage(result); })
-      .catch(() => { /* 실패 시 목데이터 유지 */ });
-  }, [liveMode]);
+    if (!liveMode) { setNotifStatus('signed-out'); return; }
+    setNotifStatus('loading');
+    setMoreError('');
+    window.MoyeoApi.notifications({ size: NOTIF_PAGE_SIZE, ...(unreadOnly ? { unreadOnly: true } : {}) })
+      .then((result) => {
+        if (!Array.isArray(result?.notifications)) { setNotifStatus('error'); return; }
+        setServerPage(result);
+        setNotifStatus('ready');
+        if (scrollRef.current) scrollRef.current.scrollTop = 0;
+      })
+      .catch(() => setNotifStatus('error'));
+  }, [liveMode, unreadOnly]);
   React.useEffect(() => { loadNotifications(); }, [loadNotifications]);
+  // 다음 묶음. `hasNext` 가 false 면 더 부르지 않는다.
+  const loadMoreNotifications = React.useCallback(() => {
+    if (!liveMode || loadingMore) return;
+    const page = serverPage;
+    if (!page || !page.hasNext || page.nextLastId == null) return;
+    setLoadingMore(true);
+    setMoreError('');
+    window.MoyeoApi.notifications({ lastId: page.nextLastId, size: NOTIF_PAGE_SIZE, ...(unreadOnly ? { unreadOnly: true } : {}) })
+      .then((result) => {
+        if (!Array.isArray(result?.notifications)) { setMoreError('다음 알림을 불러오지 못했어요.'); return; }
+        setServerPage((current) => {
+          if (!current) return current;
+          // 이미 가진 id 는 건너뛴다 — 같은 커서로 두 번 받아도 목록이 겹치지 않는다.
+          const seen = new Set(current.notifications.map((item) => item.notificationId));
+          return {
+            ...current,
+            // unreadCount 는 첫 응답 값을 유지한다(전체 기준 숫자라 묶음마다 덮어쓰면 흔들린다).
+            unreadCount: current.unreadCount,
+            nextLastId: result.nextLastId ?? null,
+            hasNext: Boolean(result.hasNext),
+            notifications: [...current.notifications, ...result.notifications.filter((item) => !seen.has(item.notificationId))],
+          };
+        });
+      })
+      .catch(() => setMoreError('다음 알림을 불러오지 못했어요. 조금 뒤에 다시 시도해요.'))
+      .then(() => setLoadingMore(false));
+  }, [liveMode, loadingMore, serverPage, unreadOnly]);
+  const onNotifScroll = (event) => {
+    const list = event.currentTarget;
+    if (list.scrollTop + list.clientHeight >= list.scrollHeight - 120) loadMoreNotifications();
+  };
+  // 받은 묶음이 화면을 다 채우지 못하면 스크롤이 생기지 않아 이어 받을 계기가 없다.
+  React.useEffect(() => {
+    const list = scrollRef.current;
+    if (!list || loadingMore || !serverPage?.hasNext) return;
+    if (list.scrollHeight <= list.clientHeight) loadMoreNotifications();
+  }, [serverPage, loadingMore, loadMoreNotifications]);
+  // 「모두 읽음」은 **성공한 뒤에만** 점을 지운다. 먼저 지우고 실패를 삼키면 배지만 줄고
+  // 서버는 그대로라, 다시 불러오는 순간 점이 되살아난다(안드·iOS 가 그랬다 · 교차 확인 2026-09-15).
+  // 여기는 낙관적 갱신이 아니었지만 **실패를 통째로 삼켜** 눌러도 아무 일이 없었다 — 까닭을 남긴다.
+  const [readAllError, setReadAllError] = React.useState('');
+  const [readingAll, setReadingAll] = React.useState(false);
   const markAllRead = async () => {
-    if (!serverPage) return;
+    if (!serverPage || readingAll) return;
+    setReadingAll(true);
+    setReadAllError('');
     try {
       await window.MoyeoApi.readAllNotifications();
       setServerPage((current) => (current ? {
@@ -1058,9 +1397,16 @@ function ScreenNotifications() {
         unreadCount: 0,
         notifications: current.notifications.map((item) => ({ ...item, read: true })),
       } : current));
-    } catch (_) { /* 실패는 조용히 무시 */ }
+    } catch (error) {
+      // 결정 ⑩: 갈래는 status·code 로 가르고 문장은 클라이언트가 소유한다.
+      setReadAllError(window.screenErrorText(error, '알림을 모두 읽음으로 바꾸지 못했어요.'));
+    }
+    setReadingAll(false);
   };
+  // 알림을 눌렀는데 갈 곳이 없거나 이동에 실패하면 예전에는 `catch (_) {}` 로 삼켰다 (W-98).
+  const [openError, setOpenError] = React.useState('');
   const openServerNotification = async (item) => {
+    setOpenError('');
     try {
       if (!item.read) {
         await window.MoyeoApi.readNotification(item.notificationId);
@@ -1076,11 +1422,49 @@ function ScreenNotifications() {
         nav.go('removal-reason');
         return;
       }
+      // 예전에는 `chatRoomId != null` 하나로 전부 모집 상세로 보냈다 (W-98).
+      // FEED_LIKE 도 `chatRoomId` 를 함께 들고 오기 때문에 **피드 알림을 누르면 모집 상세**가 열렸고,
+      // 새 메시지 알림도 채팅방이 아니라 모집 상세로 갔다. 유형별로 갈라서 보낸다.
+      if (item.type === 'FEED_LIKE') {
+        if (item.referenceId == null) { setOpenError('이 알림이 가리키는 피드를 찾지 못했어요.'); return; }
+        window.MoyeoApi.selectFeed(item.referenceId);
+        nav.go('feed-detail');
+        return;
+      }
+      if (item.type === 'FRIEND_ACCEPTED') {
+        // 알림의 referenceId 는 친구 관계 id 라 사용자 id 가 아니다 — 프로필로 바로 갈 수 없다.
+        // 친구 목록(27-2)으로 보낸다.
+        nav.go('friends');
+        return;
+      }
+      // BE-33 — 공지는 채팅방 안에 있다. 모집 상세로 보내면 정작 공지가 안 보인다.
+      if (item.type === 'CHAT_ROOM_NOTICE_POSTED' && item.chatRoomId != null) {
+        window.MoyeoApi.selectRoom(item.chatRoomId);
+        nav.go('chat');
+        return;
+      }
+      // BE-32 — 승격은 「내가 그 방의 참가자가 됐다」는 알림이라 채팅방으로 보낸다.
+      // 확정·불발은 일정이 걸린 일이라 아래 기본 경로(모집 상세)로 간다.
+      if (item.type === 'CHAT_ROOM_WAITLIST_PROMOTED' && item.chatRoomId != null) {
+        window.MoyeoApi.selectRoom(item.chatRoomId);
+        nav.go('chat');
+        return;
+      }
+      if (item.type === 'CHAT_MESSAGE_RECEIVED' && item.chatRoomId != null) {
+        window.MoyeoApi.selectRoom(item.chatRoomId);
+        nav.go('chat');
+        return;
+      }
       if (item.chatRoomId != null) {
         window.MoyeoApi.selectRoom(item.chatRoomId);
         nav.go('detail');
+        return;
       }
-    } catch (_) { /* 이동 실패는 조용히 무시 */ }
+      // 갈 곳이 없는 유형(MARKETING 등)은 읽음 처리까지가 전부다 — 그 사실을 말한다.
+      setOpenError('이 알림은 열어 볼 화면이 없어요. 읽음으로만 표시했어요.');
+    } catch (error) {
+      setOpenError(window.userFacingError(error, '알림을 열지 못했어요.'));
+    }
   };
   // ── FRIEND_REQUEST 알림의 수락·거절 ──
   // 알림의 referenceId 가 곧 친구 요청 id 다(2026-09-02 실서버 확인: 알림 200·199 → requestId 43·42,
@@ -1109,7 +1493,14 @@ function ScreenNotifications() {
         } : current));
       }
     } catch (error) {
-      setAnswerError((current) => ({ ...current, [requestId]: error?.message || '친구 요청을 처리하지 못했어요.' }));
+      // 27-2 친구 관리와 **같은 갈래·같은 문장**을 쓴다 — 두 화면이 다르게 말하면 그게 결함이다.
+      // 이미 사라진 신청이면 「처리하지 못했어요」가 아니라 사라졌다고 말하고, 버튼도 치운다.
+      if (window.isFriendRequestGone(error)) {
+        setAnswered((current) => ({ ...current, [requestId]: 'gone' }));
+        setAnswerError((current) => ({ ...current, [requestId]: window.MOYEO_FRIEND_REQUEST_GONE_MESSAGE }));
+      } else {
+        setAnswerError((current) => ({ ...current, [requestId]: window.screenErrorText(error, '친구 요청을 처리하지 못했어요.') }));
+      }
     } finally {
       setAnswering(null);
     }
@@ -1129,7 +1520,7 @@ function ScreenNotifications() {
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 13, color: T.text900, lineHeight: 1.5 }}>{title}</div>
         <div style={{ fontSize: 11, color: T.text500, marginTop: 4 }}>{time}</div>
-        {action && action.state && (
+        {action && action.state && action.state !== 'gone' && (
           <div style={{ fontSize: 11.5, color: T.primary600, fontWeight: 600, marginTop: 8 }}>
             {action.state === 'accepted' ? '친구 신청을 수락했어요' : '친구 신청을 거절했어요'}
           </div>
@@ -1148,20 +1539,31 @@ function ScreenNotifications() {
   );
   return (
     <Phone>
-      <div style={{ position: 'absolute', inset: 0, paddingTop: 60, overflow: 'auto' }}>
+      <div ref={scrollRef} onScroll={onNotifScroll} data-testid="notif-scroll" style={{ position: 'absolute', inset: 0, paddingTop: 60, overflow: 'auto' }}>
         <div style={{ height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div onClick={() => nav.back()} style={{ cursor: 'pointer' }}><Icon name="back" size={24}/></div>
           <div style={{ fontSize: 15, fontWeight: 600 }}>알림</div>
-          <div onClick={serverPage ? markAllRead : undefined} data-testid="notif-read-all" style={{ fontSize: 12, color: T.primary600, fontWeight: 500, cursor: serverPage ? 'pointer' : 'default' }}>모두 읽음</div>
+          <div onClick={serverPage && !readingAll ? markAllRead : undefined} data-testid="notif-read-all" style={{ fontSize: 12, color: T.primary600, fontWeight: 500, cursor: serverPage && !readingAll ? 'pointer' : 'default' }}>{readingAll ? '처리 중...' : '모두 읽음'}</div>
         </div>
         <div style={{ padding: '8px 20px 12px', display: 'flex', gap: 8 }}>
-          <Chip variant="primary" size="md">전체</Chip>
-          <Chip variant="neutral" size="md">안읽음 {serverPage ? serverPage.unreadCount : 0}</Chip>
+          <button type="button" data-testid="notif-filter-all" onClick={() => setUnreadOnly(false)} style={NOTIF_CHIP_STYLE(!unreadOnly)}>전체</button>
+          <button type="button" data-testid="notif-filter-unread" onClick={() => setUnreadOnly(true)} style={NOTIF_CHIP_STYLE(unreadOnly)}>안읽음 {serverPage ? serverPage.unreadCount : 0}</button>
         </div>
-        {serverPage ? (
+        {notifStatus === 'error' ? (
+          <div role="alert" data-testid="notif-error" style={{ padding: '72px 20px', textAlign: 'center', color: T.text500, fontSize: 13, lineHeight: '21px' }}>
+            알림을 불러오지 못했어요.{' '}
+            <button type="button" data-testid="notif-retry" onClick={loadNotifications} style={{ padding: 0, border: 0, background: 'transparent', color: T.primary600, fontFamily: T.fontStack, fontSize: 13, fontWeight: 900, textDecoration: 'underline', cursor: 'pointer' }}>다시 시도</button>
+          </div>
+        ) : serverPage ? (
           <>
+            {openError && (
+              <div role="alert" data-testid="notif-open-error" style={{ margin: '0 20px 10px', padding: '10px 12px', borderRadius: 10, background: T.warningBg, color: T.warningText, fontSize: 11.5, lineHeight: '17px' }}>{openError}</div>
+            )}
+            {readAllError && (
+              <div role="alert" data-testid="notif-read-all-error" style={{ margin: '0 20px 10px', padding: '10px 12px', borderRadius: 10, border: `1px solid ${T.danger}`, color: T.danger, fontSize: 11.5, lineHeight: '17px' }}>{readAllError}</div>
+            )}
             {serverPage.notifications.length === 0 && (
-              <div style={{ padding: '72px 20px', textAlign: 'center', color: T.text500, fontSize: 13 }}>새 알림이 없어요.</div>
+              <div style={{ padding: '72px 20px', textAlign: 'center', color: T.text500, fontSize: 13 }}>{unreadOnly ? '안 읽은 알림이 없어요.' : '새 알림이 없어요.'}</div>
             )}
             {serverPage.notifications.map((item, index) => {
               const style = NOTIFICATION_TYPE_STYLES[item.type] || { icon: 'bell', tone: 'primary' };
@@ -1189,10 +1591,21 @@ function ScreenNotifications() {
                 />
               );
             })}
+            {moreError && (
+              <div role="alert" data-testid="notif-more-error" style={{ padding: '12px 20px', textAlign: 'center', color: T.danger, fontSize: 12, lineHeight: '18px' }}>
+                {moreError}{' '}
+                <button type="button" data-testid="notif-more-retry" onClick={loadMoreNotifications} style={{ padding: 0, border: 0, background: 'transparent', color: T.primary600, fontFamily: T.fontStack, fontSize: 12, fontWeight: 900, textDecoration: 'underline', cursor: 'pointer' }}>다시 시도</button>
+              </div>
+            )}
+            {serverPage.hasNext && !moreError && (
+              <div role="status" data-testid="notif-loading-more" style={{ padding: '14px 20px', textAlign: 'center', color: T.text500, fontSize: 12 }}>불러오는 중이에요…</div>
+            )}
           </>
         ) : (
-          /* 목 알림은 없다 — 미로그인이면 로그인 안내만 남는다. */
-          <div style={{ padding: '72px 20px', textAlign: 'center', color: T.text500, fontSize: 13 }}>로그인하면 모집 중인 모임을 볼 수 있어요.</div>
+          /* 목 알림은 없다 — 미로그인이면 로그인 안내만, 아직 안 왔으면 로딩 문구다. */
+          <div role="status" style={{ padding: '72px 20px', textAlign: 'center', color: T.text500, fontSize: 13 }}>
+            {notifStatus === 'loading' ? '불러오는 중이에요…' : '로그인하면 모집 중인 모임을 볼 수 있어요.'}
+          </div>
         )}
         <div style={{ height: 28 }}/>
       </div>
@@ -1339,14 +1752,20 @@ function ScreenSearch() {
   // 0건(집계 전 · Redis 장애)이면 실패가 아니라 **섹션 자체를 그리지 않는다**. 새 빈 상태 문구를 만들지 않는다.
   const liveMode = Boolean(window.MoyeoApi?.live());
   const [popular, setPopular] = React.useState([]);
+  // **0건과 실패는 다른 일이다.** 예전에는 실패도 `setPopular([])` 로 받아 섹션이 통째로
+  // 사라졌고, 사용자는 「오늘은 인기 검색어가 없구나」로 읽었다 (안드로이드 SEARCH-032 와 같은 결함).
+  // 0건이면 지금처럼 섹션을 숨기고(빈 상태 문구를 만들지 않는다), **실패는 실패라고 말한다.**
+  const [popularFailed, setPopularFailed] = React.useState(false);
+  const [popularReloadKey, setPopularReloadKey] = React.useState(0);
   React.useEffect(() => {
     if (!liveMode) return undefined;
     let active = true;
+    setPopularFailed(false);
     window.MoyeoApi.popularKeywords(10)
-      .then((rows) => { if (active) setPopular(Array.isArray(rows) ? rows : []); })
-      .catch(() => { if (active) setPopular([]); });
+      .then((rows) => { if (active) { setPopular(Array.isArray(rows) ? rows : []); setPopularFailed(false); } })
+      .catch(() => { if (active) { setPopular([]); setPopularFailed(true); } });
     return () => { active = false; };
-  }, [liveMode]);
+  }, [liveMode, popularReloadKey]);
 
   // 캡처에서도 실제 저장소를 그대로 쓴다 — 화면 안에서만 도는 별도 경로를 두지 않는다.
   const rememberSearch = (text) => setRecent(store ? store.add(text) : []);
@@ -1426,6 +1845,13 @@ function ScreenSearch() {
                   {/* iOS 의 `clock.arrow.circlepath` 와 같은 뜻의 아이콘 (2026-09-09 네 표면 통일) */}
                   <Icon name="clock" size={26} color={T.primary500}/>
                   최근 검색어가 없어요.
+                </div>
+              )}
+              {/* 조회에 실패했으면 그렇게 말한다 — 0건과 뭉개면 「오늘은 없구나」로 읽힌다. */}
+              {popularFailed && (
+                <div role="status" data-testid="search-popular-failed" style={{ marginTop: recent.length > 0 ? 24 : 0, fontSize: 12, color: T.text500 }}>
+                  인기 검색어를 불러오지 못했어요.{' '}
+                  <button type="button" data-testid="search-popular-retry" onClick={() => setPopularReloadKey((key) => key + 1)} style={{ padding: 0, border: 0, background: 'transparent', color: T.primary600, fontFamily: T.fontStack, fontSize: 12, fontWeight: 900, textDecoration: 'underline', cursor: 'pointer' }}>다시 시도</button>
                 </div>
               )}
               {/* 인기 검색어. 0건이면 이 블록이 통째로 사라진다 — 빈 상태 문구를 두지 않는다. */}
@@ -1675,6 +2101,8 @@ function ScreenLeaveAlert({ role = null }) {
     return () => { active = false; };
   }, [role, liveMode, roomId]);
   const isHost = role ? role === 'host' : (serverIsHost ?? true);
+  // 시트 접근성은 공용 훅 한 곳에서 본다 (QA ENV-007 · shared.jsx `useSheetA11y`).
+  const sheet = window.useSheetA11y({ label: isHost ? '모임 종료 확인' : '모임 나가기 확인', onClose: nav.back });
   const copy = isHost
     ? {
       title: <React.Fragment>호스트가 나가면<br/>이 모임은 종료돼요</React.Fragment>,
@@ -1707,7 +2135,7 @@ function ScreenLeaveAlert({ role = null }) {
       <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}><ChatMenuBody/></div>
       <div style={{ position: 'absolute', inset: 0, background: T.bgOverlay }}/>
       {/* 중앙 팝업 표면도 시트와 같이 bgRaised — 다크 모드에서 bgBase는 화면 배경과 같은 값이다 */}
-      <div style={{ position: 'relative', width: 320, background: T.bgRaised, borderRadius: 20, border: `1px solid ${T.line200}`, padding: 24, boxShadow: T.l3 }}>
+      <div {...sheet.rootProps} data-testid="leave-alert-dialog" style={{ position: 'relative', width: 320, background: T.bgRaised, borderRadius: 20, border: `1px solid ${T.line200}`, padding: 24, boxShadow: T.l3 }}>
         <div style={{ width: 48, height: 48, borderRadius: 999, background: T.dangerBg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, fontSize: 22 }}>⚠</div>
         <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.4, letterSpacing: '-0.3px' }}>{copy.title}</div>
         <div style={{ fontSize: 13, color: T.text500, marginTop: 10, lineHeight: 1.6 }}>{copy.desc}</div>
@@ -1739,4 +2167,4 @@ Object.assign(window, {
 });
 
 // ─── window export ───
-Object.assign(window, { ScreenLogin, ScreenEmailAuth, ScreenProfileBasic, ScreenProfileTaste, ScreenTerms, ScreenHostManage, ScreenChatList, ScreenChatListApplied, ScreenNotifications, ScreenRemovalReason, ScreenSearch, ScreenStates, ScreenSpecialMessages, ScreenLeaveAlert, ScreenLeaveMember });
+Object.assign(window, { KoreanBirthDatePicker, ScreenLogin, ScreenEmailAuth, ScreenProfileBasic, ScreenProfileTaste, ScreenTerms, ScreenHostManage, ScreenChatList, ScreenChatListApplied, ScreenNotifications, ScreenRemovalReason, ScreenSearch, ScreenStates, ScreenSpecialMessages, ScreenLeaveAlert, ScreenLeaveMember });

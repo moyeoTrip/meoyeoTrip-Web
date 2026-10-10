@@ -16,6 +16,17 @@
     }
   }
 
+  // ── 닉네임 동물 표 (NO-MOCK-CANON R5 · 웹의 유일한 정본) ──
+  // 정본은 안드로이드 `ui/components/MoyeoNicknameAnimal.kt` 의 20종 + `🐾` 폴백이고,
+  // iOS `mascotEmoji(forNickname:)` · 웹이 같은 표를 쓴다. **화면마다 따로 만들지 않는다.**
+  const MOYEO_ANIMAL_ILLUSTRATIONS = { 사슴: 'deer', 거북이: 'turtle', 너구리: 'raccoon', 곰: 'bear', 두루미: 'crane', 토끼: 'rabbit' };
+  const MOYEO_ANIMAL_EMOJIS = {
+    사슴: '🦌', 거북이: '🐢', 토끼: '🐰', 여우: '🦊', 수달: '🦦', 다람쥐: '🐿️',
+    고양이: '🐱', 강아지: '🐶', 판다: '🐼', 펭귄: '🐧', 돌고래: '🐬', 부엉이: '🦉',
+    참새: '🐦', 알파카: '🦙', 코알라: '🐨', 두루미: '🪽', 해달: '🦦',
+    고슴도치: '🦔', 너구리: '🦝', 기린: '🦒', 곰: '🐻',
+  };
+
   function query(params = {}) {
     const search = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
@@ -121,6 +132,9 @@
 
   // 24 피드 글쓰기 초안. 고른 사진(File)이 들어가 직렬화할 수 없어 메모리에만 둔다 (api.feedDraft 참고).
   let feedDraftState = {};
+  // 17-5 에서 고른 모집 대표 사진(File). roomDraft 와 같은 이유로 세션 저장소에 못 담는다
+  // (api.roomThumbnail 참고).
+  let roomThumbnailState = null;
 
   const api = {
     live,
@@ -139,7 +153,18 @@
 
     // ── 1. 모임 검색·상세 ──
     // 응답은 래핑 객체가 아니라 JSON 배열이다. 항목은 parseSearchRoom 으로 정규화해서 넘긴다.
-    searchRooms: ({ keyword, limit } = {}) => request(`/api/v1/chat-rooms/search${query({ keyword, limit })}`)
+    //
+    // ── 커서 페이지네이션 (2026-09-14 서버 추가) ──
+    //   cursor — **직전 페이지 마지막 roomId**. 생략하면 첫 페이지다.
+    //   limit  — 한 묶음 크기(기본 20).
+    // 받은 개수가 limit 보다 **적으면 마지막 페이지**다 — 별도의 nextId 가 없다
+    // (피드·댓글의 `{목록, nextId}` 와 모양이 다르니 호출부가 개수로 판정한다).
+    //
+    // 실서버 확인(2026-09-14): limit=5 로 408·406·405·401·385 → cursor=385 → 364·361·352·341·323
+    // → … 이어 붙인 순서가 limit=20 전체 목록(17건)과 한 건씩 일치한다(건너뜀·중복 없음).
+    // 호출부(10 탐색)는 그래도 **이미 가진 roomId 를 건너뛰는** 방어를 남긴다 —
+    // 서버가 커서를 무시하고 첫 페이지를 다시 주면 같은 카드가 중복되기 때문이다.
+    searchRooms: ({ keyword, cursor, limit } = {}) => request(`/api/v1/chat-rooms/search${query({ keyword, cursor, limit })}`)
       .then((rooms) => (Array.isArray(rooms) ? rooms.map((room) => api.parseSearchRoom(room)) : rooms)),
     // 12 검색 · 인기 검색어. 응답은 [{ rank, keyword, searchCount }] 배열이다.
     // 서버가 모임 통합 검색 + 공개 코스 검색의 입력을 누적 집계한다(limit 은 1~20 으로 보정).
@@ -171,8 +196,17 @@
     // 하트는 눌리는데 모아 보는 곳이 없어서 이 호출부가 세 플랫폼 모두 비어 있었다.
     favoriteRooms: () => request('/api/v1/chat-rooms/my/favorites')
       .then((rooms) => (Array.isArray(rooms) ? rooms.map((room) => api.parseSearchRoom(room)) : rooms)),
+    // 37 탈퇴 사유 목록. `[{reason, displayName}]` — 화면 문구를 서버가 준다.
+    // 웹이 같은 다섯 줄을 하드코딩하고 있었다(약관을 하드코딩하던 것과 같은 문제다) —
+    // 실서버 확인(2026-09-14 · 200, 5건). 고른 사유는 `DELETE /users/me` 본문으로 보낸다.
+    withdrawalReasons: () => request('/api/v1/users/me/withdrawal-reasons'),
     // 26 찜한 코스. 응답은 LikedTravelCourseResponse 배열(courseId·title·description·thumbnail·tags).
     favoriteCourses: () => request('/api/v1/travel-courses/me/favorites'),
+    // 14 코스 상세의 찜 토글. 모집 찜(`toggleFavorite`)과 같은 모양으로 `{ favorite, favoriteCount }` 를 준다.
+    // 실서버 확인(2026-09-14 · 코스 176 에 두 번 눌러 true/1 → false/0, 원상복구).
+    // iOS(`CourseDetailView.swift` `course.detail.favorite`)·안드로이드(`CourseDetailScreen.kt`)에는
+    // 이미 있고 **웹에만 없었다** (QA DETAIL-002).
+    toggleCourseFavorite: (courseId) => request(`/api/v1/travel-courses/${courseId}/favorite`, { method: 'POST' }),
     // ── 2-1. 17 모집 만들기 ──
     // multipart 요청이다: request 파트가 application/json, thumbnail 파트가 바이너리다.
     // 2026-08-26 서버 변경으로 **thumbnail 이 필수**다 — 빼면 400 `40041`,
@@ -184,21 +218,11 @@
     createRoom: async (payload, thumbnail) => {
       const form = new global.FormData();
       form.append('request', new global.Blob([JSON.stringify(payload)], { type: 'application/json' }));
-      const file = thumbnail || await api.defaultRoomThumbnail();
-      if (file) form.append('thumbnail', file);
+      // 사진은 **호출부가 고른 것만** 올린다. 예전에는 없으면 내장 「이미지 없음」 그림을
+      // 대신 올려서, 실사용자 목록에 회색 자리표시자 카드가 진짜 사진인 양 올라갔다
+      // (BE-07·BE-21 의 원인, 2026-09-13). 없으면 서버가 400 `40041` 로 알려주게 둔다.
+      if (thumbnail) form.append('thumbnail', thumbnail);
       return request('/api/v1/chat-rooms', { method: 'POST', body: form });
-    },
-    // 사진이 없을 때 올리는 기본 썸네일. 카드형 목록에 쓰이는 16:9 쪽이다.
-    // 가져오지 못하면 null 을 돌려주고, 서버가 400 으로 알려주게 둔다 — 조용히 성공한 척하지 않는다.
-    defaultRoomThumbnail: async () => {
-      try {
-        const response = await global.fetch('assets/placeholder-landscape.webp');
-        if (!response.ok) return null;
-        const blob = await response.blob();
-        return new global.File([blob], 'placeholder-landscape.webp', { type: 'image/webp' });
-      } catch (_) {
-        return null;
-      }
     },
     // 방 상태 전이 (RECRUITING / CONFIRMED / CANCELLED). 호스트만 가능하고 204 를 준다.
     changeRoomStatus: (roomId, status) => request(`/api/v1/chat-rooms/${roomId}/status`, {
@@ -257,6 +281,11 @@
     // authenticated:true 로 두면 약관 화면이 "로그인이 필요해요"로 막혀 가입 자체가 불가능해진다.
     terms: () => request('/api/v1/terms', { authenticated: false }),
     termDetail: (termId) => request(`/api/v1/terms/${termId}`, { authenticated: false }),
+    // 종류(code)로 **현재 판본**을 받는다. 설정 화면은 termId 를 알 수 없다 —
+    // termId 는 판본이 바뀔 때마다 새로 발급되므로 「이 종류의 약관」을 가리킬 수 없다.
+    // 제목 문자열로 찾던 예전 방식은 처리방침 자리에 가입 동의서를 열었다 (QA BE-03).
+    termLatest: (code) => request(`/api/v1/terms/latest/${code}`, { authenticated: false }),
+    termHistory: (code) => request(`/api/v1/terms/history/${code}`, { authenticated: false }),
 
     // ── 5. 알림 ──
     notifications: ({ lastId, size, unreadOnly } = {}) => request(`/api/v1/notifications${query({ lastId, size, unreadOnly })}`),
@@ -306,6 +335,10 @@
     receivedTravelReviews: (userId) => request(`/api/v1/users/${userId}/travel-reviews`),
 
     // ── 8. 피드 ──
+    // tab: FRIENDS · DISCOVER · **MINE**. MINE 은 2026-09-14 서버가 추가한 것으로
+    // (BE-28) **공개 범위와 무관하게 내가 쓴 것만** 준다 — 「내 피드」 화면이 그릴 것이 없어
+    // 피드 탭 전체로 떨어지던 문제를 위한 값이다. 실서버 확인: qa02 로 부르면 자기 글 2건
+    // (FRIENDS 1 · PUBLIC 1)만 오고, 글이 없는 qa01 은 0건이다 (QA MY-010 · MY-011).
     feeds: ({ tab, beforeFeedId, limit } = {}) => request(`/api/v1/feeds${query({ tab, beforeFeedId, limit })}`),
     feedDetail: (feedId) => request(`/api/v1/feeds/${feedId}`),
     // ── 23-1 댓글 목록 · ID 커서 페이지네이션 (2026-09-02 서버 변경) ──
@@ -328,9 +361,48 @@
       images.forEach((file) => form.append('images', file));
       return request('/api/v1/feeds', { method: 'POST', body: form });
     },
+    // ── 멤버 신고 (BE-12 · 2026-09-14 실서버 확인) ──
+    // 정본 `REPORT-CANON.md` §1 은 "사용자 신고 API 없음"이라고 적고 있었지만, 서버에 생겼다 —
+    // `/api-docs` 의 `POST /api/v1/chat-rooms/{roomId}/members/{memberId}/reports` 가 그것이다.
+    // 사유 목록도 서버가 코드와 표시 문구를 함께 준다. 클라가 목록을 갖지 않는다.
+    // 실서버 사유 8종: HARASSMENT · MONEY_TRANSACTION_SOLICITATION · UNFAIR_SETTLEMENT ·
+    // INAPPROPRIATE_BEHAVIOR · IMPERSONATION · NO_SHOW · SPAM · OTHER.
+    memberReportReasons: () => request('/api/v1/chat-rooms/member-report-reasons'),
+    // 204 No Content. details 는 선택이고 최대 300자다.
+    // 오류: 자기 자신 신고 400 `40045`, 중복 신고 409, 참가자가 아니면 403.
+    reportMember: (roomId, memberId, { reason, details } = {}) => request(
+      `/api/v1/chat-rooms/${roomId}/members/${memberId}/reports`,
+      {
+        method: 'POST',
+        body: details && details.trim() ? { reason, details: details.trim().slice(0, 300) } : { reason },
+      },
+    ),
+    // ── 모집(채팅방) 신고 (BE-12 · 2026-09-14 실서버 확인) ──
+    // 멤버 사유 목록과 **다른 목록**이다 — 대상마다 엔드포인트가 따로 있다.
+    // 실서버 사유 6종: SPAM · INAPPROPRIATE_CONTENT · MONEY_TRANSACTION_SOLICITATION ·
+    // FALSE_INFORMATION · COMMERCIAL_PURPOSE · OTHER.
+    roomReportReasons: () => request('/api/v1/chat-rooms/report-reasons'),
+    // 204 No Content. details 는 선택이고 최대 300자다.
+    // 오류: 본인이 개설한 모집 400 `40044`, 중복 신고 409 `40920`.
+    reportRoom: (roomId, { reason, details } = {}) => request(`/api/v1/chat-rooms/${roomId}/reports`, {
+      method: 'POST',
+      body: details && details.trim() ? { reason, details: details.trim().slice(0, 300) } : { reason },
+    }),
     // ── 피드 신고 (2026-08-26 신설) ──
     // 사유 코드와 표시 문구를 서버가 함께 준다 — 클라가 문구를 따로 갖지 않는다.
     feedReportReasons: () => request('/api/v1/feeds/report-reasons'),
+    // ── 피드 댓글 신고 (BE-12 · 2026-09-14 실서버 확인) ──
+    // 사유 목록은 **피드 신고와 같은** `/api/v1/feeds/report-reasons` 를 쓴다(서버가 같은 enum 을 쓴다).
+    // 204 No Content. details 는 선택이고 최대 300자다.
+    // 오류: 본인 댓글 400 `40046` · 중복 409 `40922` · 없는 댓글 404 `40422` ·
+    //       비공개 피드 403 `40306` · details 301자 400 `40000`.
+    reportFeedComment: (feedId, commentId, { reason, details } = {}) => request(
+      `/api/v1/feeds/${feedId}/comments/${commentId}/reports`,
+      {
+        method: 'POST',
+        body: details && details.trim() ? { reason, details: details.trim().slice(0, 300) } : { reason },
+      },
+    ),
     // 204 No Content. details 는 선택이고 최대 300자다.
     // 서로 다른 이용자의 신고 3건이 모이면 서버가 visibility=PRIVATE·hiddenByReports=true 로 바꾼다.
     // 오류(2026-09-03 실서버 재확인): 본인 피드 **400** `40039`("본인이 작성한 피드는 신고할 수 없습니다"),
@@ -384,18 +456,44 @@
     },
     // 지금 고른 방이 다녀온 여행이면 그대로, 아니면 가장 최근에 다녀온 여행으로 바꾼다.
     // 다녀온 여행이 하나도 없으면 null 이다 — 아무 방이나 골라주지 않는다.
-    async completedTripRoomId(preferredRoomId = api.selectedRoomId()) {
+    //
+    // **요약 객체를 그대로 돌려준다.** 27-4·33 이 판정에 쓰는 값(`myCourseRating` ·
+    // `coursePublicationAvailable`)이 이 응답(MyChatRoomSummaryResponse)에만 있어서,
+    // id 만 돌려주면 화면이 같은 목록을 한 번 더 불러야 한다.
+    async completedTripRoom(preferredRoomId = api.selectedRoomId()) {
       const rooms = await api.myRooms().catch(() => null);
       if (!Array.isArray(rooms)) return null;
       const completed = rooms.filter((room) => api.isCompletedTrip(room));
-      if (preferredRoomId != null
-        && completed.some((room) => String(room.roomId) === String(preferredRoomId))) {
-        return String(preferredRoomId);
+      if (preferredRoomId != null) {
+        const preferred = completed.find((room) => String(room.roomId) === String(preferredRoomId));
+        if (preferred) return preferred;
       }
       // 종료일(없으면 시작일) 내림차순 — 가장 최근에 다녀온 여행이 먼저다.
-      const latest = [...completed].sort((a, b) => String(b.endDate || b.startDate || '')
-        .localeCompare(String(a.endDate || a.startDate || '')))[0];
-      return latest ? String(latest.roomId) : null;
+      return [...completed].sort((a, b) => String(b.endDate || b.startDate || '')
+        .localeCompare(String(a.endDate || a.startDate || '')))[0] || null;
+    },
+    async completedTripRoomId(preferredRoomId = api.selectedRoomId()) {
+      const room = await api.completedTripRoom(preferredRoomId);
+      return room ? String(room.roomId) : null;
+    },
+
+    // ── 9-2. 여행 요약이 주는 두 판정값 (2026-09-14 서버 추가) ──
+    // 둘 다 **없는 키로 올 수 있다**(배포 전). 없는 값을 「평가함」·「공개 불가」로 읽으면
+    // 화면이 거짓말을 하므로, 모를 때는 예전과 같이 굴게 둔다.
+    //
+    // myCourseRating — 27-4 에서 **내가 이 방에 준 별**. 아직 평가 전이면 null 이다.
+    // 이 값이 없던 동안에는 재진입하면 별이 비어 보여, 이미 평가한 사람이 다시 매겼다
+    // (서버가 갱신이라 조용히 덮였다 · QA AFTER-016).
+    myCourseRating(room) {
+      const score = Number(room?.myCourseRating);
+      if (!Number.isFinite(score)) return null;
+      const rounded = Math.round(score);
+      return rounded >= 1 && rounded <= 5 ? rounded : null;
+    },
+    // coursePublicationAvailable — 33 코스 공개 자격. **이미 공개한 코스에는 false** 다.
+    // 키가 아예 없으면(배포 전) 막지 않는다 — 공개할 수 있는 코스까지 닫히면 더 나쁘다.
+    canPublishCourse(room) {
+      return room?.coursePublicationAvailable !== false;
     },
 
     // 하단 `모임` 탭 알림 점 — 참여 중인 방에 **읽지 않은 메시지가 있을 때만** true.
@@ -425,8 +523,12 @@
       method: 'POST', body: { notice, pinned: Boolean(pinned) },
     }),
     // 공지 수정·고정 토글. notice·pinned 를 모두 null 로 보내면 서버가 삭제한다.
-    updateRoomNotice: (roomId, noticeId, { notice = null, pinned = null } = {}) => request(`/api/v1/chat-rooms/${roomId}/notices/${noticeId}`, {
-      method: 'PUT', body: { notice, pinned },
+    //
+    // BE-30: `expectedUpdatedAt`(선택)에 **내가 읽은 공지의 `updatedAt`** 을 실으면, 그 사이 남이
+    // 먼저 고쳤을 때 서버가 409 `40923` 으로 거절한다(안 실으면 예전처럼 마지막 쓰기가 이긴다).
+    // **값이 없으면 키를 아예 뺀다** — null 은 검사하지 않는 것과 같지만 없는 키가 뜻이 분명하다.
+    updateRoomNotice: (roomId, noticeId, { notice = null, pinned = null, expectedUpdatedAt = null } = {}) => request(`/api/v1/chat-rooms/${roomId}/notices/${noticeId}`, {
+      method: 'PUT', body: { notice, pinned, ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}) },
     }),
     // 공지 삭제는 **전용 엔드포인트**다 (PUT 에 null 을 넣는 것이 아니다 — 백엔드 ChatRoomController 확인).
     // 되돌릴 수 없다: 20-3a 는 확인 단계를 거친 뒤에만 부른다.
@@ -455,11 +557,17 @@
     // 엔드포인트가 5개로 갈려 있고 본문 규칙이 서로 다르다.
     // 사진만 multipart 다: image 파트가 파일(≤20MB · image/*), caption 파트는 선택이다.
     // 캡션이 비면 파트를 아예 넣지 않는다 — 서버가 빈 캡션 대신 '사진'을 본문으로 채운다.
+    //
+    // **캡션은 반드시 Blob 으로 넣는다.** 서버가 `@RequestPart("caption") caption: String?` 로 받는데,
+    // 브라우저 FormData 의 평문 파트에는 Content-Type 이 붙지 않아 Spring 이
+    // `application/octet-stream` 으로 보고 String 변환기를 못 찾는다 — 설명을 넣으면
+    // **항상 400 `40033`** 이었다 (W-01, 2026-09-13 실서버로 재현·확인).
+    // `text/plain` 을 붙이면 같은 요청이 201 로 통과한다.
     shareRoomImage: (roomId, image, caption) => {
       const form = new global.FormData();
       form.append('image', image);
       const text = textOrNull(caption);
-      if (text) form.append('caption', text);
+      if (text) form.append('caption', new global.Blob([text], { type: 'text/plain;charset=utf-8' }));
       return request(`/api/v1/chat-rooms/${roomId}/messages/images`, { method: 'POST', body: form });
     },
     // 관광 장소 카드. contentId 는 숫자만 유효하다 (TourAPI 샘플의 'CT…' 형식은 서버에 없다).
@@ -551,6 +659,16 @@
     roomApplications: (roomId) => request(`/api/v1/chat-rooms/${roomId}/applications`),
     approveApplication: (roomId, applicationId) => request(`/api/v1/chat-rooms/${roomId}/applications/${applicationId}/approve`, { method: 'POST' }),
     rejectApplication: (roomId, applicationId) => request(`/api/v1/chat-rooms/${roomId}/applications/${applicationId}`, { method: 'DELETE' }),
+    // 대기열 — 정원이 찬 방에서 호스트가 승인하면 멤버가 아니라 이 줄에 선다
+    // (`ApprovalResult.WAITLISTED`). `position` 1 이 자리가 나면 자동 합류할 사람이다.
+    // 호스트가 아니면 403, 없는 방이면 404 — 화면은 그 실패를 목록 없음으로 되돌리지 않는다.
+    roomWaitlist: (roomId) => request(`/api/v1/chat-rooms/${roomId}/applications/waitlist`),
+    // 거절 기록 — 호스트가 거절한 신청이 최신순으로 쌓인다.
+    // 응답: [{applicationId, applicationMessage, applicant, appliedAt, rejectedAt}]
+    // 실서버 확인(2026-09-14 · `GET /chat-rooms/351/applications/rejected` → 200 `[]`).
+    // 예전에 이 자리를 「조회 API 자체가 없다」고 적었는데 **틀린 말이었다** — 화면에 없는 것을
+    // 서버에 없는 것으로 옮겨 적은 것이다. 적기 전에 실서버로 불러 본다 (QA HOST-010).
+    roomRejectedApplications: (roomId) => request(`/api/v1/chat-rooms/${roomId}/applications/rejected`),
 
     // ── 17. 나가기·내보내기 (파괴적 — QA 데이터 보호를 위해 실호출로 검증하지 않았다) ──
     leaveRoom: (roomId) => request(`/api/v1/chat-rooms/${roomId}/members/me`, { method: 'DELETE' }),
@@ -588,23 +706,24 @@
     // 목데이터의 동물을 그대로 두면 "따스한 기린"인데 곰이 뜬다 — 실제 라이브 캡처에서 나온 상태다.
     // 일러스트는 6종뿐이라 없는 동물은 온보딩과 같은 이모지로 떨어진다.
     avatarForNickname(nickname) {
-      const illustrations = { 사슴: 'deer', 거북이: 'turtle', 너구리: 'raccoon', 곰: 'bear', 두루미: 'crane', 토끼: 'rabbit' };
-      const emojis = {
-        사슴: '🦌', 거북이: '🐢', 토끼: '🐰', 여우: '🦊', 수달: '🦦', 다람쥐: '🐿️',
-        고양이: '🐱', 강아지: '🐶', 판다: '🐼', 펭귄: '🐧', 돌고래: '🐬', 부엉이: '🦉',
-        참새: '🐦', 알파카: '🦙', 코알라: '🐨', 두루미: '🪽', 해달: '🦦',
-        고슴도치: '🦔', 너구리: '🦝', 기린: '🦒', 곰: '🐻',
-      };
-      const words = String(nickname || '').trim().split(/\s+/);
-      // 끝이 숫자면 그 앞이 동물, 아니면 마지막 낱말이 동물이다.
-      const animal = /^\d+$/.test(words.at(-1) || '') ? words.at(-2) : words.at(-1);
+      const animal = api.animalFromNickname(nickname);
       if (!animal) return null;
-      if (illustrations[animal]) return { kind: illustrations[animal] };
-      if (emojis[animal]) return { emoji: emojis[animal] };
-      // 서버가 주는 20종은 위 표가 모두 덮는다(실서버 표본 135회, 2026-08-29).
+      if (MOYEO_ANIMAL_ILLUSTRATIONS[animal]) return { kind: MOYEO_ANIMAL_ILLUSTRATIONS[animal] };
+      // 서버가 주는 20종은 표가 모두 덮는다(실서버 표본 135회, 2026-08-29).
       // 서버가 동물을 새로 추가하면 발자국으로 떨어진다 — 빈 색 판만 남기면 깨진 것처럼 보인다.
       // 안드로이드·iOS 도 같은 값을 쓴다.
-      return { emoji: '🐾' };
+      return { emoji: api.mascotEmojiForAnimal(animal) };
+    },
+    // 닉네임에서 동물 낱말만 떼어 낸다. 끝이 숫자면 그 앞이 동물, 아니면 마지막 낱말이 동물이다.
+    animalFromNickname(nickname) {
+      const words = String(nickname || '').trim().split(/\s+/);
+      return (/^\d+$/.test(words.at(-1) || '') ? words.at(-2) : words.at(-1)) || null;
+    },
+    // 동물 → 이모지. **이 표가 웹의 유일한 정본이다** (NO-MOCK-CANON R5).
+    // 예전에는 07 닉네임 고르기(`screens-onboarding.jsx`)가 자기 표를 따로 들고 있었고
+    // 거기에는 `곰` 이 빠져 있어, 서버가 「곰」 닉네임을 주면 온보딩만 발자국으로 떨어졌다.
+    mascotEmojiForAnimal(animal) {
+      return MOYEO_ANIMAL_EMOJIS[animal] || '🐾';
     },
     // ?memberId= 를 방 멤버 목록에서 찾아 준다. 못 찾으면 null 이라 호출부는 기존 목데이터를 유지한다.
     findRoomMember(roomId, memberId) {
@@ -696,7 +815,20 @@
       remember('moyeo.roomDraft', next);
       return next;
     },
-    clearRoomDraft: () => remember('moyeo.roomDraft', null),
+    clearRoomDraft() {
+      roomThumbnailState = null; // 사진도 함께 버린다 — 다음 모집에 지난 사진이 붙으면 안 된다
+      return remember('moyeo.roomDraft', null);
+    },
+
+    // 17-5 대표 사진. `roomDraft` 와 달리 **세션 저장소를 쓰지 않는다**: File 객체라 JSON 으로
+    // 담기지 않는다(피드 초안과 같은 이유). 단계 이동은 nav.go 라 페이지가 다시 뜨지 않으므로
+    // 메모리에 남아 있다 — 예전에는 5/5 화면 state 에만 있어서 「이전」 한 번에 사라졌다(W-127).
+    // 새로고침하면 비는데, 그때는 다시 고르게 하는 것이 맞다(고른 적 없는 사진을 올리지 않는다).
+    roomThumbnail: () => roomThumbnailState,
+    setRoomThumbnail(file) {
+      roomThumbnailState = file || null;
+      return roomThumbnailState;
+    },
 
     // ── 24 피드 글쓰기 5단계가 이어받는 입력값 ──
     // roomDraft 와 달리 **세션 저장소를 쓰지 않는다**: 고른 사진이 File 객체라 JSON 으로 담기지 않는다.
@@ -747,6 +879,11 @@
       const payload = {
         title: draft.title,
         description: draft.description ?? null,
+        // **서버 필수**다 — `@NotNull` + `@Min(3)`. 빠뜨리면 400 「minimumParticipants 필드는
+        // 필수입니다.」로 모집 생성이 통째로 막힌다(2026-09-10 실서버 스펙으로 확인).
+        // 17-4 가 초안에 `minParticipants` 를 넣어 준다. 그 단계를 건너뛴 진입에서는
+        // 화면이 보여주는 기본값(3)과 같은 값을 쓴다 — 화면과 요청을 어긋나게 두지 않는다.
+        minimumParticipants: Math.max(3, Number(draft.minParticipants) || 3),
         maxParticipants: draft.maxParticipants,
         tripType: dayTrip ? 'DAY_TRIP' : 'OVERNIGHT',
         startDate: schedule.startDate,
@@ -788,7 +925,10 @@
         meetingLatitude: lat,
         meetingLongitude: lng,
         // 11 탐색 지도 마커는 위·경도가 **둘 다** 있을 때만 찍는다. 한쪽만 오면 제외한다.
-        meetingCoord: (lat !== null && lng !== null && !(lat === 0 && lng === 0)) ? { lat, lng } : null,
+        // 범위를 벗어난 값(999 등)도 거른다 — `new maps.LatLng(999, 999)` 하나가 섞이면
+        // 카카오 SDK 가 던지면서 **그 화면의 마커가 전부 사라진다** (W-24).
+        meetingCoord: (lat !== null && lng !== null && !(lat === 0 && lng === 0)
+          && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) ? { lat, lng } : null,
         meetingDetails: textOrNull(raw.meetingDetails),
         meetingDateTime: textOrNull(raw.meetingDateTime),
         dayTripStartTime: clockText(raw.dayTripStartTime),
@@ -860,6 +1000,24 @@
       if (Number.isNaN(then.getTime())) return '';
       return `${String(then.getHours()).padStart(2, '0')}:${String(then.getMinutes()).padStart(2, '0')}`;
     },
+    // ISO 일시 → 'YYYY.MM.DD' (날짜만 · 13-2 강퇴 이력 목록)
+    //
+    // 강퇴는 **자리가 둘이고 기대값이 반대**다 (정본 RELATIVE-TIME-CANON 「강퇴는 자리가 둘이다」):
+    // 통지 줄(내게 일어난 일 한 줄)은 상대 시각(`어제 · 호스트 결정`)이고, **이력 목록**(여러 건을
+    // 훑는 표)은 기록을 대조하는 자리라 **절대 날짜, 날짜까지만**이다. 웹만 `formatDateTime` 을
+    // 써서 `2026.09.12 17:11` 로 시:분이 붙어 있었다(2026-09-14 검증에서 발견).
+    //
+    // formatDate 를 쓰지 않는 이유: 그쪽은 `2026.09.12 (토)` 로 요일을 붙인다. 네이티브 둘은
+    // 요일을 붙이지 않는다. 그리고 **문자열 앞 10자를 그대로 자른다**
+    // (iOS `KickHistoryView.kickedAtText` · 안드 `row.kickedAt.take(10).replace('-','.')`).
+    // Date 로 파싱해 지역 시간대로 옮기면 자정 근처에서 하루가 밀려 세 플랫폼이 다른 날짜를 낸다 —
+    // 같은 방식으로 자른다.
+    formatDateOnly(dateTimeText) {
+      if (!dateTimeText) return '';
+      const text = String(dateTimeText);
+      const datePart = text.split('T')[0];
+      return /^\d{4}-\d{2}-\d{2}$/.test(datePart) ? datePart.replace(/-/g, '.') : text;
+    },
     // ISO 일시 → 'YYYY.MM.DD HH:MM' (공지 이력 작성 시각)
     formatDateTime(dateTimeText) {
       if (!dateTimeText) return '';
@@ -882,11 +1040,49 @@
       const minute = String(then.getMinutes()).padStart(2, '0');
       return `${then.getMonth() + 1}월 ${then.getDate()}일 ${meridiem} ${hour12}:${minute}`;
     },
+    // 채팅 날짜 구분선. 말풍선에는 'HH:MM' 만 있어서 어제 온 메시지와 오늘 온 메시지가
+    // 같은 시각으로 나란히 보였다 — 며칠 전 약속을 오늘 것으로 읽게 된다 (W-38).
+    // 같은 날인지 가르는 열쇠(chatDayKey)와 구분선 문구(formatChatDay)를 함께 둔다.
+    chatDayKey(dateTimeText) {
+      if (!dateTimeText) return '';
+      const then = new Date(dateTimeText);
+      if (Number.isNaN(then.getTime())) return '';
+      return `${then.getFullYear()}-${then.getMonth() + 1}-${then.getDate()}`;
+    },
+    formatChatDay(dateTimeText) {
+      if (!dateTimeText) return '';
+      const then = new Date(dateTimeText);
+      if (Number.isNaN(then.getTime())) return '';
+      const today = new Date();
+      const sameDay = (a, b) => a.getFullYear() === b.getFullYear()
+        && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+      const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+      if (sameDay(then, today)) return '오늘';
+      if (sameDay(then, yesterday)) return '어제';
+      const week = ['일', '월', '화', '수', '목', '금', '토'][then.getDay()];
+      return `${then.getFullYear()}년 ${then.getMonth() + 1}월 ${then.getDate()}일 (${week})`;
+    },
+    // 「이 글이 언제 쓰였나」 — 세 플랫폼이 **같은 문자열**을 낸다 (정본 RELATIVE-TIME-CANON).
+    //
+    // 예전에는 7일이 넘으면 `2026.09.07` 같은 절대 날짜로 떨어졌다. 사용자 결정(2026-09-14)으로
+    // `N개월 전`·`N년 전`까지 상대 시각을 이어 간다 — 절대 날짜로 떨어지지 않는다.
+    //
+    // 전부 **버림(floor)** 이다: 90분은 `2시간 전`이 아니라 `1시간 전`.
+    // `개월` = 경과 일수 / 30, `년` = 경과 일수 / 365 — **달력 계산이 아니다.**
+    // 세 플랫폼이 같은 값을 내는 것이 정확한 달수보다 중요하다(정본 명시).
+    //
+    // 년으로 넘어가는 경계는 `365일`이지 `12개월`이 아니다. 정본 표본이
+    // `364일 → 12개월 전` · `365일 → 1년 전` 로 못 박혀 있어, days/30 이 12 가 되는
+    // 360일에 년으로 넘기면 `360~364일` 이 `0년 전`이 된다.
+    //
+    // 미래 시각(시계 오차 등)은 `방금 전`이다 — 「-3분 전」 같은 문자열을 만들지 않는다.
+    // 파싱 실패는 받은 문자열을 그대로 돌려준다(지어내지 않는다).
     formatRelative(dateTimeText) {
       if (!dateTimeText) return '';
       const then = new Date(dateTimeText);
       if (Number.isNaN(then.getTime())) return String(dateTimeText);
       const diffMs = Date.now() - then.getTime();
+      if (diffMs < 0) return '방금 전';
       const minutes = Math.floor(diffMs / 60000);
       if (minutes < 1) return '방금 전';
       if (minutes < 60) return `${minutes}분 전`;
@@ -894,8 +1090,9 @@
       if (hours < 24) return `${hours}시간 전`;
       const days = Math.floor(hours / 24);
       if (days === 1) return '어제';
-      if (days < 7) return `${days}일 전`;
-      return `${then.getFullYear()}.${String(then.getMonth() + 1).padStart(2, '0')}.${String(then.getDate()).padStart(2, '0')}`;
+      if (days < 30) return `${days}일 전`;
+      if (days < 365) return `${Math.floor(days / 30)}개월 전`;
+      return `${Math.floor(days / 365)}년 전`;
     },
     tripTypeLabel(room) {
       if (!room) return '';

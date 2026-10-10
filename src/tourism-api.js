@@ -56,7 +56,8 @@
     } catch (error) {
       if (error instanceof TourismApiError) throw error;
       if (error?.name === 'AbortError') throw new TourismApiError('관광 정보 요청 시간이 초과됐어요.', 0, 'TIMEOUT');
-      throw new TourismApiError(error?.message || '관광 정보에 연결할 수 없어요.', 0, 'NETWORK');
+      // fetch 실패 원문은 `TypeError: Failed to fetch` 다 — 영문 원문을 화면에 흘리지 않는다 (W-97).
+      throw new TourismApiError('관광 정보에 연결할 수 없어요.', 0, 'NETWORK');
     } finally {
       if (timer) global.clearTimeout(timer);
     }
@@ -85,6 +86,25 @@
   const HTML_ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'", '&nbsp;': ' ' };
   function decodeEntities(text) {
     return String(text).replace(/&(?:amp|lt|gt|quot|#39|apos|nbsp);/g, (match) => HTML_ENTITIES[match] || match);
+  }
+
+  // 소개(overview)도 TourAPI 원본이라 **HTML 태그와 CSS 규칙이 그대로** 섞여 온다 —
+  //   <div class="text202503"><b>※ … 참고 부탁드립니다.</b></div>.text202503{ COLOR: #FF0000; } 달기약수탕은 …
+  // 그대로 그리면 화면에 마크업과 스타일 코드가 노출된다(달기약수탕 상세에서 실제로 그랬다).
+  // 태그는 줄바꿈으로 바꿔 걷어내고, 태그 밖으로 새어 나온 CSS 규칙 블록도 지운다.
+  // **내용을 줄이지는 않는다** — 보이는 글자는 그대로 두고 마크업만 없앤다.
+  function plainText(value) {
+    const raw = String(value ?? '');
+    if (!raw.trim()) return '';
+    return decodeEntities(raw
+      .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+      .replace(/<\/\s*(?:p|div|li|tr|h[1-6])\s*>/gi, '\n')
+      .replace(/<[^>]*>/g, ''))
+      .replace(/(^|[\s\n])[.#]?[A-Za-z][\w-]*\s*\{[^{}]*\}/g, '$1')
+      .replace(/[ \t\u00a0]+/g, ' ')
+      .replace(/[ \t]*\n[ \t]*/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
   }
 
   // homepage 는 TourAPI 원본이라 앵커 태그가 통째로 온다 —
@@ -154,7 +174,7 @@
       phoneNumber: String(firstValue(item, ['phoneNumber', 'telephone', 'tel'])).trim(),
       phoneName: String(firstValue(item, ['phoneName', 'contactName', 'telephoneName', 'telName'])).trim(),
       homepage: parseHomepage(firstValue(item, ['homepage', 'homepageUrl', 'website'])) || '',
-      description: String(firstValue(item, ['description', 'overview', 'introduction', 'detail'])).trim(),
+      description: plainText(firstValue(item, ['description', 'overview', 'introduction', 'detail'])),
       images: stringArray(firstValue(item, ['contentImages', 'images', 'generalImages', 'imageUrls'], [])),
       menuImages: stringArray(firstValue(item, ['menuImages', 'menuImageUrls'], [])),
     };

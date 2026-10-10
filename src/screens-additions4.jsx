@@ -98,8 +98,12 @@ function ScreenPlaceSearch() {
     : PLACE_TYPES;
   // 서버가 keyword·contentTypeId 로 이미 걸러 준 목록이라 그대로 그린다.
   const visible = places;
-  // 건수는 서버가 준 totalElements 를 쓴다(클라가 센 값은 현재 페이지 분량뿐이다).
-  const visibleCount = total === null ? visible.length : total;
+  // 건수는 **화면에 실제로 그린 만큼**만 센다. 이 화면은 30건 한 페이지가 전부인데
+  // 서버 `totalElements`(예: 412)를 적으면 「412곳」이라 해 놓고 30개만 보여 주게 된다 —
+  // 숫자와 목록이 어긋나고, 나머지를 볼 길도 없다 (QA PLACE-015).
+  // 더 있으면 그 사실을 따로 한 줄로 알린다(아래 `moreThanShown`).
+  const visibleCount = visible.length;
+  const moreThanShown = total != null && total > visible.length ? total - visible.length : 0;
   // 좌표가 (0,0)인 콘텐츠는 지도에 올릴 근거가 없다 — 마커에서 뺀다.
   const mapMarkers = React.useMemo(() => visible
     .filter((place) => Number.isFinite(place.latitude) && Number.isFinite(place.longitude)
@@ -134,7 +138,11 @@ function ScreenPlaceSearch() {
             </div>
           )}
           {/* 서버 목록은 정렬 기준(근처순 등)을 내려주지 않아 건수만 적는다 */}
-          {source === 'live' && visible.length > 0 && <div style={{ padding: '0 20px 6px', fontSize: 11.5, color: T.text500 }}>{visibleCount}곳</div>}
+          {source === 'live' && visible.length > 0 && (
+            <div style={{ padding: '0 20px 6px', fontSize: 11.5, color: T.text500 }}>
+              {visibleCount}곳{moreThanShown > 0 ? ` · 검색어를 좁히면 나머지 ${moreThanShown}곳도 찾을 수 있어요` : ''}
+            </div>
+          )}
           {visible.map((place) =><div key={place.contentId} style={{ width: '100%', display: 'flex', alignItems: 'stretch', borderBottom: `1px solid ${RF.softLine}`, paddingRight: 20 }}>
             <button type="button" onClick={() => openDetail(place.contentId)} style={{ flex: 1, minWidth: 0, display: 'flex', gap: 12, padding: '12px 10px 12px 20px', border: 0, background: 'transparent', color: T.text900, textAlign: 'left', fontFamily: T.fontStack, cursor: 'pointer' }}>
               <span style={{ width: 76, height: 68, borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}><PlaceImage src={place.thumbnailUrl} hue={place.hue} height={68}/></span>
@@ -199,14 +207,9 @@ function ScreenPlaceDetail() {
     ['map', current.latitude != null && current.longitude != null ? '지도에서 열기' : null, null],
     current.homepage ? ['share', current.homepage, '홈페이지'] : null,
   ].filter(Boolean);
-  // 공유는 iOS `ShareLink` 와 같은 내용을 보낸다. Web Share API 가 없으면 클립보드로 떨어진다.
-  const sharePlace = async () => {
-    const text = [current.title, current.address, current.homepage].filter(Boolean).join('\n');
-    try {
-      if (navigator.share) await navigator.share({ title: current.title, text });
-      else await navigator.clipboard?.writeText(text);
-    } catch (_) { /* 사용자가 취소했거나 권한이 없다 — 조용히 넘긴다 */ }
-  };
+  // 2026-09-15 결정 ⑬ — 외부 공유 진입점을 뺐다. 공개 URL 규격이 정해진 적이 없어
+  // 공유 본문에 링크가 한 줄도 없었다(QA EXTRA-003) — 받는 사람이 아무 데도 갈 수 없다.
+  // 「준비 중」 안내로 바꾸지 않고 **버튼 자체를 없앤다**. 규격이 서면 그때 되살린다.
   return (
     <Phone>
       <div style={{ height: '100%', background: RF.bg, position: 'relative' }}>
@@ -222,7 +225,7 @@ function ScreenPlaceDetail() {
           <div style={{ marginTop: 14, padding: 14, display: 'grid', gap: 11, borderRadius: 12, border: `1px solid ${RF.softLine}`, background: RF.card }}>
             {infoRows.map((row) => <div key={`${row[0]}-${row[1]}`} style={{ display: 'flex', gap: 10 }}><Icon name={row[0]} size={16} color={T.text500}/><span><b style={{ display: 'block', fontSize: 12.5, wordBreak: 'break-all' }}>{row[1]}</b>{row[2] ? <span style={{ display: 'block', marginTop: 2, fontSize: 10.5, color: T.text500 }}>{row[2]}</span> : null}</span></div>)}
           </div>
-          <h2 style={{ margin: '20px 0 8px', fontSize: 13 }}>소개</h2><p style={{ margin: 0, fontSize: 12.5, lineHeight: '20px', color: T.text700 }}>{current.description || '상세 소개가 제공되지 않았어요.'}</p>
+          <h2 style={{ margin: '20px 0 8px', fontSize: 13 }}>소개</h2><p style={{ margin: 0, fontSize: 12.5, lineHeight: '20px', color: T.text700, whiteSpace: 'pre-line' }}>{current.description || '상세 소개가 제공되지 않았어요.'}</p>
           <div role="tablist" aria-label="장소 이미지" style={{ display: 'flex', gap: 18, marginTop: 20, borderBottom: `1px solid ${RF.softLine}` }}>{[
             ['photo', `사진 ${current.images?.length || 0}`],
             ...(current.type === 'food' ? [['menu', `메뉴판 ${menuImages.length}`]] : []),
@@ -242,7 +245,9 @@ function ScreenPlaceDetail() {
         }}>
           <IconButton name="back" onClick={nav.back} bg={T.overlayPanel}/>
           <div style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: 800, color: '#fff' }}>방문지 상세</div>
-          <IconButton name="share" onClick={sharePlace} bg={T.overlayPanel}/>
+          {/* 공유 버튼이 있던 자리. 비워 두되 **폭은 남긴다** — 없애면 제목이 왼쪽으로 밀려
+              뒤로 버튼과 가운데 정렬이 어긋난다 (결정 ⑬). */}
+          <span aria-hidden="true" style={{ width: 36, height: 36 }}/>
         </div>
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 24px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}><Btn variant="ghost" onClick={nav.back}>목록으로</Btn><div style={{ flex: 1 }}><Btn variant="primary" full icon="plus" onClick={() => nav.go('custom-course')}>이 장소를 코스에 담기</Btn></div></div>
       </div>
@@ -250,31 +255,20 @@ function ScreenPlaceDetail() {
   );
 }
 
-const TERMS_DOCUMENTS = {
-  service: { title: '이용약관', required: true, version: 'v1.2', date: '2026년 5월 1일 시행', summary: '모여트립을 쓰면서 지켜야 할 것과, 우리가 약속하는 것을 적었어요.', sections: [
-    ['제1조 (목적)', '이 약관은 모여트립 in 경북(이하 “서비스”)이 제공하는 경상북도 여행 코스 기반 동행 매칭 서비스의 이용 조건과 절차, 회사와 회원의 권리·의무를 정하는 것을 목적으로 합니다.'],
-    ['제2조 (용어의 정의)', '“모집”이란 회원이 특정 코스로 함께 떠날 동행을 구하는 게시물을 말합니다. “캠프”란 최소 인원이 충족되어 자동으로 열리는 채팅방을 말합니다. “호스트”란 모집을 개설한 회원을, “게스트”란 해당 모집에 참여한 회원을 말합니다.'],
-    ['제3조 (모집의 성립과 소멸)', '모집은 마감일까지 최소 인원(3명)을 충족한 경우에만 확정됩니다. 마감일 기준 인원이 미달한 모집은 자동으로 소멸하며, 이 경우 회원에게 별도의 책임이 발생하지 않습니다.'],
-    ['제4조 (여행 중 발생하는 사항)', '회사는 회원 간의 만남을 매개할 뿐, 여행 중 발생하는 이동·숙박·식음 등의 계약 당사자가 아닙니다. 여행 비용은 회원 간에 직접 정산하며, 서비스 내 정산 기능은 기록용 메모입니다.'],
-    ['제5조 (금지 행위)', '타인을 사칭하거나, 금전 거래를 유도하거나, 성적·차별적 표현으로 다른 회원에게 불쾌감을 주는 행위를 금지합니다. 위반 시 이용이 제한될 수 있습니다.'],
-    ['제6조 (계정과 닉네임)', '가입 시 선택한 닉네임과 캐릭터는 도감 기록의 동일성을 위해 변경되지 않습니다. 다만 회사는 서비스 정착 이후 정책을 변경할 수 있으며, 변경 시 사전에 공지합니다.'],
-  ] },
-  privacy: { title: '개인정보 처리방침', required: true, version: 'v1.4', date: '2026년 7월 10일 시행', summary: '어떤 정보를 왜 받고, 얼마나 보관하는지 적었어요.', sections: [
-    ['수집하는 정보', '가입 시 소셜 로그인 식별자, 생년(나이대), 성별을 받습니다. 실명·연락처는 받지 않습니다. 서비스 이용 과정에서 작성한 모집·채팅·피드 내용과 접속 기록이 저장됩니다.'],
-    ['이용 목적', '동행 매칭(나이대·성별 조건 확인), 안전한 이용 환경 유지(신고·차단 처리), 서비스 개선을 위한 통계 분석에 사용합니다.'],
-    ['다른 회원에게 보이는 정보', '닉네임·캐릭터·나이대·성별·매너 점수·여행 횟수가 공개됩니다. 생년월일과 로그인 계정 정보는 공개되지 않습니다.'],
-    ['보관 기간', '탈퇴 시 30일간 보관 후 완전히 삭제합니다. 다만 신고·분쟁 처리 이력은 관련 법령이 정한 기간 동안 별도 보관합니다.'],
-    ['위탁 및 제3자 제공', '지도·관광정보 표시를 위해 한국관광공사 OpenAPI 등 외부 서비스를 이용하며, 이 과정에서 회원의 개인정보를 전달하지 않습니다.'],
-  ] },
-  location: { title: '위치정보 이용 동의', required: false, version: 'v1.0', date: '2026년 5월 1일 시행', summary: '켜지 않아도 서비스를 쓸 수 있어요. 켜면 근처 모집을 먼저 보여드려요.', sections: [
-    ['이용 목적', '현재 위치 기준 30km 이내에서 오늘 출발하는 모집을 홈 상단에 보여주고, 집합 장소까지의 길 찾기를 제공합니다.'],
-    ['동의를 거부할 경우', '근처 모집 추천과 길 찾기만 제한되고, 그 외 기능은 모두 동일하게 이용할 수 있습니다.'],
-  ] },
-  marketing: { title: '마케팅 정보 수신 동의', required: false, version: 'v1.0', date: '2026년 5월 1일 시행', summary: '새 코스나 이벤트 소식을 받아볼지 정하는 항목이에요.', sections: [
-    ['보내는 내용', '계절별 신규 코스 소개, 지역 축제 일정, 이벤트 안내를 앱 푸시로 보냅니다.'],
-    ['보내지 않는 것', '모집 승인·채팅·마감 임박처럼 이용에 꼭 필요한 알림은 이 동의와 무관하게 발송됩니다.'],
-    ['철회 방법', '설정 › 알림에서 언제든 끌 수 있고, 끄더라도 서비스 이용에는 아무런 제한이 없습니다.'],
-  ] },
+// 약관 본문·제목·버전은 **전부 서버 원장**에서 온다. 번들 사본은 지웠다 —
+// 사본이 원장과 다른 말을 하고 있었다(사본 「탈퇴 시 30일 보관 후 삭제」 / 원장 「탈퇴 시 지체 없이 파기」).
+// 법적 고지가 두 곳에서 어긋나면 어느 쪽이 정본인지 사용자도 우리도 알 수 없다.
+//
+// 종류는 `code` 로 가리킨다. `termId` 는 판본이 바뀔 때마다 새로 발급돼 종류를 가리킬 수 없고,
+// 제목에 '개인정보'가 들어 있는지로 찾던 방식은 **처리방침 자리에 가입 동의서를 열었다** (QA BE-03).
+//
+// 아래 표는 **화면(네비게이션) 이름**이지 약관 제목이 아니다 — 설정 목록 행과 같은 말이어야 하고,
+// 본문을 받기 전(로딩·실패)에도 헤더에 무언가는 적혀 있어야 한다. 본문을 받으면 서버 `title` 로 덮는다.
+const TERM_SCREEN_LABEL = {
+  SERVICE: '이용약관',
+  PRIVACY_COLLECTION: '개인정보 수집·이용 동의',
+  PRIVACY_POLICY: '개인정보 처리방침',
+  MARKETING: '마케팅 정보 수신 동의',
 };
 
 // 서버 약관 content(마크다운)를 [섹션 제목, 본문] 배열로 바꾼다. '#' 문서 제목은 건너뛴다.
@@ -322,6 +316,21 @@ function parseTermMarkdown(content) {
   return blocks;
 }
 
+// 인라인 강조(`**굵게**`). 서버 약관 본문이 실제로 쓴다 —
+// 개인정보 처리방침에 「**위치정보를 수집하지 않습니다.**」·「**회원 탈퇴 시 지체 없이 파기**」·
+// 「**제3자에게 제공하지 않습니다.**」 세 군데가 있고, 별표가 **화면에 그대로 노출되고 있었다**
+// (2026-09-14 브라우저 확인). 강조하려던 문장이 오히려 읽기 어려워지는 자리라 여기서 푼다.
+// 지원 범위는 서버 약관이 실제로 쓰는 `**…**` 하나뿐이다 — 쓰지 않는 문법을 지어내지 않는다.
+function termInline(text) {
+  const source = String(text ?? '');
+  if (!source.includes('**')) return source;
+  const parts = source.split(/\*\*([^*]+)\*\*/g);
+  // split 의 홀수 번째가 캡처한 강조 구간이다.
+  return parts.map((part, index) => (index % 2 === 1
+    ? <b key={index} style={{ fontWeight: 800, color: T.text900 }}>{part}</b>
+    : part));
+}
+
 // 표는 좁은 화면에서 글자를 줄이지 않고 가로로 스크롤한다 (개인정보 동의 표가 4열이다).
 function TermMarkdown({ blocks }) {
   const cellStyle = { padding: '9px 10px', fontSize: 12, lineHeight: '18px', color: T.text700, borderBottom: `1px solid ${RF.softLine}`, borderRight: `1px solid ${RF.softLine}`, verticalAlign: 'top', minWidth: 116 };
@@ -329,81 +338,237 @@ function TermMarkdown({ blocks }) {
     const key = `${block.kind}-${index}`;
     if (block.kind === 'h') {
       const size = block.level === 1 ? 15 : block.level === 2 ? 13.5 : 12.5;
-      return <h2 key={key} style={{ margin: index ? '18px 0 0' : 0, fontSize: size, color: T.text900 }}>{block.text}</h2>;
+      return <h2 key={key} style={{ margin: index ? '18px 0 0' : 0, fontSize: size, color: T.text900 }}>{termInline(block.text)}</h2>;
     }
     if (block.kind === 'ul' || block.kind === 'ol') {
       const Tag = block.kind === 'ul' ? 'ul' : 'ol';
-      return <Tag key={key} style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12.5, lineHeight: '21px', color: T.text700 }}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</Tag>;
+      return <Tag key={key} style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12.5, lineHeight: '21px', color: T.text700 }}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{termInline(item)}</li>)}</Tag>;
     }
     if (block.kind === 'table') {
       return <div key={key} style={{ marginTop: 10, overflowX: 'auto', border: `1px solid ${RF.softLine}`, borderRadius: 10 }}>
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-          <thead><tr>{block.header.map((cell, cellIndex) => <th key={cellIndex} scope="col" style={{ ...cellStyle, color: T.text900, fontWeight: 700, background: T.bgSubtle, whiteSpace: 'nowrap' }}>{cell}</th>)}</tr></thead>
-          <tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex}>{block.header.map((_, cellIndex) => <td key={cellIndex} style={cellStyle}>{row[cellIndex] || ''}</td>)}</tr>)}</tbody>
+          <thead><tr>{block.header.map((cell, cellIndex) => <th key={cellIndex} scope="col" style={{ ...cellStyle, color: T.text900, fontWeight: 700, background: T.bgSubtle, whiteSpace: 'nowrap' }}>{termInline(cell)}</th>)}</tr></thead>
+          <tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex}>{block.header.map((_, cellIndex) => <td key={cellIndex} style={cellStyle}>{termInline(row[cellIndex] || '')}</td>)}</tr>)}</tbody>
         </table>
       </div>;
     }
-    return <p key={key} style={{ margin: '8px 0 0', fontSize: 12.5, lineHeight: '21px', color: T.text700 }}>{block.text}</p>;
+    return <p key={key} style={{ margin: '8px 0 0', fontSize: 12.5, lineHeight: '21px', color: T.text700 }}>{termInline(block.text)}</p>;
   });
 }
 
-function ScreenTermsDetail({ doc = 'service', from = 'signup' }) {
-  const nav = window.useNav ? window.useNav() : { back: () => {}, params: {} };
-  const current = TERMS_DOCUMENTS[doc];
-  // 약관 화면에서 넘겨준 termId 가 있으면 그 ID 로 바로 받는다 — 제목 키워드로 찾지 않는다.
-  // 서버가 약관을 새로 추가해도 키워드 표에 없다는 이유로 본문을 못 여는 일이 없어야 한다.
+function ScreenTermsDetail({ code: codeProp = 'SERVICE', from: fromProp = 'signup' }) {
+  const nav = window.useNav ? window.useNav() : { back: () => {}, go: () => {}, params: {} };
+  // 가입 약관 목록에서 눌러 들어오면 그 판본의 termId 가 실려 온다 — 사용자가 **본 그 판본**에 동의해야 한다.
+  // 설정에서 열 때는 termId 를 알 수 없으므로 종류(code)로 현재 판본을 받는다.
   const requestedTermId = (nav.params || {}).termId;
-  const [serverTerm, setServerTerm] = React.useState(null);
+  // 「지난 버전」 목록(terms-history)에서 들어오면 라우트가 `terms-detail` 하나라 props 로는
+  // 종류를 알려줄 수 없다 — params 로 실어 보낸 code/from 을 props 보다 우선한다.
+  // 이게 없으면 처리방침의 판본을 눌렀는데 헤더·`data-term-code` 가 이용약관으로 찍힌다.
+  const code = (nav.params || {}).code || codeProp;
+  const from = (nav.params || {}).from || fromProp;
+  const [term, setTerm] = React.useState(null);
+  // 'loading' | 'ready' | 'empty' | 'error' — 네 상태를 구분한다. 예전에는 실패도 성공도 아닌 채로
+  // 번들 사본이 아무 말 없이 정본처럼 그려졌다 (W-86 / 안드 AND-20).
+  const [state, setState] = React.useState('loading');
+  const [error, setError] = React.useState('');
+  const [reloadKey, setReloadKey] = React.useState(0);
   React.useEffect(() => {
     let active = true;
-    const keywords = { service: '이용약관', privacy: '개인정보', location: '위치정보', marketing: '마케팅' };
+    setState('loading');
+    setError('');
     // 약관은 공개 엔드포인트다 — 가입 중(세션 없음)에도 본문을 받아야 한다.
     const resolve = requestedTermId
       ? window.MoyeoApi.termDetail(requestedTermId)
-      : window.MoyeoApi.terms().then((list) => {
-        const match = (Array.isArray(list) ? list : []).find((term) => String(term.title || '').includes(keywords[doc]));
-        return match ? window.MoyeoApi.termDetail(match.termId) : null;
-      });
+      : window.MoyeoApi.termLatest(code);
     resolve
-      .then((detail) => { if (active && detail?.content) setServerTerm(detail); })
-      .catch(() => { /* 실패 시 번들 문서를 유지한다 — 없는 내용을 지어내지 않는다 */ });
+      .then((detail) => {
+        if (!active) return;
+        if (detail && String(detail.content || '').trim()) { setTerm(detail); setState('ready'); }
+        else { setTerm(null); setState('empty'); }
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        setTerm(null);
+        setError(window.userFacingError(requestError, '약관을 불러오지 못했어요.'));
+        setState('error');
+      });
     return () => { active = false; };
-  }, [requestedTermId, doc]);
-  const serverBlocks = serverTerm ? parseTermMarkdown(serverTerm.content) : null;
-  const required = serverTerm ? serverTerm.required : current.required;
-  // 공유 버튼이 눌러도 아무 일도 없던 자리다. Web Share API 가 없으면 클립보드로 떨어진다.
-  const shareTerm = async () => {
-    const title = serverTerm ? serverTerm.title : current.title;
-    const body = serverTerm
-      ? serverTerm.content
-      : current.sections.map(([sectionTitle, sectionBody]) => `## ${sectionTitle}\n\n${sectionBody}`).join('\n\n');
-    const text = `${title}\n\n${body}`;
-    try {
-      if (navigator.share) await navigator.share({ title, text });
-      else await navigator.clipboard?.writeText(text);
-    } catch (_) { /* 사용자가 취소했거나 권한이 없다 — 조용히 넘긴다 */ }
+  }, [requestedTermId, code, reloadKey]);
+  const retry = () => setReloadKey((value) => value + 1);
+  const title = term ? term.title : (TERM_SCREEN_LABEL[code] || '약관');
+  // 2026-09-15 결정 ⑬ — 약관 상세의 외부 공유 버튼도 뺐다(공개 URL 규격 없음). 자리째 없앤다.
+  // 「동의하고 돌아가기」가 **닫기와 똑같이 되돌아가기만 했다** — 사용자는 동의했다고 믿는데
+  // 앞 화면 체크박스가 그대로 비어 있고, 가입 버튼이 계속 잠겨 있었다 (2026-09-12 감사).
+  // iOS·안드로이드는 `onAgree` 콜백으로 앞 화면에 알린다. 웹은 화면이 라우트로 갈라져 있어
+  // 창 이벤트로 알리고, 앞 화면이 언마운트돼 있었더라도 다시 붙을 때 주워 가도록 전역에도 남긴다.
+  const agreeAndBack = () => {
+    const termId = term ? term.termId : requestedTermId;
+    if (termId != null) {
+      const agreed = window.__moyeoAgreedTermIds instanceof Set ? window.__moyeoAgreedTermIds : new Set();
+      agreed.add(termId);
+      window.__moyeoAgreedTermIds = agreed;
+      window.dispatchEvent(new CustomEvent('moyeo:term-agreed', { detail: { termId } }));
+    }
+    nav.back();
   };
+  const noticeStyle = { marginTop: 12, padding: 13, borderRadius: 12, background: T.bgSubtle, border: `1px solid ${RF.softLine}`, fontSize: 12.5, lineHeight: '19px', color: T.text900 };
+  const retryButton = <button type="button" data-testid="terms-detail-retry" onClick={retry} disabled={state === 'loading'} style={{ display: 'block', marginTop: 10, height: 40, padding: '0 14px', borderRadius: 10, border: `1px solid ${RF.softLine}`, background: RF.card, color: T.primary600, fontSize: 13, fontWeight: 700, cursor: state === 'loading' ? 'default' : 'pointer' }}>{state === 'loading' ? '불러오는 중...' : '다시 시도'}</button>;
+
   return <Phone><div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
-    <Header title={serverTerm ? serverTerm.title : current.title} left center onBack={nav.back} right={<IconButton name="share" onClick={shareTerm}/>}/>
-    <main style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: from === 'signup' ? 96 : 0, overflow: 'auto', padding: '6px 20px 24px' }}>
-      <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}><Chip variant={required ? 'soft' : 'neutral'}>{required ? '필수' : '선택'}</Chip><span style={{ fontSize: 11.5, color: T.text500 }}>{serverTerm ? `${serverTerm.version} 시행` : `${current.version} · ${current.date}`}</span></div>
-      {/* 서버 약관에는 요약문이 없어 로그인 상태에서는 요약 블록을 생략한다 */}
-      {!serverTerm && <div style={{ marginTop: 12, padding: 13, borderRadius: 12, background: T.bgSubtle, border: `1px solid ${RF.softLine}`, fontSize: 12.5, lineHeight: '19px', color: T.text700 }}>{current.summary}</div>}
-      {serverBlocks
-        ? <div style={{ marginTop: 18 }}><TermMarkdown blocks={serverBlocks}/></div>
-        : current.sections.map(([title, body]) => <section key={title || body.slice(0, 20)} style={{ marginTop: 22 }}>{title && <h2 style={{ margin: 0, fontSize: 13.5 }}>{title}</h2>}<p style={{ margin: '8px 0 0', fontSize: 12.5, lineHeight: '21px', color: T.text700, whiteSpace: 'pre-line' }}>{body}</p></section>)}
-      <p style={{ margin: '26px 0 0', paddingTop: 16, borderTop: `1px solid ${RF.softLine}`, fontSize: 11.5, lineHeight: '18px', color: T.text500 }}>이전 판본은 <b>설정 › 이용약관 › 지난 버전</b>에서 볼 수 있어요. 약관이 바뀌면 시행 7일 전에 공지와 푸시로 알려드려요.</p>
+    <Header title={title} left center onBack={nav.back}/>
+    {/* 어떤 종류의 약관을 보고 있는지 화면에 남긴다 — 테스트·QA 가 「처리방침 자리에 무엇이 열렸는지」를
+        제목 문자열이 아니라 code 로 확인할 수 있어야 한다 (QA BE-03 이 제목 매칭에서 나왔다). */}
+    <main data-testid="terms-detail-screen" data-term-code={code} data-term-state={state} style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: from === 'signup' ? 96 : 0, overflow: 'auto', padding: '6px 20px 24px' }}>
+      {/* 필수·선택과 판본은 서버가 준 값만 쓴다. 받기 전에는 아무 말도 하지 않는다 —
+          「필수」라고 먼저 적어 두면 서버가 선택이라고 해도 사용자는 필수로 읽고 지나간다. */}
+      {state === 'ready' && <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}><Chip variant={term.required ? 'soft' : 'neutral'}>{term.required ? '필수' : '선택'}</Chip><span style={{ fontSize: 11.5, color: T.text500 }}>{term.version} 시행</span></div>}
+      {state === 'loading' && <div role="status" data-testid="terms-detail-loading" style={noticeStyle}>약관을 불러오는 중이에요</div>}
+      {/* 이 화면은 법적 문서다 — 무엇에 동의하는지 확정되지 않은 채로 동의를 받지 않는다 (W-86).
+          네트워크가 없을 때 빈 화면이 남지 않도록 이유와 다시 받을 수단을 함께 준다. */}
+      {state === 'error' && <div role="alert" data-testid="terms-detail-offline-notice" style={{ ...noticeStyle, border: `1px solid ${T.danger}` }}>
+        약관을 불러오지 못했어요. 약관 본문은 서버에만 있어 지금은 보여드릴 수 없고, 동의도 받을 수 없어요.
+        <div style={{ marginTop: 6, fontSize: 11.5, color: T.text500 }}>{error}</div>
+        {retryButton}
+      </div>}
+      {state === 'empty' && <div role="alert" data-testid="terms-detail-empty" style={noticeStyle}>
+        이 약관은 아직 등록되지 않았어요. 등록되면 바로 여기에서 보실 수 있어요.
+        {retryButton}
+      </div>}
+      {state === 'ready' && <div style={{ marginTop: 18 }}><TermMarkdown blocks={parseTermMarkdown(term.content)}/></div>}
+      {/* 2026-09-14 결정 ①: 「지난 버전」 줄. 서버가 주는 처리방침 본문이 「지난 판본은 약관 화면의
+          "지난 버전"에서 보실 수 있습니다」라고 약속하는데 세 플랫폼 어디에도 그 화면이 없었다.
+          API 는 이미 있었고(`GET /api/v1/terms/history/{code}`) 웹은 `termHistory` 정의까지 있으면서
+          호출부가 0건이었다 (ROUND-2026-09-14-DECISIONS ①). */}
+      <button
+        type="button"
+        data-testid="terms-detail-history"
+        // `back` 은 params 를 되돌리지 않고 그대로 남긴다 — 돌아왔을 때 이 화면이 보던 판본을
+        // 잃지 않도록 termId·from 도 함께 실어 보낸다.
+        onClick={() => nav.go('terms-history', { params: { code, termId: requestedTermId, from } })}
+        style={{
+          width: '100%', marginTop: 22, height: 48, padding: '0 4px', border: 0, borderTop: `1px solid ${RF.softLine}`,
+          background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          color: T.text900, fontFamily: T.fontStack, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+        }}>
+        지난 버전
+        <Icon name="arrow" size={16} color={T.text400}/>
+      </button>
+      <p style={{ margin: '10px 0 0', fontSize: 11.5, lineHeight: '18px', color: T.text500 }}>약관이 바뀌면 시행 7일 전에 공지와 푸시로 알려드려요.</p>
     </main>
-    {from === 'signup' && <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}><Btn variant="ghost" onClick={nav.back}>닫기</Btn><div style={{ flex: 1 }}><Btn variant="primary" full onClick={nav.back}>{required ? '동의하고 돌아가기' : '이 항목에 동의하기'}</Btn></div></div>}
+    {from === 'signup' && <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 20px 28px', background: RF.card, borderTop: `1px solid ${RF.softLine}`, display: 'flex', gap: 8 }}><Btn variant="ghost" onClick={nav.back}>닫기</Btn><div style={{ flex: 1 }}><Btn variant="primary" full disabled={state !== 'ready'} testId="terms-detail-agree" onClick={agreeAndBack}>{term && !term.required ? '이 항목에 동의하기' : '동의하고 돌아가기'}</Btn></div></div>}
   </div></Phone>;
 }
 
-function ScreenTermsPrivacy() { return <ScreenTermsDetail doc="privacy"/>; }
-function ScreenTermsLocation() { return <ScreenTermsDetail doc="location"/>; }
-function ScreenTermsMarketing() { return <ScreenTermsDetail doc="marketing"/>; }
-function ScreenTermsSettings() { return <ScreenTermsDetail doc="service" from="settings"/>; }
-function ScreenPrivacySettings() { return <ScreenTermsDetail doc="privacy" from="settings"/>; }
-function ScreenLocationSettings() { return <ScreenTermsDetail doc="location" from="settings"/>; }
-function ScreenMarketingSettings() { return <ScreenTermsDetail doc="marketing" from="settings"/>; }
+// ───────── 약관 「지난 버전」 (판본 목록) ─────────
+// `GET /api/v1/terms/history/{code}` — 인증 불필요. 응답은 **최신순**이고 비활성(지난) 판본도 포함한다.
+// 본문은 `GET /api/v1/terms/{termId}` 인데 **지난 판본은 비활성이라 404 를 준다**(서버 현재 상태).
+// 그래서 **현재 판본만 눌리는 모양**을 준다 — 항상 실패할 버튼을 두지 않는다
+// (ROUND-2026-09-14-DECISIONS ①).
+//
+// 실서버 확인(2026-09-14): 네 종류 모두 200 이고 판본은 각각 **1건**이다
+// (SERVICE 1 / PRIVACY_COLLECTION 2 / MARKETING 3 / PRIVACY_POLICY 21).
+// **한 줄만 보이는 것이 정상이고 빈 상태가 아니다.**
+function ScreenTermsHistory() {
+  const nav = window.useNav ? window.useNav() : { back: () => {}, go: () => {}, params: {} };
+  const code = (nav.params || {}).code || 'SERVICE';
+  const [versions, setVersions] = React.useState([]);
+  // 어느 판본이 「현재」인지는 목록만 보고 알 수 없다(응답에 활성 여부가 없다) —
+  // 같은 code 의 현재 판본 termId 를 따로 받아 대조한다.
+  const [currentTermId, setCurrentTermId] = React.useState(null);
+  const [state, setState] = React.useState('loading');
+  const [error, setError] = React.useState('');
+  const [reloadKey, setReloadKey] = React.useState(0);
+  React.useEffect(() => {
+    let active = true;
+    setState('loading');
+    setError('');
+    Promise.all([
+      window.MoyeoApi.termHistory(code),
+      // 현재 판본을 못 받아도 목록은 보여준다 — 「현재」 배지만 빠진다.
+      window.MoyeoApi.termLatest(code).catch(() => null),
+    ])
+      .then(([history, latest]) => {
+        if (!active) return;
+        if (!Array.isArray(history)) { setVersions([]); setState('empty'); return; }
+        setVersions(history);
+        setCurrentTermId(latest?.termId ?? null);
+        setState(history.length ? 'ready' : 'empty');
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        setVersions([]);
+        setError(window.userFacingError(requestError, '지난 버전을 불러오지 못했어요.'));
+        setState('error');
+      });
+    return () => { active = false; };
+  }, [code, reloadKey]);
+  const noticeStyle = { marginTop: 12, padding: 13, borderRadius: 12, background: T.bgSubtle, border: `1px solid ${RF.softLine}`, fontSize: 12.5, lineHeight: '19px', color: T.text900 };
 
-Object.assign(window, { PlaceTypeBadge, ScreenPlaceSearch, ScreenPlaceDetail, ScreenTermsDetail, ScreenTermsPrivacy, ScreenTermsLocation, ScreenTermsMarketing, ScreenTermsSettings, ScreenPrivacySettings, ScreenLocationSettings, ScreenMarketingSettings });
+  return <Phone><div style={{ height: '100%', background: RF.bg, paddingTop: 46, position: 'relative' }}>
+    <Header title="지난 버전" left center onBack={nav.back}/>
+    <main data-testid="terms-history-screen" data-term-code={code} data-term-state={state} style={{ position: 'absolute', top: 78, left: 0, right: 0, bottom: 0, overflow: 'auto', padding: '6px 20px 24px' }}>
+      <div style={{ fontSize: 12.5, lineHeight: '19px', color: T.text500 }}>{TERM_SCREEN_LABEL[code] || '약관'}의 판본이에요. 최신 판본이 맨 위예요.</div>
+      {state === 'loading' && <div role="status" data-testid="terms-history-loading" style={noticeStyle}>지난 버전을 불러오는 중이에요</div>}
+      {state === 'error' && <div role="alert" data-testid="terms-history-error" style={{ ...noticeStyle, border: `1px solid ${T.danger}` }}>
+        지난 버전을 불러오지 못했어요.
+        <div style={{ marginTop: 6, fontSize: 11.5, color: T.text500 }}>{error}</div>
+        <button type="button" data-testid="terms-history-retry" onClick={() => setReloadKey((value) => value + 1)} style={{ display: 'block', marginTop: 10, height: 40, padding: '0 14px', borderRadius: 10, border: `1px solid ${RF.softLine}`, background: RF.card, color: T.primary600, fontSize: 13, fontWeight: 700, fontFamily: T.fontStack, cursor: 'pointer' }}>다시 시도</button>
+      </div>}
+      {state === 'empty' && <div role="status" data-testid="terms-history-empty" style={noticeStyle}>아직 등록된 판본이 없어요.</div>}
+      {state === 'ready' && <div data-testid="terms-history-list" style={{ marginTop: 14, borderRadius: 14, border: `1px solid ${RF.softLine}`, background: RF.card, overflow: 'hidden' }}>
+        {versions.map((item, index) => {
+          // 현재 판본만 본문이 열린다. 지난 판본은 서버가 404 를 주므로 **누를 수 없는 줄**로 둔다.
+          const isCurrent = currentTermId != null && item.termId === currentTermId;
+          const row = (
+            <>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: T.text900 }}>{item.version}</span>
+                  {isCurrent && <Chip variant="soft">현재</Chip>}
+                </div>
+                <div style={{ fontSize: 11.5, color: T.text500, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.title}</div>
+              </div>
+              {isCurrent
+                ? <Icon name="arrow" size={16} color={T.text400}/>
+                // 본문이 안 열리는 판본은 눌리는 모양을 주지 않는다 — 대신 왜 못 여는지 적는다.
+                : <span style={{ fontSize: 11, color: T.text400, whiteSpace: 'nowrap' }}>본문 제공 종료</span>}
+            </>
+          );
+          const rowStyle = {
+            width: '100%', padding: '13px 14px', display: 'flex', alignItems: 'center', gap: 10,
+            borderTop: index === 0 ? 'none' : `1px solid ${T.line100}`, textAlign: 'left',
+            background: 'transparent', fontFamily: T.fontStack,
+          };
+          return isCurrent ? (
+            <button
+              key={item.termId}
+              type="button"
+              data-testid={`terms-history-${item.termId}`}
+              onClick={() => nav.go('terms-detail', { params: { termId: item.termId, code, from: 'settings' } })}
+              style={{ ...rowStyle, border: 0, borderTop: rowStyle.borderTop, cursor: 'pointer' }}>
+              {row}
+            </button>
+          ) : (
+            <div key={item.termId} data-testid={`terms-history-${item.termId}`} style={rowStyle}>{row}</div>
+          );
+        })}
+      </div>}
+      {state === 'ready' && (
+        <p style={{ margin: '14px 0 0', fontSize: 11.5, lineHeight: '18px', color: T.text500 }}>
+          지난 판본의 본문은 지금은 보관만 하고 있어요. 현재 판본은 눌러서 전문을 보실 수 있어요.
+        </p>
+      )}
+    </main>
+  </div></Phone>;
+}
+
+// 가입 동의 3종 — 서버 `GET /api/v1/terms` 가 주는 동의 대상 문서와 같은 종류다.
+function ScreenTermsPrivacy() { return <ScreenTermsDetail code="PRIVACY_COLLECTION"/>; }
+function ScreenTermsMarketing() { return <ScreenTermsDetail code="MARKETING"/>; }
+// 설정에서 여는 읽기 전용 3종. 설정 › 개인정보는 **처리방침**(PRIVACY_POLICY)이지
+// 가입 때 받는 **수집·이용 동의서**(PRIVACY_COLLECTION)가 아니다 — 둘을 섞은 것이 QA BE-03 이었다.
+function ScreenTermsSettings() { return <ScreenTermsDetail code="SERVICE" from="settings"/>; }
+function ScreenPrivacySettings() { return <ScreenTermsDetail code="PRIVACY_POLICY" from="settings"/>; }
+function ScreenMarketingSettings() { return <ScreenTermsDetail code="MARKETING" from="settings"/>; }
+
+Object.assign(window, { PlaceTypeBadge, ScreenPlaceSearch, ScreenPlaceDetail, ScreenTermsDetail, ScreenTermsHistory, ScreenTermsPrivacy, ScreenTermsMarketing, ScreenTermsSettings, ScreenPrivacySettings, ScreenMarketingSettings });
